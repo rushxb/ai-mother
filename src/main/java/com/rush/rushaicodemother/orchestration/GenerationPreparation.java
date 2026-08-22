@@ -25,7 +25,6 @@ public record GenerationPreparation(CodeGenTypeEnum originalType,
                                     String taskId) {
 
     private static final String VALIDATION_POLICY_ARTIFACT = "validation_policy";
-    private static final String REQUIRES_BUILD_FIELD = "requiresBuild";
 
     public String qualityGateLevel() {
         return qualityGateResult == null ? "unknown" : qualityGateResult.level();
@@ -47,9 +46,9 @@ public record GenerationPreparation(CodeGenTypeEnum originalType,
             return false;
         }
         GenerationArtifact validationPolicy = artifact(VALIDATION_POLICY_ARTIFACT);
-        if (validationPolicy != null
-                && validationPolicy.payload() != null
-                && Boolean.TRUE.equals(validationPolicy.payload().get(REQUIRES_BUILD_FIELD))) {
+        // validation_policy 只会在 BUILD/EXPERT 路由冻结时产生；恢复后只允许保守加严，
+        // 不能让损坏载荷中的布尔值反向取消已经冻结的最低验证门槛。
+        if (validationPolicy != null) {
             return true;
         }
         return GenerationSpecificationArtifact.requiresBuildOrDefault(

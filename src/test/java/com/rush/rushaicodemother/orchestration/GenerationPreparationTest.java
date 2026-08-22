@@ -87,4 +87,39 @@ class GenerationPreparationTest {
 
         assertTrue(preparation.requiresBuildValidation());
     }
+
+    @Test
+    void persistedValidationFloorMustNotBeDisabledByADamagedBoolean() {
+        GenerationPreparation preparation = new GenerationPreparation(
+                CodeGenTypeEnum.VUE_PROJECT,
+                CodeGenTypeEnum.VUE_PROJECT,
+                false,
+                AppConstant.GENERATING_STAGE_CREATE,
+                "创建需要专家校验的前端应用",
+                List.of(),
+                Map.of(
+                        "validation_policy", GenerationArtifact.of(
+                                "validation_policy",
+                                "ExecutionPolicy",
+                                "最低校验策略",
+                                Map.of(
+                                        "minimumLevel", ExpectedValidationLevel.EXPERT.name(),
+                                        "requiresBuild", false,
+                                        "source", "route_decision"
+                                )
+                        ),
+                        "generation_spec", GenerationArtifact.of(
+                                "generation_spec",
+                                "Planner",
+                                "生成规范",
+                                Map.of("requiresBuild", false)
+                        )
+                ),
+                QualityGateResult.passed(List.of(), List.of()),
+                Map.of(),
+                "task-damaged-validation-floor"
+        );
+
+        assertTrue(preparation.requiresBuildValidation());
+    }
 }

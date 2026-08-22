@@ -6,6 +6,10 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceArtifactResolver;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationCatalog;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationPointer;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -71,6 +76,36 @@ class LocalAppArtifactLifecycleServiceTest {
         assertFalse(Files.exists(targetDirectory.resolve("dist")));
         assertFalse(Files.exists(targetDirectory.resolve(".ai-code-install.stamp")));
         assertFalse(hasStagingDirectory(outputRoot, ".artifact-copy-"));
+    }
+
+    @Test
+    void shouldCopyTheCurrentPublishedWorkspaceInsteadOfAStaleLegacyDirectory() throws IOException {
+        App sourceApp = app(13L, CodeGenTypeEnum.HTML, null);
+        App targetApp = app(14L, CodeGenTypeEnum.HTML, null);
+        Path legacyDirectory = createGeneratedDirectory(sourceApp);
+        Files.writeString(legacyDirectory.resolve("index.html"), "stale", StandardCharsets.UTF_8);
+
+        CodeStorageProperties storageProperties = storageProperties(outputRoot, deployRoot);
+        GenerationWorkspacePublicationCatalog publicationCatalog =
+                new GenerationWorkspacePublicationCatalog(storageProperties);
+        GenerationWorkspacePublicationPointer pointer = new GenerationWorkspacePublicationPointer(
+                GenerationWorkspacePublicationPointer.CURRENT_SCHEMA_VERSION,
+                sourceApp.getId(),
+                CodeGenTypeEnum.HTML,
+                "published-copy-source",
+                3L,
+                Instant.parse("2026-08-22T00:00:00Z")
+        );
+        Path publishedDirectory = publicationCatalog.prepareVersionParent(pointer).resolve("workspace");
+        Files.createDirectory(publishedDirectory);
+        Files.writeString(publishedDirectory.resolve("index.html"), "published", StandardCharsets.UTF_8);
+        publicationCatalog.writeOwnerMarker(publishedDirectory, pointer);
+        publicationCatalog.activate(pointer);
+
+        artifactService.copyGeneratedArtifact(sourceApp, targetApp);
+
+        assertEquals("published", Files.readString(
+                outputRoot.resolve("html_14/index.html"), StandardCharsets.UTF_8));
     }
 
     @Test
@@ -198,8 +233,10 @@ class LocalAppArtifactLifecycleServiceTest {
     void shouldMapArtifactCopyLimitToOperationError() throws IOException {
         ArtifactLifecycleProperties limitedProperties = new ArtifactLifecycleProperties();
         limitedProperties.setMaxFiles(1);
+        CodeStorageProperties storageProperties = storageProperties(outputRoot, deployRoot);
         LocalAppArtifactLifecycleService limitedService = new LocalAppArtifactLifecycleService(
-                storageProperties(outputRoot, deployRoot),
+                storageProperties,
+                artifactResolver(storageProperties),
                 new DeploymentKeyPolicy(),
                 new ArtifactDirectoryCopier(
                         limitedProperties,
@@ -230,9 +267,11 @@ class LocalAppArtifactLifecycleServiceTest {
         doThrow(new InterruptedException("test interruption"))
                 .when(directoryCopier)
                 .copy(any(Path.class), any(Path.class), eq(ArtifactCopyProfile.GENERATED_SOURCE));
+        CodeStorageProperties storageProperties = storageProperties(outputRoot, deployRoot);
         LocalAppArtifactLifecycleService interruptedService =
                 new LocalAppArtifactLifecycleService(
-                storageProperties(outputRoot, deployRoot),
+                storageProperties,
+                artifactResolver(storageProperties),
                 new DeploymentKeyPolicy(),
                 directoryCopier,
                 new ArtifactPathMover(new ArtifactLifecycleProperties())
@@ -339,8 +378,10 @@ class LocalAppArtifactLifecycleServiceTest {
                 robocopyDirectoryCopier,
                 windows
         );
+        CodeStorageProperties storageProperties = storageProperties(outputRoot, deployRoot);
         return new LocalAppArtifactLifecycleService(
-                storageProperties(outputRoot, deployRoot),
+                storageProperties,
+                artifactResolver(storageProperties),
                 new DeploymentKeyPolicy(),
                 directoryCopier,
                 new ArtifactPathMover(properties)
@@ -352,6 +393,10 @@ class LocalAppArtifactLifecycleServiceTest {
         properties.setOutputRootDir(configuredOutputRoot);
         properties.setDeployRootDir(configuredDeployRoot);
         return properties;
+    }
+
+    private CurrentGeneratedArtifactResolver artifactResolver(CodeStorageProperties storageProperties) {
+        return new GenerationWorkspaceArtifactResolver(new GenerationWorkspaceService(storageProperties));
     }
 
     private Path createGeneratedDirectory(App app) throws IOException {

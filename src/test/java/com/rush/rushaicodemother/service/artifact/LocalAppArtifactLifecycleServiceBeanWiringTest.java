@@ -3,6 +3,8 @@ package com.rush.rushaicodemother.service.artifact;
 import com.rush.rushaicodemother.config.ArtifactLifecycleProperties;
 import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.infrastructure.process.ManagedProcessExecutor;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceArtifactResolver;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
@@ -18,10 +20,13 @@ class LocalAppArtifactLifecycleServiceBeanWiringTest {
             context.registerBean(CodeStorageProperties.class);
             context.registerBean(DeploymentKeyPolicy.class);
             context.registerBean(ManagedProcessExecutor.class, () -> mock(ManagedProcessExecutor.class));
+            context.registerBean(GenerationWorkspaceService.class,
+                    () -> new GenerationWorkspaceService(context.getBean(CodeStorageProperties.class)));
             context.register(
                     RobocopyDirectoryCopier.class,
                     ArtifactDirectoryCopier.class,
                     ArtifactPathMover.class,
+                    GenerationWorkspaceArtifactResolver.class,
                     LocalAppArtifactLifecycleService.class
             );
 

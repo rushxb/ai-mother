@@ -33,20 +33,23 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
     private static final String DELETE_QUARANTINE_PREFIX = ".artifact-delete-";
     private final Path outputRoot;
     private final Path deployRoot;
+    private final CurrentGeneratedArtifactResolver currentArtifactResolver;
     private final ArtifactDirectoryCopier artifactDirectoryCopier;
     private final DeploymentKeyPolicy deploymentKeyPolicy;
     private final ArtifactPathMover artifactPathMover;
 
     /**
- * 创建{@code Local}应用制品生命周期服务实例并完成必要的依赖和初始状态设置。
- *
- * @param storageProperties 存储属性
- * @param deploymentKeyPolicy 部署键策略
- * @param artifactDirectoryCopier {@code artifactDirectoryCopier} 对应的调用参数
- * @param artifactPathMover {@code artifactPathMover} 对应的调用参数
- */
+     * 创建本地应用制品生命周期服务。
+     *
+     * @param storageProperties 存储属性
+     * @param currentArtifactResolver 当前生成制品解析器
+     * @param deploymentKeyPolicy 部署键策略
+     * @param artifactDirectoryCopier 制品目录复制器
+     * @param artifactPathMover 制品路径移动器
+     */
     public LocalAppArtifactLifecycleService(
             CodeStorageProperties storageProperties,
+            CurrentGeneratedArtifactResolver currentArtifactResolver,
             DeploymentKeyPolicy deploymentKeyPolicy,
             ArtifactDirectoryCopier artifactDirectoryCopier,
             ArtifactPathMover artifactPathMover
@@ -54,6 +57,10 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         Objects.requireNonNull(storageProperties, "storageProperties must not be null");
         this.outputRoot = storageProperties.outputRoot();
         this.deployRoot = storageProperties.deployRoot();
+        this.currentArtifactResolver = Objects.requireNonNull(
+                currentArtifactResolver,
+                "currentArtifactResolver must not be null"
+        );
         this.artifactDirectoryCopier = Objects.requireNonNull(
                 artifactDirectoryCopier,
                 "artifactDirectoryCopier must not be null"
@@ -76,7 +83,8 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
  */
     @Override
     public Path requireGeneratedDirectory(App app) {
-        Path generatedDirectory = resolveGeneratedDirectory(app);
+        CodeGenTypeEnum codeGenType = requireCodeGenType(app);
+        Path generatedDirectory = currentArtifactResolver.resolve(app.getId(), codeGenType);
         ThrowUtils.throwIf(!Files.isDirectory(generatedDirectory, LinkOption.NOFOLLOW_LINKS),
                 ErrorCode.NOT_FOUND_ERROR, "应用代码路径不存在，请先生成应用");
         ThrowUtils.throwIf(Files.isSymbolicLink(generatedDirectory),
@@ -235,12 +243,18 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
     }
 
     private Path resolveGeneratedDirectory(App app) {
+        CodeGenTypeEnum codeGenType = requireCodeGenType(app);
+        Path root = requireSafeRoot(outputRoot, "应用生成根目录");
+        return resolveDirectChild(root, codeGenType.getValue() + "_" + app.getId(), "应用生成目录");
+    }
+
+    /** 校验应用身份并返回唯一的代码生成类型。 */
+    private CodeGenTypeEnum requireCodeGenType(App app) {
         ThrowUtils.throwIf(app == null || app.getId() == null || app.getId() <= 0,
                 ErrorCode.PARAMS_ERROR, "应用参数错误");
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(codeGenType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
-        Path root = requireSafeRoot(outputRoot, "应用生成根目录");
-        return resolveDirectChild(root, codeGenType.getValue() + "_" + app.getId(), "应用生成目录");
+        return codeGenType;
     }
 
     private void validateCompatibleCodeTypes(App sourceApp, App targetApp) {

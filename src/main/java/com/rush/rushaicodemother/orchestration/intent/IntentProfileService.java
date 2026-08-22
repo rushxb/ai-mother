@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.EnumSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -22,6 +23,23 @@ public class IntentProfileService {
     private static final int MAX_ANALYZED_CHARACTERS = 20_000;
     private static final int ANALYZED_EDGE_CHARACTERS = MAX_ANALYZED_CHARACTERS / 2;
     private static final IntentLexicalRuleSet LEXICAL_RULES = IntentLexicalRuleSet.defaultRules();
+    private static final Map<CodeGenTypeEnum, Set<IntentAffectedScope>> DEFAULT_SCOPES_BY_PROJECT_TYPE = Map.of(
+            CodeGenTypeEnum.HTML, Set.of(IntentAffectedScope.UNKNOWN),
+            CodeGenTypeEnum.MULTI_FILE, Set.of(IntentAffectedScope.FRONTEND),
+            CodeGenTypeEnum.VUE_PROJECT, Set.of(IntentAffectedScope.FRONTEND),
+            CodeGenTypeEnum.BACKEND_PROJECT, Set.of(IntentAffectedScope.BACKEND),
+            CodeGenTypeEnum.FULL_STACK_PROJECT, Set.of(
+                    IntentAffectedScope.FRONTEND,
+                    IntentAffectedScope.BACKEND
+            )
+    );
+
+    static {
+        // 新增工程类型时必须显式声明兜底范围，防止未知类型静默降级为轻链路。
+        if (!DEFAULT_SCOPES_BY_PROJECT_TYPE.keySet().equals(EnumSet.allOf(CodeGenTypeEnum.class))) {
+            throw new IllegalStateException("工程类型默认影响范围配置不完整");
+        }
+    }
 
     /**
      * 返回本次本地意图判定使用的词法规则版本。
@@ -162,16 +180,25 @@ public class IntentProfileService {
         addScopeWhenMatched(scopes, IntentAffectedScope.DOCUMENTATION, message,
                 IntentLexicalFeature.DOCUMENTATION);
 
-        if (scopes.isEmpty() && codeGenType != null && codeGenType != CodeGenTypeEnum.HTML) {
-            // 未命中任何领域关键词，只能按工程类型假定为前端改动。
-            recorder.markScopeFallback();
-            scopes.add(IntentAffectedScope.FRONTEND);
-        }
         if (scopes.isEmpty()) {
+            // 无显式领域词时只能使用工程类型兜底，因此仍保留歧义信号供上层决定是否澄清。
             recorder.markScopeFallback();
-            scopes.add(IntentAffectedScope.UNKNOWN);
+            scopes.addAll(defaultScopesForProjectType(codeGenType));
         }
         return Set.copyOf(scopes);
+    }
+
+    /**
+     * 返回工程类型能够确定的最小影响范围。
+     *
+     * <p>后端和全栈工程必须保留后端验证下限，避免模糊编辑被降级到 FAST 轻链路。
+     * HTML 延续原有 UNKNOWN 语义；显式领域关键词始终优先于此兜底。</p>
+     */
+    private static Set<IntentAffectedScope> defaultScopesForProjectType(CodeGenTypeEnum codeGenType) {
+        if (codeGenType == null) {
+            return Set.of(IntentAffectedScope.UNKNOWN);
+        }
+        return DEFAULT_SCOPES_BY_PROJECT_TYPE.get(codeGenType);
     }
 
     private void addScopeWhenMatched(Set<IntentAffectedScope> scopes,

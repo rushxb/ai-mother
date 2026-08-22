@@ -4,6 +4,10 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.learning.IntentProfileRoutingDecisionEngine;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 
@@ -38,6 +42,39 @@ class IntentProfileServiceTest {
         assertTrue(profile.expectedFileCount() <= 2);
         assertEquals(IntentValidationRisk.LOW, profile.validationRisk());
         assertTrue(profile.confidence() >= 0.8);
+    }
+
+    @Test
+    void ambiguousEditInExistingBackendProjectMustRetainBackendValidationFloor() {
+        IntentProfile profile = service.analyze(
+                request("把标题改成订单中心", CodeGenTypeEnum.BACKEND_PROJECT),
+                CodeGenTypeEnum.BACKEND_PROJECT,
+                workspace(CodeGenTypeEnum.BACKEND_PROJECT, true)
+        );
+
+        assertEquals(IntentOperationType.EDIT, profile.operationType());
+        assertTrue(profile.affectedScopes().contains(IntentAffectedScope.BACKEND));
+        assertFalse(profile.affectedScopes().contains(IntentAffectedScope.FRONTEND));
+        assertTrue(profile.requiresBackend());
+        assertEquals(IntentValidationRisk.MEDIUM, profile.validationRisk());
+        assertBuildValidatedAgentRoute(profile);
+    }
+
+    @Test
+    void ambiguousEditInExistingFullStackProjectMustCoverBothProjectSides() {
+        IntentProfile profile = service.analyze(
+                request("把标题改成订单中心", CodeGenTypeEnum.FULL_STACK_PROJECT),
+                CodeGenTypeEnum.FULL_STACK_PROJECT,
+                workspace(CodeGenTypeEnum.FULL_STACK_PROJECT, true)
+        );
+
+        assertTrue(profile.affectedScopes().containsAll(Set.of(
+                IntentAffectedScope.FRONTEND,
+                IntentAffectedScope.BACKEND
+        )));
+        assertTrue(profile.requiresBackend());
+        assertEquals(IntentValidationRisk.MEDIUM, profile.validationRisk());
+        assertBuildValidatedAgentRoute(profile);
     }
 
     @Test
@@ -207,21 +244,30 @@ class IntentProfileServiceTest {
         assertTrue(textComponents.isEmpty(),
                 "意图画像不得保存原始提示词或其截断副本，违规字段: " + textComponents);
     }
+
     private GenerationTaskRequest request(String message) {
+        return request(message, CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    private GenerationTaskRequest request(String message, CodeGenTypeEnum codeGenType) {
         App app = App.builder()
                 .id(10L)
                 .userId(20L)
-                .codeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue())
+                .codeGenType(codeGenType.getValue())
                 .build();
         User user = User.builder().id(20L).build();
         return new GenerationTaskRequest(app, message, user);
     }
 
     private GenerationWorkspace workspace(boolean exists) {
+        return workspace(CodeGenTypeEnum.VUE_PROJECT, exists);
+    }
+
+    private GenerationWorkspace workspace(CodeGenTypeEnum codeGenType, boolean exists) {
         Path root = Path.of("target/test-intent-workspace");
         return new GenerationWorkspace(
                 10L,
-                CodeGenTypeEnum.VUE_PROJECT,
+                codeGenType,
                 root,
                 root,
                 exists,
@@ -230,5 +276,11 @@ class IntentProfileServiceTest {
                 Set.of(),
                 Set.of()
         );
+    }
+
+    private void assertBuildValidatedAgentRoute(IntentProfile profile) {
+        GenerationModeDecision decision = new IntentProfileRoutingDecisionEngine().decide(profile);
+        assertEquals(GenerationMode.AGENT_EDIT, decision.mode());
+        assertEquals(ExpectedValidationLevel.BUILD, decision.expectedValidationLevel());
     }
 }

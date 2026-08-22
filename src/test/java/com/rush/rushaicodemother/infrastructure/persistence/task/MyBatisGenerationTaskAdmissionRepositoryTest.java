@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.infrastructure.persistence.task;
 
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.mapper.GenerationTaskRuntimeMapper;
+import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import org.junit.jupiter.api.Test;
@@ -20,11 +21,14 @@ import static org.mockito.Mockito.when;
 class MyBatisGenerationTaskAdmissionRepositoryTest {
 
     @Test
-    void repositoryMustLockTenantThenUserBeforeReadingCapacityAndBudget() {
+    void repositoryMustLockTenantUserAndApplicationBeforeReadingAdmissionFacts() {
         GenerationTaskRuntimeMapper mapper = mock(GenerationTaskRuntimeMapper.class);
         when(mapper.lockActiveTenantForGenerationAdmission(100L)).thenReturn(100L);
         when(mapper.lockActiveUserForGenerationAdmission(7L)).thenReturn(7L);
+        when(mapper.lockActiveApplicationForSubmission(11L))
+                .thenReturn(App.builder().id(11L).tenantId(100L).build());
         when(mapper.countNonTerminalTasksByUserId(7L)).thenReturn(3);
+        when(mapper.countNonTerminalTasksByAppId(11L)).thenReturn(1);
         when(mapper.countNonTerminalTasksByTenantId(100L)).thenReturn(8);
         when(mapper.countNonTerminalHeavyTasksByTenantId(100L)).thenReturn(2);
         when(mapper.sumTenantGenerationCreditUsage(org.mockito.ArgumentMatchers.eq(100L), any(), any()))
@@ -32,9 +36,10 @@ class MyBatisGenerationTaskAdmissionRepositoryTest {
         MyBatisGenerationTaskAdmissionRepository repository =
                 new MyBatisGenerationTaskAdmissionRepository(mapper);
 
-        var snapshot = repository.lockScopeAndMeasure(100L, 7L);
+        var snapshot = repository.lockScopeAndMeasure(100L, 7L, 11L);
 
         assertEquals(3, snapshot.userNonTerminalTasks());
+        assertEquals(1, snapshot.appNonTerminalTasks());
         assertEquals(8, snapshot.tenantNonTerminalTasks());
         assertEquals(2, snapshot.tenantHeavyNonTerminalTasks());
         assertEquals(900L, snapshot.tenantMonthlyCreditUsage());
@@ -42,7 +47,9 @@ class MyBatisGenerationTaskAdmissionRepositoryTest {
         var order = inOrder(mapper);
         order.verify(mapper).lockActiveTenantForGenerationAdmission(100L);
         order.verify(mapper).lockActiveUserForGenerationAdmission(7L);
+        order.verify(mapper).lockActiveApplicationForSubmission(11L);
         order.verify(mapper).countNonTerminalTasksByUserId(7L);
+        order.verify(mapper).countNonTerminalTasksByAppId(11L);
         order.verify(mapper).countNonTerminalTasksByTenantId(100L);
         order.verify(mapper).countNonTerminalHeavyTasksByTenantId(100L);
         order.verify(mapper).sumTenantGenerationCreditUsage(
@@ -56,11 +63,11 @@ class MyBatisGenerationTaskAdmissionRepositoryTest {
                 new MyBatisGenerationTaskAdmissionRepository(mapper);
 
         assertThrows(IllegalArgumentException.class,
-                () -> repository.lockScopeAndMeasure(100L, 0L));
+                () -> repository.lockScopeAndMeasure(100L, 0L, 11L));
         verifyNoInteractions(mapper);
 
         assertThrows(BusinessException.class,
-                () -> repository.lockScopeAndMeasure(100L, 7L));
+                () -> repository.lockScopeAndMeasure(100L, 7L, 11L));
     }
 
     @Test

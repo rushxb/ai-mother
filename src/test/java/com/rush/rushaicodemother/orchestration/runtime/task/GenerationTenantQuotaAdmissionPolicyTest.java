@@ -27,13 +27,13 @@ class GenerationTenantQuotaAdmissionPolicyTest {
         GenerationTenantQuotaAdmissionPolicy policy = new GenerationTenantQuotaAdmissionPolicy(properties);
 
         assertDoesNotThrow(() -> policy.assertMayAdmit(context(
-                GenerationMode.HEAVY_EXPERT, new GenerationTaskAdmissionSnapshot(0, 15, 3, 89), 11)));
+                GenerationMode.HEAVY_EXPERT, new GenerationTaskAdmissionSnapshot(0, 0, 15, 3, 89), 11)));
         assertThrows(BusinessException.class, () -> policy.assertMayAdmit(context(
-                GenerationMode.AGENT_EDIT, new GenerationTaskAdmissionSnapshot(0, 16, 0, 0), 1)));
+                GenerationMode.AGENT_EDIT, new GenerationTaskAdmissionSnapshot(0, 0, 16, 0, 0), 1)));
         assertThrows(BusinessException.class, () -> policy.assertMayAdmit(context(
-                GenerationMode.HEAVY_EXPERT, new GenerationTaskAdmissionSnapshot(0, 3, 4, 0), 1)));
+                GenerationMode.HEAVY_EXPERT, new GenerationTaskAdmissionSnapshot(0, 0, 3, 4, 0), 1)));
         assertThrows(BusinessException.class, () -> policy.assertMayAdmit(context(
-                GenerationMode.LIGHT_EDIT, new GenerationTaskAdmissionSnapshot(0, 3, 0, 90), 11)));
+                GenerationMode.LIGHT_EDIT, new GenerationTaskAdmissionSnapshot(0, 0, 3, 0, 90), 11)));
     }
 
     @Test
@@ -43,7 +43,7 @@ class GenerationTenantQuotaAdmissionPolicyTest {
         GenerationTenantQuotaAdmissionPolicy policy = new GenerationTenantQuotaAdmissionPolicy(properties);
 
         assertDoesNotThrow(() -> policy.assertMayAdmit(context(
-                GenerationMode.LIGHT_EDIT, new GenerationTaskAdmissionSnapshot(0, 1, 1, 0), 1)));
+                GenerationMode.LIGHT_EDIT, new GenerationTaskAdmissionSnapshot(0, 0, 1, 1, 0), 1)));
     }
 
     @Test
@@ -55,11 +55,11 @@ class GenerationTenantQuotaAdmissionPolicyTest {
         GenerationTenantQuotaAdmissionPolicy policy = new GenerationTenantQuotaAdmissionPolicy(properties);
 
         assertThrows(BusinessException.class, () -> policy.assertMayPreflight(preflightContext(
-                new GenerationTaskAdmissionSnapshot(0, 1, 1, 0), 1)));
+                new GenerationTaskAdmissionSnapshot(0, 0, 1, 1, 0), 1)));
         assertThrows(BusinessException.class, () -> policy.assertMayPreflight(preflightContext(
-                new GenerationTaskAdmissionSnapshot(0, 1, 0, 92), 9)));
+                new GenerationTaskAdmissionSnapshot(0, 0, 1, 0, 92), 9)));
         assertDoesNotThrow(() -> policy.assertMayPreflight(preflightContext(
-                new GenerationTaskAdmissionSnapshot(0, 1, 0, 91), 9)));
+                new GenerationTaskAdmissionSnapshot(0, 0, 1, 0, 91), 9)));
     }
 
     private GenerationTaskAdmissionContext context(GenerationMode mode,

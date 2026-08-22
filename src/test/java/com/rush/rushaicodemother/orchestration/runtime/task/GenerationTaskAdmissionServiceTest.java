@@ -48,7 +48,7 @@ class GenerationTaskAdmissionServiceTest {
     void newSubmissionMustCheckIdempotencyBeforeQuotaCreditAndDurablePersistence() {
         Fixture fixture = fixture();
         GenerationTaskCommand command = command();
-        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot(2));
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L, 1L)).thenReturn(snapshot(2));
         when(fixture.repository().findByIdempotencyKey(100L, 7L, 1L, IDEMPOTENCY.keyHash()))
                 .thenReturn(Optional.empty());
         when(fixture.reservationPolicy().quote(command)).thenReturn(new GenerationCreditReservationQuote(
@@ -62,7 +62,7 @@ class GenerationTaskAdmissionServiceTest {
                 ArgumentCaptor.forClass(GenerationCreditReservationCommand.class);
         InOrder order = inOrder(fixture.repository(), fixture.aiModelRuntimeService(), fixture.concurrencyPolicy(),
                 fixture.reservationPolicy(), fixture.creditService(), fixture.lifecycleService());
-        order.verify(fixture.repository()).lockScopeAndMeasure(100L, 7L);
+        order.verify(fixture.repository()).lockScopeAndMeasure(100L, 7L, 1L);
         order.verify(fixture.repository()).findByIdempotencyKey(100L, 7L, 1L, IDEMPOTENCY.keyHash());
         order.verify(fixture.aiModelRuntimeService()).ensureGenerationModelsConfigured();
         order.verify(fixture.reservationPolicy()).quote(command);
@@ -77,7 +77,7 @@ class GenerationTaskAdmissionServiceTest {
     @Test
     void matchingRetryMustReuseOriginalTaskBeforeQuotaAndCreditChecks() {
         Fixture fixture = fixture();
-        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot(4));
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L, 1L)).thenReturn(snapshot(4));
         when(fixture.repository().findByIdempotencyKey(100L, 7L, 1L, IDEMPOTENCY.keyHash()))
                 .thenReturn(Optional.of(idempotencyRecord(
                         "heavy_generation", IDEMPOTENCY.requestFingerprint())));
@@ -94,7 +94,7 @@ class GenerationTaskAdmissionServiceTest {
     @Test
     void reusedKeyWithDifferentRequestMustFailWithoutSideEffects() {
         Fixture fixture = fixture();
-        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot(0));
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L, 1L)).thenReturn(snapshot(0));
         when(fixture.repository().findByIdempotencyKey(100L, 7L, 1L, IDEMPOTENCY.keyHash()))
                 .thenReturn(Optional.of(idempotencyRecord(
                         "lightweight_edit", "c".repeat(64))));
@@ -114,7 +114,7 @@ class GenerationTaskAdmissionServiceTest {
         GenerationTaskCommand command = command();
         GenerationCreditReservationQuote quote = new GenerationCreditReservationQuote(
                 200_000L, 2L, "policy-v1");
-        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot(0));
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L, 1L)).thenReturn(snapshot(0));
         when(fixture.reservationPolicy().quote(command)).thenReturn(quote);
         IllegalStateException failure = new IllegalStateException("insufficient credit");
         doThrow(failure).when(fixture.creditService()).reserveGenerationTask(
@@ -135,7 +135,7 @@ class GenerationTaskAdmissionServiceTest {
         App app = App.builder().id(1L).tenantId(100L).build();
         User user = User.builder().id(7L).build();
         GenerationTaskRequest request = new GenerationTaskRequest(app, "需要澄清的需求", user);
-        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot);
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L, 1L)).thenReturn(snapshot);
         when(fixture.reservationPolicy().quoteUpperBound(CodeGenTypeEnum.VUE_PROJECT))
                 .thenReturn(upperBound);
 
@@ -148,7 +148,7 @@ class GenerationTaskAdmissionServiceTest {
         order.verify(fixture.aiModelRuntimeService()).ensureGenerationModelsConfigured();
         order.verify(fixture.reservationPolicy()).quoteUpperBound(CodeGenTypeEnum.VUE_PROJECT);
         order.verify(fixture.creditService()).ensureHasCredit(7L, upperBound.reservedCredit());
-        order.verify(fixture.repository()).lockScopeAndMeasure(100L, 7L);
+        order.verify(fixture.repository()).lockScopeAndMeasure(100L, 7L, 1L);
         ArgumentCaptor<GenerationTaskPreflightAdmissionContext> contextCaptor =
                 ArgumentCaptor.forClass(GenerationTaskPreflightAdmissionContext.class);
         order.verify(fixture.concurrencyPolicy()).assertMayPreflight(contextCaptor.capture());
@@ -214,7 +214,7 @@ class GenerationTaskAdmissionServiceTest {
     }
 
     private GenerationTaskAdmissionSnapshot snapshot(int userTasks) {
-        return new GenerationTaskAdmissionSnapshot(userTasks, 3, 1, 100L);
+        return new GenerationTaskAdmissionSnapshot(userTasks, 0, 3, 1, 100L);
     }
 
     private record Fixture(

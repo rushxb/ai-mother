@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.infrastructure.persistence.task;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.GenerationTaskRuntimeMapper;
+import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
@@ -26,12 +27,13 @@ public class MyBatisGenerationTaskAdmissionRepository implements GenerationTaskA
     private final GenerationTaskRuntimeMapper mapper;
     private final ZoneId databaseZone = ZoneId.systemDefault();
 
-    /** 在固定锁顺序下读取租户和用户准入事实。 */
+    /** 在固定锁顺序下读取租户、用户和应用准入事实。 */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public GenerationTaskAdmissionSnapshot lockScopeAndMeasure(Long tenantId, Long userId) {
+    public GenerationTaskAdmissionSnapshot lockScopeAndMeasure(Long tenantId, Long userId, Long appId) {
         requirePositive(tenantId, "tenantId");
         requirePositive(userId, "userId");
+        requirePositive(appId, "appId");
         Long lockedTenantId = mapper.lockActiveTenantForGenerationAdmission(tenantId);
         if (!Objects.equals(lockedTenantId, tenantId)) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "生成任务所属租户不存在或已停用");
@@ -40,10 +42,17 @@ public class MyBatisGenerationTaskAdmissionRepository implements GenerationTaskA
         if (!Objects.equals(lockedUserId, userId)) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "生成任务用户不存在");
         }
+        App lockedApp = mapper.lockActiveApplicationForSubmission(appId);
+        if (lockedApp == null
+                || !Objects.equals(lockedApp.getId(), appId)
+                || !Objects.equals(lockedApp.getTenantId(), tenantId)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "生成应用不存在或不属于当前租户");
+        }
         LocalDateTime now = LocalDateTime.now(databaseZone);
         LocalDateTime periodStart = now.withDayOfMonth(1).toLocalDate().atStartOfDay();
         return new GenerationTaskAdmissionSnapshot(
                 mapper.countNonTerminalTasksByUserId(userId),
+                mapper.countNonTerminalTasksByAppId(appId),
                 mapper.countNonTerminalTasksByTenantId(tenantId),
                 mapper.countNonTerminalHeavyTasksByTenantId(tenantId),
                 mapper.sumTenantGenerationCreditUsage(tenantId, periodStart, now)

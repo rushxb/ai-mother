@@ -45,7 +45,7 @@ class GenerationTaskCapabilityAdmissionTest {
     void unsupportedScenarioMustFailBeforeCreditReservationAndPersistence() {
         Fixture fixture = fixture();
         GenerationTaskCommand command = command();
-        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot());
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L, 1L)).thenReturn(snapshot());
         when(fixture.reservationPolicy().quote(command)).thenReturn(
                 new GenerationCreditReservationQuote(100_000L, 2L, "test-price"));
 
@@ -61,7 +61,7 @@ class GenerationTaskCapabilityAdmissionTest {
     @Test
     void idempotentReplayMustWinBeforeCapabilityRevalidation() {
         Fixture fixture = fixture();
-        when(fixture.repository().lockScopeAndMeasure(100L, 7L)).thenReturn(snapshot());
+        when(fixture.repository().lockScopeAndMeasure(100L, 7L, 1L)).thenReturn(snapshot());
         when(fixture.repository().findByIdempotencyKey(
                 100L, 7L, 1L, IDEMPOTENCY.keyHash()))
                 .thenReturn(Optional.of(new GenerationTaskIdempotencyRecord(
@@ -161,7 +161,7 @@ class GenerationTaskCapabilityAdmissionTest {
     }
 
     private GenerationTaskAdmissionSnapshot snapshot() {
-        return new GenerationTaskAdmissionSnapshot(0, 0, 0, 0L);
+        return new GenerationTaskAdmissionSnapshot(0, 0, 0, 0, 0L);
     }
 
     private record Fixture(

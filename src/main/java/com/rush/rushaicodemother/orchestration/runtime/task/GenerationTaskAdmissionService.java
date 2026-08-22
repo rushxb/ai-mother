@@ -83,7 +83,7 @@ public class GenerationTaskAdmissionService {
         Objects.requireNonNull(command, "生成任务命令不能为空");
         Objects.requireNonNull(idempotency, "生成任务幂等信息不能为空");
         GenerationTaskAdmissionSnapshot snapshot = admissionRepository.lockScopeAndMeasure(
-                command.tenantId(), command.userId());
+                command.tenantId(), command.userId(), command.appId());
         Optional<GenerationTaskSubmissionReceipt> replay = findMatchingReplay(
                 command.tenantId(), command.userId(), command.appId(), idempotency);
         if (replay.isPresent()) {
@@ -127,7 +127,7 @@ public class GenerationTaskAdmissionService {
             throw new IllegalArgumentException("幂等预检身份不完整");
         }
         admissionRepository.lockScopeAndMeasure(
-                request.app().getTenantId(), request.loginUser().getId());
+                request.app().getTenantId(), request.loginUser().getId(), request.app().getId());
         return findMatchingReplay(
                 request.app().getTenantId(),
                 request.loginUser().getId(),
@@ -157,7 +157,7 @@ public class GenerationTaskAdmissionService {
         userCreditService.ensureHasCredit(
                 request.loginUser().getId(), upperBoundQuote.reservedCredit());
         GenerationTaskAdmissionSnapshot snapshot = admissionRepository.lockScopeAndMeasure(
-                request.app().getTenantId(), request.loginUser().getId());
+                request.app().getTenantId(), request.loginUser().getId(), request.app().getId());
         GenerationTaskPreflightAdmissionContext context = new GenerationTaskPreflightAdmissionContext(
                 request.app().getTenantId(),
                 request.loginUser().getId(),

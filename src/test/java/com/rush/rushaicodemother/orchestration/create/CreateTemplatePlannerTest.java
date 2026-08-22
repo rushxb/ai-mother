@@ -50,6 +50,24 @@ class CreateTemplatePlannerTest {
     }
 
     @Test
+    void fullStackFeatureRequestMustPlanMatchingBackendCapabilities() {
+        CreateGenerationPlan plan = planner.plan(
+                CodeGenTypeEnum.FULL_STACK_PROJECT,
+                "做一个支持搜索、分页、批量导入导出的商品管理全栈系统"
+        );
+
+        assertTrue(plan.moduleIds().contains("backend-search"), plan.moduleIds().toString());
+        assertTrue(plan.moduleIds().contains("backend-pagination"), plan.moduleIds().toString());
+        assertTrue(plan.moduleIds().contains("backend-export"), plan.moduleIds().toString());
+        assertTrue(allSlotIds(plan).containsAll(List.of(
+                "module_search",
+                "module_pagination",
+                "module_import_export"
+        )), allSlotIds(plan).toString());
+        assertNoDuplicateSlots(plan);
+    }
+
+    @Test
     void shouldPlanMobileCommerceAndBookingWithFineGrainedSlots() {
         CreateGenerationPlan plan = planner.plan(CodeGenTypeEnum.VUE_PROJECT, "做一个手机端会员预约商品商城");
 
@@ -155,10 +173,11 @@ class CreateTemplatePlannerTest {
     private CreateTemplatePlanner createPlanner() {
         CreateGenerationPlanAssembler assembler = new CreateGenerationPlanAssembler();
         VueTemplateFeaturePlanner frontendPlanner = new VueTemplateFeaturePlanner();
+        BackendTemplateFeaturePlanner backendPlanner = new BackendTemplateFeaturePlanner();
         return new CreateTemplatePlanner(List.of(
                 new VueCreateTemplatePlanningAdapter(frontendPlanner, assembler),
-                new BackendCreateTemplatePlanningAdapter(assembler),
-                new FullStackCreateTemplatePlanningAdapter(frontendPlanner, assembler)
+                new BackendCreateTemplatePlanningAdapter(backendPlanner, assembler),
+                new FullStackCreateTemplatePlanningAdapter(frontendPlanner, backendPlanner, assembler)
         ));
     }
 }

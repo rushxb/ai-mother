@@ -14,6 +14,7 @@ class CreateTemplatePlannerSpringContextTest {
             context.register(
                     CreateGenerationPlanAssembler.class,
                     VueTemplateFeaturePlanner.class,
+                    BackendTemplateFeaturePlanner.class,
                     VueCreateTemplatePlanningAdapter.class,
                     BackendCreateTemplatePlanningAdapter.class,
                     FullStackCreateTemplatePlanningAdapter.class,

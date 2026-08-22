@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.agent;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
@@ -207,15 +208,16 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
     }
 
     private void appendApiContractContext(List<String> lines, GenerationAgentContext context) {
-        Object contract = context.getArtifactValue("api_contract", "contract");
-        if (!(contract instanceof Map<?, ?> contractMap) || contractMap.isEmpty()) {
+        GenerationArtifact artifact = context.getArtifact(ApiContractArtifact.KEY).orElse(null);
+        if (artifact == null) {
             return;
         }
+        ApiContractArtifact apiContract = ApiContractArtifact.fromArtifact(artifact);
         lines.add("");
         lines.add("【API 字段契约】");
-        lines.add("契约来源=" + artifactStringValue(context, "api_contract", "source", "planner"));
+        lines.add("契约来源=" + apiContract.source());
         lines.add("要求：前端表单/列表字段、后端 DTO/VO、Repository scan 字段、SQLite schema 字段必须以该契约为准；若需求变化，先同步更新契约再改代码。");
-        lines.add(contractMap.toString());
+        lines.add(apiContract.contractPayload().toString());
     }
 
     private void appendBackendTemplateStrategy(List<String> lines, String pathPrefix) {

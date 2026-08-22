@@ -3,6 +3,9 @@ package com.rush.rushaicodemother.orchestration.agent;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact.ApiDomain;
+import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact.ApiField;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
@@ -12,10 +15,9 @@ import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipe;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import org.springframework.stereotype.Component;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Planner：需求拆解与路由策略。
@@ -89,15 +91,14 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
                 support.buildSkillPayloads(matchedSkills)
         );
         GenerationArtifact artifact = requirements.toArtifact();
-        GenerationArtifact apiContractArtifact = GenerationArtifact.of(
-                "api_contract",
-                "Planner",
-                "API 字段契约",
-                buildApiContractPayload(context, userMessage)
+        ApiContractArtifact apiContract = ApiContractArtifact.create(
+                isFrontendFirstUpgrade(context),
+                userMessage,
+                inferContractDomain(userMessage)
         );
         return AgentNodeResult.of(
                 complex ? "需求已拆解为复杂任务，准备进入模块级 DAG 生成" : "需求已拆解为标准任务，采用轻量 DAG 生成",
-                List.of(artifact, apiContractArtifact),
+                List.of(artifact, apiContract.toArtifact()),
                 Map.of(
                         "complex", complex,
                         "targetType", context.getTargetType().getValue(),
@@ -112,37 +113,15 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         );
     }
 
-    /** 构建并返回{@code Api}{@code Contract}载荷。 */
-    private Map<String, Object> buildApiContractPayload(GenerationAgentContext context, String userMessage) {
-        boolean frontendFirstUpgrade = context.getRequest().hasGeneratedCode()
+    /** 是否应优先从现有前端反向提取字段契约。 */
+    private boolean isFrontendFirstUpgrade(GenerationAgentContext context) {
+        return context.getRequest().hasGeneratedCode()
                 && context.getRequest().currentType() == CodeGenTypeEnum.VUE_PROJECT
                 && context.getTargetType() == CodeGenTypeEnum.FULL_STACK_PROJECT;
-        Map<String, Object> contract = new LinkedHashMap<>();
-        contract.put("version", "v1");
-        contract.put("apiPrefix", "/api");
-        contract.put("moduleDirectory", "internal/modules/sample");
-        contract.put("fieldSource", frontendFirstUpgrade ? "existing_frontend_reverse_extract" : "user_requirement_first");
-        Map<String, Object> inferredDomain = inferContractDomain(userMessage);
-        contract.put("moduleName", inferredDomain.get("moduleName"));
-        contract.put("moduleDirectory", "internal/modules/" + inferredDomain.get("moduleName"));
-        contract.put("entities", inferredDomain.get("entities"));
-        contract.put("endpoints", inferredDomain.get("endpoints"));
-        contract.put("schemaTables", inferredDomain.get("schemaTables"));
-        contract.put("notes", List.of(
-                "首阶段只生成最小契约骨架，具体字段由 CREATE spec 和本地 recipe 从用户需求中补齐",
-                "从前端升级全栈时，优先从现有 API 调用、mock 数据、表单字段、表格列反推字段契约",
-                "字段命名需同步覆盖 frontend DTO、backend request/response、repository scan 和 SQLite schema"
-        ));
-
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("source", frontendFirstUpgrade ? "frontend_first_upgrade" : "planner");
-        payload.put("userMessage", userMessage);
-        payload.put("contract", contract);
-        return payload;
     }
 
     /** 返回{@code infer}{@code Contract}{@code Domain}。 */
-    private Map<String, Object> inferContractDomain(String userMessage) {
+    private ApiDomain inferContractDomain(String userMessage) {
         String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
         if (containsAny(normalized, "商品", "产品", "product")) {
             return domainPayload(
@@ -204,42 +183,15 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
     }
 
     /** 返回{@code domain}载荷。 */
-    private Map<String, Object> domainPayload(String moduleName,
-                                              String entityName,
-                                              String tableName,
-                                              List<Map<String, String>> fields) {
-        Map<String, Object> entity = new LinkedHashMap<>();
-        entity.put("name", entityName);
-        entity.put("fields", fields);
-        Map<String, Object> table = new LinkedHashMap<>();
-        table.put("name", tableName);
-        table.put("fields", fields);
-        List<Map<String, String>> endpoints = List.of(
-                endpoint("POST", "/api/" + moduleName, "create"),
-                endpoint("PUT", "/api/" + moduleName + "/{id}", "update"),
-                endpoint("GET", "/api/" + moduleName + "/{id}", "detail"),
-                endpoint("POST", "/api/" + moduleName + "/list/page", "page"),
-                endpoint("DELETE", "/api/" + moduleName + "/{id}", "delete")
-        );
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("moduleName", moduleName);
-        payload.put("entities", List.of(entity));
-        payload.put("schemaTables", List.of(table));
-        payload.put("endpoints", endpoints);
-        return payload;
+    private ApiDomain domainPayload(String moduleName,
+                                    String entityName,
+                                    String tableName,
+                                    List<ApiField> fields) {
+        return new ApiDomain(moduleName, entityName, tableName, fields);
     }
 
-    private Map<String, String> field(String jsonName, String goType, String sqliteType, String description) {
-        return Map.of(
-                "jsonName", jsonName,
-                "goType", goType,
-                "sqliteType", sqliteType,
-                "description", description
-        );
-    }
-
-    private Map<String, String> endpoint(String method, String path, String action) {
-        return Map.of("method", method, "path", path, "action", action);
+    private ApiField field(String jsonName, String goType, String sqliteType, String description) {
+        return new ApiField(jsonName, goType, sqliteType, description);
     }
 
     /** 返回{@code contains}{@code Any}。 */

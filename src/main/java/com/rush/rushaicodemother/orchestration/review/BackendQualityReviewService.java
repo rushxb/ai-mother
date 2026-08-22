@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.review;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import org.springframework.stereotype.Service;
@@ -9,7 +10,6 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 /**
  * 后端与全栈生成质量门禁。
@@ -56,17 +56,15 @@ public class BackendQualityReviewService {
             blockers.add("生成规范包含危险 SQL 操作");
         }
 
-        GenerationArtifact apiContract = context.getArtifact("api_contract").orElse(null);
-        if (apiContract == null || apiContract.payload() == null || apiContract.payload().isEmpty()) {
+        GenerationArtifact apiContract = context.getArtifact(ApiContractArtifact.KEY).orElse(null);
+        if (apiContract == null) {
             blockers.add("缺少 API 字段契约 artifact");
         } else {
-            passes.add("API 字段契约 artifact 已生成");
-            Object contractObj = apiContract.payload().get("contract");
-            if (contractObj instanceof Map<?, ?> contractMap) {
-                Object entities = contractMap.get("entities");
-                if (entities instanceof List<?> list && list.isEmpty()) {
-                    warnings.add("API 字段契约实体为空，将由代码生成器从用户需求补齐；复杂需求建议走重型生成");
-                }
+            try {
+                ApiContractArtifact.fromArtifact(apiContract);
+                passes.add("API 字段契约 artifact 已生成并通过一致性校验");
+            } catch (IllegalArgumentException exception) {
+                blockers.add("API 字段契约 artifact 损坏，无法验证前后端字段一致性");
             }
         }
 

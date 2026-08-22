@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.agent;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
+import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
@@ -143,6 +144,33 @@ class CodeAgentNodeTest {
         );
 
         assertTrue(exception.getMessage().contains("goals"));
+    }
+
+    @Test
+    void malformedRecoveredApiContractMustNotBeSilentlyOmittedFromPrompt() {
+        GenerationAgentContext context = newContext(false);
+        context.putArtifacts(List.of(
+                GenerationArtifact.of("requirements", "Planner", "需求与目标", Map.of(
+                        "patchFirst", false,
+                        "requiresBuild", true,
+                        "validationMode", "build_validation",
+                        "generationMode", "full_generation",
+                        "goals", List.of("生成完整工程")
+                )),
+                GenerationArtifact.of("architecture_plan", "Architect", "架构规划", Map.of(
+                        "modules", List.of("app")
+                )),
+                GenerationArtifact.of(ApiContractArtifact.KEY, "Planner", "API 字段契约", Map.of(
+                        "status", "ready"
+                ))
+        ));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> node.execute(context)
+        );
+
+        assertTrue(exception.getMessage().contains("API 字段契约"));
     }
 
     private GenerationAgentContext newContext(boolean hasGeneratedCode) {

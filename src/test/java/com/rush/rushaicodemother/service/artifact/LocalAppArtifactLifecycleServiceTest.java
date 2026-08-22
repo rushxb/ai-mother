@@ -37,6 +37,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class LocalAppArtifactLifecycleServiceTest {
 
@@ -317,6 +318,107 @@ class LocalAppArtifactLifecycleServiceTest {
     }
 
     @Test
+    void shouldQuarantineAndRestorePublishedWorkspaceStateDuringDeletion() throws IOException {
+        App app = app(75L, CodeGenTypeEnum.HTML, null);
+        CodeStorageProperties storageProperties = storageProperties(outputRoot, deployRoot);
+        GenerationWorkspacePublicationCatalog publicationCatalog =
+                new GenerationWorkspacePublicationCatalog(storageProperties);
+        GenerationWorkspacePublicationPointer pointer = new GenerationWorkspacePublicationPointer(
+                GenerationWorkspacePublicationPointer.CURRENT_SCHEMA_VERSION,
+                app.getId(),
+                CodeGenTypeEnum.HTML,
+                "published-delete-source",
+                4L,
+                Instant.parse("2026-08-22T01:00:00Z")
+        );
+        Path publishedDirectory = publicationCatalog.prepareVersionParent(pointer).resolve("workspace");
+        Files.createDirectory(publishedDirectory);
+        Files.writeString(publishedDirectory.resolve("index.html"), "published", StandardCharsets.UTF_8);
+        publicationCatalog.writeOwnerMarker(publishedDirectory, pointer);
+        publicationCatalog.activate(pointer);
+
+        AppArtifactDeletionTransaction transaction = artifactService.prepareDeletion(app);
+        transaction.activate();
+
+        assertTrue(publicationCatalog.findCurrent(app.getId(), CodeGenTypeEnum.HTML).isEmpty());
+        assertThrows(BusinessException.class, () -> publicationCatalog.resolveWorkspace(pointer));
+
+        transaction.rollback();
+
+        assertEquals(pointer, publicationCatalog.findCurrent(app.getId(), CodeGenTypeEnum.HTML).orElseThrow());
+        assertEquals("published", Files.readString(
+                publicationCatalog.resolveWorkspace(pointer).resolve("index.html"),
+                StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void shouldQuarantineAndRestoreExecutionWorkspaceResidueDuringDeletion() throws IOException {
+        App app = app(76L, CodeGenTypeEnum.HTML, null);
+        Path executionAppRoot = outputRoot.resolve(".generation-executions/app-76");
+        Path executionFile = executionAppRoot.resolve("task-running/epoch-1/html/workspace/index.html");
+        Files.createDirectories(executionFile.getParent());
+        Files.writeString(executionFile, "execution", StandardCharsets.UTF_8);
+        Path quarantineAppRoot = outputRoot.resolve(".generation-execution-quarantine/app-76");
+        Path quarantineFile = quarantineAppRoot.resolve("task-failed/epoch-2-1/html/workspace/index.html");
+        Files.createDirectories(quarantineFile.getParent());
+        Files.writeString(quarantineFile, "failed", StandardCharsets.UTF_8);
+
+        AppArtifactDeletionTransaction transaction = artifactService.prepareDeletion(app);
+        transaction.activate();
+
+        assertFalse(Files.exists(executionAppRoot));
+        assertFalse(Files.exists(quarantineAppRoot));
+
+        transaction.rollback();
+
+        assertEquals("execution", Files.readString(executionFile, StandardCharsets.UTF_8));
+        assertEquals("failed", Files.readString(quarantineFile, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void shouldDeleteManagedWorkspaceStateEvenWhenLegacyCodeTypeIsMissing() throws IOException {
+        App app = new App();
+        app.setId(77L);
+        Path publicationAppRoot = outputRoot.resolve(".generation-publications/app-77");
+        Path pointerFile = publicationAppRoot.resolve("current.json");
+        Files.createDirectories(publicationAppRoot);
+        Files.writeString(pointerFile, "pointer", StandardCharsets.UTF_8);
+
+        AppArtifactDeletionTransaction transaction = artifactService.prepareDeletion(app);
+        transaction.activate();
+
+        assertFalse(Files.exists(publicationAppRoot));
+
+        transaction.rollback();
+
+        assertEquals("pointer", Files.readString(pointerFile, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void shouldRejectManagedDeletionRootThatDoesNotBelongToTheApplication() {
+        GeneratedArtifactLifecycleResolver unsafeResolver = mock(GeneratedArtifactLifecycleResolver.class);
+        when(unsafeResolver.deletionRoots(78L))
+                .thenReturn(List.of(outputRoot.resolve(".generation-published/app-999")));
+        ArtifactLifecycleProperties properties = new ArtifactLifecycleProperties();
+        LocalAppArtifactLifecycleService guardedService = new LocalAppArtifactLifecycleService(
+                storageProperties(outputRoot, deployRoot),
+                unsafeResolver,
+                new DeploymentKeyPolicy(),
+                new ArtifactDirectoryCopier(properties, mock(RobocopyDirectoryCopier.class), false),
+                new ArtifactPathMover(properties)
+        );
+        App app = new App();
+        app.setId(78L);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> guardedService.prepareDeletion(app)
+        );
+
+        assertEquals(ErrorCode.NO_AUTH_ERROR.getCode(), exception.getCode());
+    }
+
+    @Test
     void shouldCommitGeneratedAndDeploymentArtifactDeletion() throws IOException {
         App app = app(72L, CodeGenTypeEnum.HTML, "Deploy72");
         Path generatedDirectory = createGeneratedDirectory(app);
@@ -395,8 +497,11 @@ class LocalAppArtifactLifecycleServiceTest {
         return properties;
     }
 
-    private CurrentGeneratedArtifactResolver artifactResolver(CodeStorageProperties storageProperties) {
-        return new GenerationWorkspaceArtifactResolver(new GenerationWorkspaceService(storageProperties));
+    private GeneratedArtifactLifecycleResolver artifactResolver(CodeStorageProperties storageProperties) {
+        return new GenerationWorkspaceArtifactResolver(
+                new GenerationWorkspaceService(storageProperties),
+                storageProperties
+        );
     }
 
     private Path createGeneratedDirectory(App app) throws IOException {

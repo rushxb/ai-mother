@@ -32,9 +32,9 @@ class AppLifecycleDataMapperContractTest {
     }
 
     @Test
-    void generationTaskGuardMustFailClosedForFutureNonTerminalStatuses() throws Exception {
+    void generationTaskGuardMustFailClosedForRunningTasksAndPendingPublications() throws Exception {
         Method query = AppLifecycleDataMapper.class
-                .getMethod("countNonTerminalGenerationTasks", Long.class);
+                .getMethod("countDeletionBlockingGenerationTasks", Long.class);
         Select select = query.getAnnotation(Select.class);
 
         assertThat(select).as("生成任务删除门禁必须显式声明 SQL").isNotNull();
@@ -48,6 +48,10 @@ class AppLifecycleDataMapperContractTest {
                 .contains("'failed'")
                 .contains("'cancelled'")
                 .contains("'deadline_exceeded'")
+                .contains("publicationstatus")
+                .contains("'prepared'")
+                .contains("'filesystem_activated'")
+                .contains("'rollback_required'")
                 .contains("isdelete = 0");
     }
 }

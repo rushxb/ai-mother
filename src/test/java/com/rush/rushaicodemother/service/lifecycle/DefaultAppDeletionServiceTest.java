@@ -130,7 +130,7 @@ class DefaultAppDeletionServiceTest {
 
     @Test
     void shouldRejectDeletionWhileGenerationTaskIsQueued() {
-        when(lifecycleDataMapper.countNonTerminalGenerationTasks(11L)).thenReturn(1);
+        when(lifecycleDataMapper.countDeletionBlockingGenerationTasks(11L)).thenReturn(1);
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -139,7 +139,7 @@ class DefaultAppDeletionServiceTest {
 
         assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
         assertTrue(exception.getMessage().contains("生成任务"));
-        verify(lifecycleDataMapper).countNonTerminalGenerationTasks(11L);
+        verify(lifecycleDataMapper).countDeletionBlockingGenerationTasks(11L);
         verify(devServerManager, never()).stopDevServer(11L);
         verify(artifactLifecycleService, never())
                 .prepareDeletion(org.mockito.ArgumentMatchers.any(App.class));
@@ -269,7 +269,7 @@ class DefaultAppDeletionServiceTest {
         assertSame(stopFailure, exception);
         verifyNoInteractions(artifactLifecycleService);
         verify(lifecycleDataMapper).selectDeletionState(11L);
-        verify(lifecycleDataMapper).countNonTerminalGenerationTasks(11L);
+        verify(lifecycleDataMapper).countDeletionBlockingGenerationTasks(11L);
         verifyNoMoreInteractions(lifecycleDataMapper);
     }
 

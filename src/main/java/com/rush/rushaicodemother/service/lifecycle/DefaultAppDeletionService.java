@@ -93,7 +93,7 @@ public class DefaultAppDeletionService implements AppDeletionService {
                 App currentApp = lifecycleDataMapper.selectDeletionState(appId);
                 ThrowUtils.throwIf(currentApp == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
                 validateDeletionState(currentApp);
-                validateNoNonTerminalGenerationTask(appId);
+                validateNoDeletionBlockingGenerationTask(appId);
                 devServerManager.stopDevServer(appId);
 
                 AppArtifactDeletionTransaction artifactTransaction =
@@ -178,12 +178,12 @@ public class DefaultAppDeletionService implements AppDeletionService {
                 ErrorCode.OPERATION_ERROR, "应用正在生成，请先停止生成并等待任务结束后再删除");
     }
 
-    /** 阻止删除仍需完成取消、恢复或积分结算的生成任务。 */
-    private void validateNoNonTerminalGenerationTask(Long appId) {
-        int taskCount = lifecycleDataMapper.countNonTerminalGenerationTasks(appId);
+    /** 阻止删除仍需完成取消、恢复、发布或积分结算的生成任务。 */
+    private void validateNoDeletionBlockingGenerationTask(Long appId) {
+        int taskCount = lifecycleDataMapper.countDeletionBlockingGenerationTasks(appId);
         ThrowUtils.throwIf(taskCount < 0,
                 ErrorCode.SYSTEM_ERROR, "应用生成任务统计异常");
         ThrowUtils.throwIf(taskCount > 0,
-                ErrorCode.OPERATION_ERROR, "应用仍有未结束的生成任务，请先停止并等待任务结束后再删除");
+                ErrorCode.OPERATION_ERROR, "应用仍有未完成清理的生成任务，请等待任务发布或恢复结束后再删除");
     }
 }

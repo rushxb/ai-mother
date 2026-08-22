@@ -29,15 +29,22 @@ public interface AppLifecycleDataMapper {
             """)
     App selectDeletionState(@Param("appId") Long appId);
 
-    /** 统计会被应用删除破坏结算或恢复语义的非终态生成任务。 */
+    /**
+     * 统计会被应用删除破坏结算、恢复或发布一致性的生成任务。
+     *
+     * <p>终态任务的发布事务仍可能需要重放或回滚，因此不能仅按任务状态判断。</p>
+     */
     @Select("""
             select count(*)
             from generation_task
             where appId = #{appId}
-              and status not in ('success', 'failed', 'cancelled', 'deadline_exceeded')
               and isDelete = 0
+              and (
+                  status not in ('success', 'failed', 'cancelled', 'deadline_exceeded')
+                  or publicationStatus in ('prepared', 'filesystem_activated', 'rollback_required')
+              )
             """)
-    int countNonTerminalGenerationTasks(@Param("appId") Long appId);
+    int countDeletionBlockingGenerationTasks(@Param("appId") Long appId);
 
     @Delete("delete from generation_model_call where appId = #{appId}")
     int deleteGenerationModelCalls(@Param("appId") Long appId);

@@ -33,7 +33,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
     private static final String DELETE_QUARANTINE_PREFIX = ".artifact-delete-";
     private final Path outputRoot;
     private final Path deployRoot;
-    private final CurrentGeneratedArtifactResolver currentArtifactResolver;
+    private final GeneratedArtifactLifecycleResolver artifactLifecycleResolver;
     private final ArtifactDirectoryCopier artifactDirectoryCopier;
     private final DeploymentKeyPolicy deploymentKeyPolicy;
     private final ArtifactPathMover artifactPathMover;
@@ -42,14 +42,14 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
      * 创建本地应用制品生命周期服务。
      *
      * @param storageProperties 存储属性
-     * @param currentArtifactResolver 当前生成制品解析器
+     * @param artifactLifecycleResolver 生成制品生命周期解析器
      * @param deploymentKeyPolicy 部署键策略
      * @param artifactDirectoryCopier 制品目录复制器
      * @param artifactPathMover 制品路径移动器
      */
     public LocalAppArtifactLifecycleService(
             CodeStorageProperties storageProperties,
-            CurrentGeneratedArtifactResolver currentArtifactResolver,
+            GeneratedArtifactLifecycleResolver artifactLifecycleResolver,
             DeploymentKeyPolicy deploymentKeyPolicy,
             ArtifactDirectoryCopier artifactDirectoryCopier,
             ArtifactPathMover artifactPathMover
@@ -57,9 +57,9 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         Objects.requireNonNull(storageProperties, "storageProperties must not be null");
         this.outputRoot = storageProperties.outputRoot();
         this.deployRoot = storageProperties.deployRoot();
-        this.currentArtifactResolver = Objects.requireNonNull(
-                currentArtifactResolver,
-                "currentArtifactResolver must not be null"
+        this.artifactLifecycleResolver = Objects.requireNonNull(
+                artifactLifecycleResolver,
+                "artifactLifecycleResolver must not be null"
         );
         this.artifactDirectoryCopier = Objects.requireNonNull(
                 artifactDirectoryCopier,
@@ -84,7 +84,7 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
     @Override
     public Path requireGeneratedDirectory(App app) {
         CodeGenTypeEnum codeGenType = requireCodeGenType(app);
-        Path generatedDirectory = currentArtifactResolver.resolve(app.getId(), codeGenType);
+        Path generatedDirectory = artifactLifecycleResolver.resolveCurrent(app.getId(), codeGenType);
         ThrowUtils.throwIf(!Files.isDirectory(generatedDirectory, LinkOption.NOFOLLOW_LINKS),
                 ErrorCode.NOT_FOUND_ERROR, "应用代码路径不存在，请先生成应用");
         ThrowUtils.throwIf(Files.isSymbolicLink(generatedDirectory),
@@ -188,10 +188,10 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                 ErrorCode.PARAMS_ERROR, "应用参数错误");
         String transactionId = UUID.randomUUID().toString();
         List<DeletionTarget> deletionTargets = new ArrayList<>();
+        Path outputSafeRoot = requireSafeRoot(outputRoot, "应用生成根目录");
 
         if (app.getCodeGenType() != null && !app.getCodeGenType().isBlank()) {
             Path generatedDirectory = resolveGeneratedDirectory(app);
-            Path outputSafeRoot = requireSafeRoot(outputRoot, "应用生成根目录");
             Path generatedQuarantine = resolveDirectChild(
                     outputSafeRoot,
                     DELETE_QUARANTINE_PREFIX + "generated-" + app.getId() + "-" + transactionId,
@@ -203,6 +203,14 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
                     "应用生成目录"
             ));
         }
+
+        // 版本化工作区只依赖应用 ID，即使遗留 codeGenType 缺失也必须清理。
+        addManagedGenerationDeletionTargets(
+                deletionTargets,
+                app.getId(),
+                outputSafeRoot,
+                transactionId
+        );
 
         if (app.getDeployKey() != null && !app.getDeployKey().isBlank()) {
             validateDeployKey(app.getDeployKey());
@@ -225,6 +233,52 @@ public class LocalAppArtifactLifecycleService implements AppArtifactLifecycleSer
         }
 
         return new LocalAppArtifactDeletionTransaction(deletionTargets);
+    }
+
+    /**
+     * 将版本化发布、发布指针、执行工作区和失败隔离区纳入同一个可回滚删除事务。
+     *
+     * <p>解析器负责资源归属，文件系统实现再次验证目录必须是安全根下的两级应用目录，
+     * 防止未来适配器误把共享根或其他应用目录交给删除事务。</p>
+     */
+    private void addManagedGenerationDeletionTargets(List<DeletionTarget> deletionTargets,
+                                                     Long appId,
+                                                     Path outputSafeRoot,
+                                                     String transactionId) {
+        List<Path> managedRoots = artifactLifecycleResolver.deletionRoots(appId);
+        ThrowUtils.throwIf(managedRoots == null, ErrorCode.SYSTEM_ERROR, "生成制品删除目录解析结果为空");
+        for (int index = 0; index < managedRoots.size(); index++) {
+            Path managedRoot = requireOwnedManagedRoot(managedRoots.get(index), outputSafeRoot, appId);
+            Path quarantine = resolveDirectChild(
+                    outputSafeRoot,
+                    DELETE_QUARANTINE_PREFIX + "managed-" + appId + "-" + index + "-" + transactionId,
+                    "托管生成制品隔离位置"
+            );
+            deletionTargets.add(new DeletionTarget(
+                    managedRoot,
+                    quarantine,
+                    "托管生成制品目录"
+            ));
+        }
+    }
+
+    /** 校验适配器返回的是安全根下精确的 {@code <managed-root>/app-<id>} 目录。 */
+    private Path requireOwnedManagedRoot(Path candidate, Path outputSafeRoot, Long appId) {
+        ThrowUtils.throwIf(candidate == null, ErrorCode.SYSTEM_ERROR, "托管生成制品目录不能为空");
+        Path normalized = candidate.toAbsolutePath().normalize();
+        ThrowUtils.throwIf(!normalized.startsWith(outputSafeRoot) || normalized.equals(outputSafeRoot),
+                ErrorCode.NO_AUTH_ERROR, "托管生成制品目录越界");
+        Path relative = outputSafeRoot.relativize(normalized);
+        ThrowUtils.throwIf(relative.getNameCount() != 2
+                        || !("app-" + appId).equals(relative.getName(1).toString()),
+                ErrorCode.NO_AUTH_ERROR, "托管生成制品目录不属于当前应用");
+        Path managedParent = normalized.getParent();
+        ThrowUtils.throwIf(managedParent == null || Files.isSymbolicLink(managedParent),
+                ErrorCode.NO_AUTH_ERROR, "托管生成制品父目录不安全");
+        ThrowUtils.throwIf(Files.exists(managedParent, LinkOption.NOFOLLOW_LINKS)
+                        && !Files.isDirectory(managedParent, LinkOption.NOFOLLOW_LINKS),
+                ErrorCode.SYSTEM_ERROR, "托管生成制品父路径不是目录");
+        return normalized;
     }
 
     /**

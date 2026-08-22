@@ -10,6 +10,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /** 用户积分账务的显式 SQL Mapper。 */
@@ -40,6 +41,15 @@ public interface UserCreditMapper {
             FOR UPDATE
             """)
     GenerationTask selectGenerationTaskForUpdate(@Param("taskId") String taskId);
+
+    @Select("""
+            SELECT id, taskId, userId, tenantId, creditCharged
+            FROM generation_task
+            WHERE taskId = #{taskId}
+              AND isDelete = 0
+            LIMIT 1
+            """)
+    GenerationTask selectGenerationTask(@Param("taskId") String taskId);
 
     @Select("""
             SELECT id, userId, tenantId, changeAmount, balanceAfter, type, bizId, remark,
@@ -135,4 +145,31 @@ public interface UserCreditMapper {
             LIMIT #{limit}
             """)
     List<String> selectUnsettledTerminalTaskIds(@Param("limit") int limit);
+
+    /**
+     * 扫描没有正式任务和结算流水的过期预检预授权。
+     * remark 前缀仅承担流水阶段标识，不参与金额或身份推导。
+     */
+    @Select("""
+            SELECT reservation.bizId
+            FROM user_credit_transaction reservation
+            LEFT JOIN generation_task task
+              ON task.taskId = reservation.bizId
+             AND task.isDelete = 0
+            LEFT JOIN user_credit_transaction settlement
+              ON settlement.type = 'GENERATION_SETTLEMENT'
+             AND settlement.bizId = reservation.bizId
+             AND settlement.isDelete = 0
+            WHERE reservation.type = 'GENERATION_RESERVATION'
+              AND reservation.remark LIKE 'reservation:preflight:%'
+              AND reservation.createTime <= #{createdBefore}
+              AND reservation.isDelete = 0
+              AND task.id IS NULL
+              AND settlement.id IS NULL
+            ORDER BY reservation.createTime ASC, reservation.id ASC
+            LIMIT #{limit}
+            """)
+    List<String> selectRecoverablePreflightReservationTaskIds(
+            @Param("createdBefore") LocalDateTime createdBefore,
+            @Param("limit") int limit);
 }

@@ -17,6 +17,8 @@ import com.rush.rushaicodemother.orchestration.runtime.identity.GenerationTaskId
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContextBridge;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -28,6 +30,7 @@ import java.util.Optional;
  * 创建任务执行信封并通过一个worker seam提交所有生成路线。
  */
 @Service
+@Slf4j
 public class GenerationTaskSubmissionService {
 
     private final GenerationTaskIdGenerator generationTaskIdGenerator;
@@ -145,6 +148,7 @@ public class GenerationTaskSubmissionService {
                 clock.instant(),
                 request,
                 GenerationPreflightUsage.none(),
+                false,
                 idempotency);
     }
 
@@ -175,13 +179,15 @@ public class GenerationTaskSubmissionService {
                 taskId, submittedAt, taskRequest, codeGenType, workspace);
         GenerationPipelineRequest request = new GenerationPipelineRequest(
                 taskRequest, codeGenType, workspace, preflight.scenarioDecision());
-        return submitPrepared(taskId, submittedAt, request, preflight.usage(), idempotency);
+        return submitPrepared(
+                taskId, submittedAt, request, preflight.usage(), preflight.creditReserved(), idempotency);
     }
 
     private GenerationTaskResult submitPrepared(String taskId,
                                                 Instant submittedAt,
                                                 GenerationPipelineRequest request,
                                                 GenerationPreflightUsage preflightUsage,
+                                                boolean preflightCreditReserved,
                                                 GenerationTaskIdempotency idempotency) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (request == null || request.taskRequest() == null) {
@@ -197,25 +203,27 @@ public class GenerationTaskSubmissionService {
                 || request.taskRequest().loginUser().getId() == null) {
             throw new IllegalArgumentException("生成任务身份信息不完整");
         }
-        GenerationExecutionPlan executionPlan = generationExecutionPlanner.plan(request, preflightUsage);
-        GenerationPipelineRequest plannedRequest = request.withExecutionPlan(executionPlan);
-        GenerationTaskCommand command = GenerationTaskCommand.from(
-                taskId,
-                plannedRequest,
-                submittedAt,
-                executionPlan.sla(),
-                traceContextBridge.capture(),
-                preflightUsage
-        );
         GenerationTaskAdmissionResult admission = null;
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
+            GenerationExecutionPlan executionPlan = generationExecutionPlanner.plan(request, preflightUsage);
+            GenerationPipelineRequest plannedRequest = request.withExecutionPlan(executionPlan);
+            GenerationTaskCommand command = GenerationTaskCommand.from(
+                    taskId,
+                    plannedRequest,
+                    submittedAt,
+                    executionPlan.sla(),
+                    traceContextBridge.capture(),
+                    preflightUsage
+            );
             admission = taskAdmissionService.admit(command, idempotency);
             if (admission.created()) {
                 if (generationEventPublisher != null) {
                     generationEventPublisher.clearRecent(command.appId());
                 }
                 taskDispatcher.dispatch(admission.taskId());
+            } else if (preflightCreditReserved) {
+                settleReplayedPreflightBestEffort(taskId);
             }
             return new GenerationTaskResult(
                     admission.submission(),
@@ -231,8 +239,24 @@ public class GenerationTaskSubmissionService {
                 } catch (RuntimeException compensationFailure) {
                     submissionFailure.addSuppressed(compensationFailure);
                 }
+            } else if (preflightCreditReserved) {
+                try {
+                    taskAdmissionService.settlePreflightReservation(taskId);
+                } catch (RuntimeException compensationFailure) {
+                    submissionFailure.addSuppressed(compensationFailure);
+                }
             }
             throw submissionFailure;
+        }
+    }
+
+    /** 并发幂等复用成功时，原请求继续成功返回，孤儿预授权交给同步尝试和后台恢复兜底。 */
+    private void settleReplayedPreflightBestEffort(String taskId) {
+        try {
+            taskAdmissionService.settlePreflightReservation(taskId);
+        } catch (RuntimeException settlementFailure) {
+            log.warn("并发幂等复用后的模型预检额度暂未结算，taskId: {}, error: {}",
+                    taskId, LogExceptionSanitizer.sanitize(settlementFailure));
         }
     }
 }

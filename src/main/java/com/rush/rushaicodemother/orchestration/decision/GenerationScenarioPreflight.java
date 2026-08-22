@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 在最终场景决策冻结前完成一次有界澄清的 deep module。
@@ -78,16 +79,29 @@ public class GenerationScenarioPreflight {
                                                      GenerationWorkspace workspace) {
         requireTaskIdentity(taskId, submittedAt, request, targetType, workspace);
         AtomicReference<GenerationExecutionContext> preflightContext = new AtomicReference<>();
-        GenerationScenarioDecision decision = scenarioDecisionKernel.decide(
-                request,
-                targetType,
-                workspace,
-                profile -> refineIfEligible(
-                        taskId, submittedAt, request, targetType, profile, preflightContext));
-        GenerationPreflightUsage usage = preflightContext.get() == null
-                ? GenerationPreflightUsage.none()
-                : GenerationPreflightUsage.from(preflightContext.get());
-        return new GenerationScenarioPreflightResult(decision, usage);
+        AtomicBoolean creditReserved = new AtomicBoolean(false);
+        try {
+            GenerationScenarioDecision decision = scenarioDecisionKernel.decide(
+                    request,
+                    targetType,
+                    workspace,
+                    profile -> refineIfEligible(
+                            taskId, submittedAt, request, targetType, profile,
+                            preflightContext, creditReserved));
+            GenerationPreflightUsage usage = preflightContext.get() == null
+                    ? GenerationPreflightUsage.none()
+                    : GenerationPreflightUsage.from(preflightContext.get());
+            return new GenerationScenarioPreflightResult(decision, usage, creditReserved.get());
+        } catch (RuntimeException preflightFailure) {
+            if (creditReserved.get()) {
+                try {
+                    admissionService.settlePreflightReservation(taskId);
+                } catch (RuntimeException compensationFailure) {
+                    preflightFailure.addSuppressed(compensationFailure);
+                }
+            }
+            throw preflightFailure;
+        }
     }
 
     private IntentProfile refineIfEligible(String taskId,
@@ -95,11 +109,13 @@ public class GenerationScenarioPreflight {
                                            GenerationTaskRequest request,
                                            CodeGenTypeEnum targetType,
                                            IntentProfile profile,
-                                           AtomicReference<GenerationExecutionContext> contextHolder) {
+                                           AtomicReference<GenerationExecutionContext> contextHolder,
+                                           AtomicBoolean creditReserved) {
         if (!clarificationRefiner.canRefine(profile)) {
             return profile;
         }
-        admissionService.assertMayPreflight(request, targetType, profile);
+        admissionService.assertMayPreflight(taskId, request, targetType, profile);
+        creditReserved.set(true);
         GenerationExecutionContext context = createContext(taskId, submittedAt, request);
         contextHolder.set(context);
         try {

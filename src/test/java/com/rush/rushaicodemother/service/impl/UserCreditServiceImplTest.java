@@ -209,6 +209,103 @@ class UserCreditServiceImplTest {
     }
 
     @Test
+    void preflightReservationMustUseARecoverableLedgerMarker() {
+        when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 10L));
+
+        creditService.reserveGenerationPreflight(
+                reservationCommand(5L, "policy-v1:PREFLIGHT_MAX:VUE_PROJECT"));
+
+        ArgumentCaptor<NewCreditTransaction> captor =
+                ArgumentCaptor.forClass(NewCreditTransaction.class);
+        verify(persistenceService).appendTransaction(captor.capture());
+        assertEquals(-5L, captor.getValue().changeAmount());
+        assertEquals("reservation:preflight:policy-v1:PREFLIGHT_MAX:VUE_PROJECT",
+                captor.getValue().remark());
+    }
+
+    @Test
+    void finalTaskReservationMustAdoptALargerPreflightReservation() {
+        when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 5L));
+        when(persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
+                .thenReturn(new CreditTransaction(
+                        7L, 100L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        "task-1", "reservation:preflight:policy-v1:PREFLIGHT_MAX:VUE_PROJECT",
+                        null, null));
+
+        creditService.reserveGenerationTask(
+                reservationCommand(3L, "policy-v1:LIGHT_EDIT:VUE_PROJECT"));
+
+        verify(persistenceService, never()).updateBalance(anyLong(), anyLong());
+        verify(persistenceService, never()).appendTransaction(any());
+    }
+
+    @Test
+    void finalTaskMustRejectAPreflightReservationThatWasAlreadyReleased() {
+        when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 10L));
+        when(persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
+                .thenReturn(new CreditTransaction(
+                        7L, 100L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        "task-1", "reservation:preflight:policy-v1:PREFLIGHT_MAX:VUE_PROJECT",
+                        null, null));
+        when(persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_SETTLEMENT, "task-1"))
+                .thenReturn(new CreditTransaction(
+                        7L, 100L, 5L, 10L, UserCreditTransactionType.GENERATION_SETTLEMENT,
+                        "task-1", "released", null, 0L));
+
+        BusinessException failure = assertThrows(BusinessException.class,
+                () -> creditService.reserveGenerationTask(
+                        reservationCommand(3L, "policy-v1:LIGHT_EDIT:VUE_PROJECT")));
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), failure.getCode());
+        verify(persistenceService, never()).updateBalance(anyLong(), anyLong());
+        verify(persistenceService, never()).appendTransaction(any());
+    }
+
+    @Test
+    void orphanPreflightReservationMustSettleObservedUsageAndRefundTheRemainder() {
+        when(persistenceService.lockGenerationTask("task-1")).thenReturn(null);
+        when(persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
+                .thenReturn(new CreditTransaction(
+                        7L, 100L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        "task-1", "reservation:preflight:policy-v1:PREFLIGHT_MAX:VUE_PROJECT",
+                        null, null));
+        when(persistenceService.loadTaskProviderCostObservation("task-1"))
+                .thenReturn(new ProviderCostObservation(100_000L, 0L, 0L, 0L, 0L));
+        when(costCalculator.calculate(100_000L)).thenReturn(1L);
+        when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 5L));
+        when(persistenceService.findGenerationTask("task-1")).thenReturn(null);
+
+        creditService.settleGenerationPreflight("task-1");
+
+        verify(persistenceService).updateBalance(7L, 9L);
+        ArgumentCaptor<NewCreditTransaction> captor =
+                ArgumentCaptor.forClass(NewCreditTransaction.class);
+        verify(persistenceService).appendTransaction(captor.capture());
+        NewCreditTransaction settlement = captor.getValue();
+        assertEquals(UserCreditTransactionType.GENERATION_SETTLEMENT, settlement.type());
+        assertEquals(4L, settlement.changeAmount());
+        assertEquals(9L, settlement.balanceAfter());
+        assertEquals(100_000L, settlement.tokenCount());
+        verify(persistenceService, never()).settleGenerationTask(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void preflightSettlementMustLeaveAnAlreadyCreatedTaskToTaskSettlement() {
+        when(persistenceService.lockGenerationTask("task-1"))
+                .thenReturn(generationTask(false));
+
+        creditService.settleGenerationPreflight("task-1");
+
+        verify(persistenceService).lockGenerationTask("task-1");
+        verify(persistenceService, never()).findTransaction(any(), any());
+        verify(persistenceService, never()).lockActiveAccount(any());
+    }
+
+    @Test
     void generationReservationMustRejectInsufficientBalanceBeforeDurableSubmission() {
         when(persistenceService.lockActiveAccount(7L)).thenReturn(new CreditAccount(7L, 2L));
 

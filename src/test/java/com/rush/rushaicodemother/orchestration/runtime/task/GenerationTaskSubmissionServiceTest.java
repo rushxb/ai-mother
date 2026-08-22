@@ -224,7 +224,8 @@ class GenerationTaskSubmissionServiceTest {
         when(preflight.prepare(
                 eq("task-preflight-submit"), eq(NOW), eq(input.taskRequest()),
                 eq(input.codeGenType()), eq(input.workspace())))
-                .thenReturn(new GenerationScenarioPreflightResult(input.scenarioDecision(), usage));
+                .thenReturn(new GenerationScenarioPreflightResult(
+                        input.scenarioDecision(), usage, true));
         GenerationTaskSubmissionService service = new GenerationTaskSubmissionService(
                 () -> "task-preflight-submit",
                 preflight,
@@ -253,6 +254,38 @@ class GenerationTaskSubmissionServiceTest {
                 commandCaptor.capture(), eq(GenerationTaskIdempotency.none()));
         assertEquals(usage, commandCaptor.getValue().preflightUsage());
         assertEquals(input.scenarioDecision(), commandCaptor.getValue().scenarioDecision());
+    }
+
+    @Test
+    void finalAdmissionFailureMustSettleTheOrphanPreflightReservation() {
+        GenerationScenarioPreflight preflight = mock(GenerationScenarioPreflight.class);
+        GenerationPipelineRequest input = request(1L);
+        BusinessException rejection = mock(BusinessException.class);
+        when(preflight.prepare(
+                eq("task-preflight-rejected"), eq(NOW), eq(input.taskRequest()),
+                eq(input.codeGenType()), eq(input.workspace())))
+                .thenReturn(new GenerationScenarioPreflightResult(
+                        input.scenarioDecision(), new GenerationPreflightUsage(1, 1, 1), true));
+        doThrow(rejection).when(admissionService).admit(
+                any(GenerationTaskCommand.class), eq(GenerationTaskIdempotency.none()));
+        GenerationTaskSubmissionService service = new GenerationTaskSubmissionService(
+                () -> "task-preflight-rejected",
+                preflight,
+                executionPlanner,
+                dispatcher,
+                admissionService,
+                taskFinalizer,
+                eventStream,
+                null,
+                traceContextBridge,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertSame(rejection, assertThrows(BusinessException.class, () -> service.submit(
+                input.taskRequest(), input.codeGenType(), input.workspace(),
+                GenerationTaskIdempotency.none())));
+
+        verify(admissionService).settlePreflightReservation("task-preflight-rejected");
+        verify(dispatcher, never()).dispatch(any());
     }
 
     @Test

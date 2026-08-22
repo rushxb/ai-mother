@@ -127,7 +127,7 @@ class GenerationTaskAdmissionServiceTest {
     }
 
     @Test
-    void preflightGateMustCheckWorstCaseCostWithoutReservingCredit() {
+    void preflightGateMustReserveWorstCaseCostAfterAllPoliciesPass() {
         Fixture fixture = fixture();
         GenerationTaskAdmissionSnapshot snapshot = snapshot(1);
         GenerationCreditReservationQuote upperBound = new GenerationCreditReservationQuote(
@@ -140,20 +140,21 @@ class GenerationTaskAdmissionServiceTest {
                 .thenReturn(upperBound);
 
         fixture.service().assertMayPreflight(
-                request, CodeGenTypeEnum.VUE_PROJECT, IntentProfile.unknown());
+                "task-preflight", request, CodeGenTypeEnum.VUE_PROJECT, IntentProfile.unknown());
 
         InOrder order = inOrder(
                 fixture.aiModelRuntimeService(), fixture.creditService(), fixture.repository(),
                 fixture.reservationPolicy(), fixture.concurrencyPolicy());
         order.verify(fixture.aiModelRuntimeService()).ensureGenerationModelsConfigured();
         order.verify(fixture.reservationPolicy()).quoteUpperBound(CodeGenTypeEnum.VUE_PROJECT);
-        order.verify(fixture.creditService()).ensureHasCredit(7L, upperBound.reservedCredit());
         order.verify(fixture.repository()).lockScopeAndMeasure(100L, 7L, 1L);
         ArgumentCaptor<GenerationTaskPreflightAdmissionContext> contextCaptor =
                 ArgumentCaptor.forClass(GenerationTaskPreflightAdmissionContext.class);
         order.verify(fixture.concurrencyPolicy()).assertMayPreflight(contextCaptor.capture());
+        order.verify(fixture.creditService()).reserveGenerationPreflight(
+                new GenerationCreditReservationCommand(
+                        "task-preflight", 7L, 100L, 9L, "preflight-upper-bound"));
         assertEquals(upperBound, contextCaptor.getValue().upperBoundQuote());
-        verify(fixture.creditService(), never()).reserveGenerationTask(any());
         verifyNoInteractions(fixture.lifecycleService());
     }
 

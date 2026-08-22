@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /** 用户积分持久化边界的 MyBatis 实现。 */
@@ -57,7 +58,16 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
     @Override
     public GenerationCreditTask lockGenerationTask(String taskId) {
         String normalizedTaskId = requireBusinessId(taskId, "生成任务 ID");
-        GenerationTask task = mapper.selectGenerationTaskForUpdate(normalizedTaskId);
+        return toGenerationCreditTask(mapper.selectGenerationTaskForUpdate(normalizedTaskId));
+    }
+
+    @Override
+    public GenerationCreditTask findGenerationTask(String taskId) {
+        String normalizedTaskId = requireBusinessId(taskId, "生成任务 ID");
+        return toGenerationCreditTask(mapper.selectGenerationTask(normalizedTaskId));
+    }
+
+    private GenerationCreditTask toGenerationCreditTask(GenerationTask task) {
         if (task == null) {
             return null;
         }
@@ -207,6 +217,26 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
         }
         for (String taskId : taskIds) {
             requireBusinessId(taskId, "生成任务 ID");
+        }
+        return List.copyOf(taskIds);
+    }
+
+    @Override
+    public List<String> findRecoverablePreflightReservationTaskIds(
+            LocalDateTime createdBefore, int limit) {
+        if (createdBefore == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "预检预授权恢复时间不能为空");
+        }
+        if (limit <= 0 || limit > 500) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "预检预授权恢复批次必须在 1 到 500 之间");
+        }
+        List<String> taskIds = mapper.selectRecoverablePreflightReservationTaskIds(
+                createdBefore, limit);
+        if (taskIds == null || taskIds.isEmpty()) {
+            return List.of();
+        }
+        for (String taskId : taskIds) {
+            requireBusinessId(taskId, "预检任务 ID");
         }
         return List.copyOf(taskIds);
     }

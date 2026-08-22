@@ -374,5 +374,13 @@ class AppServiceImplRegressionTest {
         @Override
         public void reserveGenerationTask(GenerationCreditReservationCommand command) {
         }
+
+        @Override
+        public void reserveGenerationPreflight(GenerationCreditReservationCommand command) {
+        }
+
+        @Override
+        public void settleGenerationPreflight(String taskId) {
+        }
     }
 }

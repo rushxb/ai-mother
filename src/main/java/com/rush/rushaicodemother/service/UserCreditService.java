@@ -40,4 +40,10 @@ public interface UserCreditService {
 
     /** 在任务进入 durable queue 前原子冻结预计积分。 */
     void reserveGenerationTask(GenerationCreditReservationCommand command);
+
+    /** 在可选模型预检前冻结最坏路线额度，正式任务可接管同一笔预授权。 */
+    void reserveGenerationPreflight(GenerationCreditReservationCommand command);
+
+    /** 结算未形成正式任务的模型预检调用；若任务已经落库则由任务结算接管。 */
+    void settleGenerationPreflight(String taskId);
 }

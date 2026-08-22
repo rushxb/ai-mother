@@ -40,6 +40,7 @@ import java.util.function.UnaryOperator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -126,11 +127,12 @@ class GenerationScenarioPreflightTest {
         assertEquals(1, result.usage().rootModelAttempts());
         assertEquals(1, result.usage().modelTurns());
         assertEquals(1, result.usage().providerFailoverAttempts());
+        assertTrue(result.creditReserved());
         assertEquals("task-preflight-1", observedTaskId.get());
 
         InOrder order = inOrder(admissionService, clarificationRefiner);
         order.verify(admissionService).assertMayPreflight(
-                request, CodeGenTypeEnum.FULL_STACK_PROJECT, initialProfile);
+                "task-preflight-1", request, CodeGenTypeEnum.FULL_STACK_PROJECT, initialProfile);
         order.verify(clarificationRefiner).refine(
                 eq(initialProfile), eq("ambiguous request"), eq("task-preflight-1"), any());
         verify(router).select(eq(request), eq(CodeGenTypeEnum.FULL_STACK_PROJECT),

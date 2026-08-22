@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -236,6 +237,20 @@ class DefaultUserCreditPersistenceServiceTest {
                 service.findUnsettledTerminalTaskIds(25));
         assertThrows(BusinessException.class,
                 () -> service.findUnsettledTerminalTaskIds(501));
+    }
+
+    @Test
+    void orphanPreflightScanMustUseACutoffAndBoundedBatch() {
+        LocalDateTime cutoff = LocalDateTime.of(2026, 8, 22, 0, 0);
+        when(mapper.selectRecoverablePreflightReservationTaskIds(cutoff, 25))
+                .thenReturn(List.of("preflight-1", "preflight-2"));
+
+        assertEquals(List.of("preflight-1", "preflight-2"),
+                service.findRecoverablePreflightReservationTaskIds(cutoff, 25));
+        assertThrows(BusinessException.class,
+                () -> service.findRecoverablePreflightReservationTaskIds(null, 25));
+        assertThrows(BusinessException.class,
+                () -> service.findRecoverablePreflightReservationTaskIds(cutoff, 501));
     }
 
     @Test

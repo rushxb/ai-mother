@@ -34,6 +34,8 @@ public class UserCreditServiceImpl implements UserCreditService {
 
     private static final int MAX_REMARK_LENGTH = 512;
     private static final String ACCOUNT_INITIALIZATION_REMARK = "管理员创建用户初始化积分";
+    private static final String TASK_RESERVATION_REMARK_PREFIX = "reservation:";
+    private static final String PREFLIGHT_RESERVATION_REMARK_PREFIX = "reservation:preflight:";
 
     private final UserCreditPersistenceService persistenceService;
     private final UserCreditCostCalculator costCalculator;
@@ -199,6 +201,17 @@ public class UserCreditServiceImpl implements UserCreditService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void reserveGenerationTask(GenerationCreditReservationCommand command) {
+        reserveGeneration(command, ReservationPhase.TASK);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reserveGenerationPreflight(GenerationCreditReservationCommand command) {
+        reserveGeneration(command, ReservationPhase.PREFLIGHT);
+    }
+
+    private void reserveGeneration(GenerationCreditReservationCommand command,
+                                   ReservationPhase phase) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (command == null || !hasPositiveId(command.userId())
                 || !hasPositiveId(command.tenantId()) || command.reservedCredit() <= 0) {
@@ -212,7 +225,7 @@ public class UserCreditServiceImpl implements UserCreditService {
                 taskId
         );
         if (existing != null) {
-            validateExistingReservation(existing, command, pricingReference);
+            validateExistingReservation(existing, command, taskId, pricingReference, phase);
             return;
         }
         if (account.balance() < command.reservedCredit()) {
@@ -231,10 +244,75 @@ public class UserCreditServiceImpl implements UserCreditService {
                 balanceAfter,
                 UserCreditTransactionType.GENERATION_RESERVATION,
                 taskId,
-                reservationRemark(pricingReference),
+                reservationRemark(phase, pricingReference),
                 null,
                 null
         ));
+    }
+
+    /**
+     * 回收没有形成正式任务的预检预授权。先按任务锁、再按账户锁复核，避免与正式准入并发时
+     * 把已经被任务接管的额度误退回。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void settleGenerationPreflight(String taskId) {
+        String normalizedTaskId = requireTaskId(taskId);
+        if (persistenceService.lockGenerationTask(normalizedTaskId) != null) {
+            return;
+        }
+        CreditTransaction reservation = persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_RESERVATION, normalizedTaskId);
+        if (reservation == null) {
+            return;
+        }
+        long reservedCredit = validatePreflightReservation(normalizedTaskId, reservation);
+        CreditTransaction existingSettlement = persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_SETTLEMENT, normalizedTaskId);
+        if (existingSettlement != null) {
+            validatePreflightSettlement(reservation, existingSettlement, reservedCredit);
+            return;
+        }
+
+        UserBillingDecision billingDecision = requireBillingDecision(normalizedTaskId);
+        long totalTokens = billingDecision.chargeableTokens();
+        CreditAccount account = requireLockedAccount(reservation.userId());
+
+        // 账户锁与正式预授权写入共用串行化点；加锁后必须再次确认任务和结算状态。
+        if (persistenceService.findGenerationTask(normalizedTaskId) != null) {
+            return;
+        }
+        existingSettlement = persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_SETTLEMENT, normalizedTaskId);
+        if (existingSettlement != null) {
+            validatePreflightSettlement(reservation, existingSettlement, reservedCredit);
+            return;
+        }
+
+        ReservedCreditSettlement settlement = calculateReservedSettlement(
+                reservedCredit, billingDecision, account);
+        if (settlement.balanceDelta() != 0) {
+            persistenceService.updateBalance(reservation.userId(), settlement.balanceAfter());
+        }
+        persistenceService.appendTransaction(new NewCreditTransaction(
+                reservation.userId(),
+                reservation.tenantId(),
+                settlement.balanceDelta(),
+                settlement.balanceAfter(),
+                UserCreditTransactionType.GENERATION_SETTLEMENT,
+                normalizedTaskId,
+                buildPreflightSettlementRemark(
+                        billingDecision, reservedCredit,
+                        settlement.expectedCreditCost(), settlement.actualCreditCost()),
+                null,
+                totalTokens
+        ));
+        creditMetricsCollector.recordReservationSettlement(
+                reservedCredit, settlement.actualCreditCost());
+        recordProviderCostSettlement(billingDecision);
+        log.info("模型预检积分结算完成，taskId: {}, providerTokens: {}, actualCost: {}, balanceAfter: {}",
+                normalizedTaskId, billingDecision.providerObservedTokens(),
+                settlement.actualCreditCost(), settlement.balanceAfter());
     }
 
     /** 处理{@code settle}{@code Reserved}生成任务。 */
@@ -243,35 +321,30 @@ public class UserCreditServiceImpl implements UserCreditService {
         long reservedCredit = validateReservation(task, reservation);
         UserBillingDecision billingDecision = requireBillingDecision(task.taskId());
         long totalTokens = billingDecision.chargeableTokens();
-        long expectedCreditCost = costCalculator.calculate(totalTokens);
         CreditAccount account = requireLockedAccount(task.userId());
-        long collectibleExtra = expectedCreditCost <= reservedCredit
-                ? 0L
-                : Math.min(account.balance(), expectedCreditCost - reservedCredit);
-        long actualCreditCost = safeAdd(reservedCredit, collectibleExtra);
-        if (expectedCreditCost < reservedCredit) {
-            actualCreditCost = expectedCreditCost;
-        }
-        long settlementDelta = reservedCredit - actualCreditCost;
-        long balanceAfter = safeAdd(account.balance(), settlementDelta);
-        if (settlementDelta != 0) {
-            persistenceService.updateBalance(task.userId(), balanceAfter);
+        ReservedCreditSettlement settlement = calculateReservedSettlement(
+                reservedCredit, billingDecision, account);
+        if (settlement.balanceDelta() != 0) {
+            persistenceService.updateBalance(task.userId(), settlement.balanceAfter());
         }
 
         persistenceService.appendTransaction(new NewCreditTransaction(
                 task.userId(),
                 task.tenantId(),
-                settlementDelta,
-                balanceAfter,
+                settlement.balanceDelta(),
+                settlement.balanceAfter(),
                 UserCreditTransactionType.GENERATION_SETTLEMENT,
                 task.taskId(),
                 buildReservedGenerationRemark(
-                        billingDecision, reservedCredit, expectedCreditCost, actualCreditCost),
+                        billingDecision, reservedCredit,
+                        settlement.expectedCreditCost(), settlement.actualCreditCost()),
                 null,
                 totalTokens
         ));
-        persistenceService.settleGenerationTask(task.recordId(), actualCreditCost, totalTokens);
-        creditMetricsCollector.recordReservationSettlement(reservedCredit, actualCreditCost);
+        persistenceService.settleGenerationTask(
+                task.recordId(), settlement.actualCreditCost(), totalTokens);
+        creditMetricsCollector.recordReservationSettlement(
+                reservedCredit, settlement.actualCreditCost());
         recordProviderCostSettlement(billingDecision);
         log.info(
                 "生成任务积分预授权结算完成，taskId: {}, providerTokens: {}, "
@@ -282,10 +355,28 @@ public class UserCreditServiceImpl implements UserCreditService {
                 billingDecision.chargeableTokens(),
                 billingDecision.waivedTokens(),
                 reservedCredit,
-                expectedCreditCost,
-                actualCreditCost,
-                balanceAfter
+                settlement.expectedCreditCost(),
+                settlement.actualCreditCost(),
+                settlement.balanceAfter()
         );
+    }
+
+    /** 统一任务结算和孤儿预检结算的预授权捕获/退款算法。 */
+    private ReservedCreditSettlement calculateReservedSettlement(
+            long reservedCredit,
+            UserBillingDecision billingDecision,
+            CreditAccount account) {
+        long expectedCreditCost = costCalculator.calculate(billingDecision.chargeableTokens());
+        long collectibleExtra = expectedCreditCost <= reservedCredit
+                ? 0L
+                : Math.min(account.balance(), expectedCreditCost - reservedCredit);
+        long actualCreditCost = expectedCreditCost < reservedCredit
+                ? expectedCreditCost
+                : safeAdd(reservedCredit, collectibleExtra);
+        long balanceDelta = reservedCredit - actualCreditCost;
+        long balanceAfter = safeAdd(account.balance(), balanceDelta);
+        return new ReservedCreditSettlement(
+                expectedCreditCost, actualCreditCost, balanceDelta, balanceAfter);
     }
 
     /** 处理{@code settle}{@code Legacy}生成任务。 */
@@ -451,17 +542,83 @@ public class UserCreditServiceImpl implements UserCreditService {
 
     private void validateExistingReservation(CreditTransaction transaction,
                                              GenerationCreditReservationCommand command,
-                                             String pricingReference) {
-        if (transaction.userId() != command.userId()
+                                             String taskId,
+                                             String pricingReference,
+                                             ReservationPhase phase) {
+        boolean invalidIdentity = transaction.userId() != command.userId()
                 || !Objects.equals(transaction.tenantId(), command.tenantId())
-                || transaction.changeAmount() != -command.reservedCredit()
                 || transaction.type() != UserCreditTransactionType.GENERATION_RESERVATION
-                || !Objects.equals(transaction.bizId(), command.taskId().trim())
-                || !Objects.equals(transaction.remark(), reservationRemark(pricingReference))
+                || !Objects.equals(transaction.bizId(), taskId)
+                || transaction.changeAmount() >= 0
                 || transaction.adminUserId() != null
-                || transaction.tokenCount() != null) {
+                || transaction.tokenCount() != null;
+        if (invalidIdentity) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务积分预授权请求与已有流水冲突");
         }
+        long existingReservedCredit = negateReservationAmount(transaction.changeAmount());
+        boolean exactPhaseMatch = existingReservedCredit == command.reservedCredit()
+                && Objects.equals(transaction.remark(), reservationRemark(phase, pricingReference));
+        boolean taskAdoptsPreflight = phase == ReservationPhase.TASK
+                && isPreflightReservation(transaction)
+                && existingReservedCredit >= command.reservedCredit();
+        if (!exactPhaseMatch && !taskAdoptsPreflight) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务积分预授权请求与已有流水冲突");
+        }
+        if (isPreflightReservation(transaction)
+                && persistenceService.findTransaction(
+                UserCreditTransactionType.GENERATION_SETTLEMENT, taskId) != null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "模型预检额度已经结算，不能再次接管");
+        }
+    }
+
+    private long validatePreflightReservation(String taskId, CreditTransaction reservation) {
+        if (reservation.type() != UserCreditTransactionType.GENERATION_RESERVATION
+                || !Objects.equals(reservation.bizId(), taskId)
+                || !hasPositiveId(reservation.userId())
+                || !hasPositiveId(reservation.tenantId())
+                || reservation.adminUserId() != null
+                || reservation.tokenCount() != null
+                || !isPreflightReservation(reservation)) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "模型预检积分预授权流水不合法");
+        }
+        return negateReservationAmount(reservation.changeAmount());
+    }
+
+    private void validatePreflightSettlement(CreditTransaction reservation,
+                                             CreditTransaction settlement,
+                                             long reservedCredit) {
+        if (settlement.userId() != reservation.userId()
+                || !Objects.equals(settlement.tenantId(), reservation.tenantId())
+                || settlement.type() != UserCreditTransactionType.GENERATION_SETTLEMENT
+                || !Objects.equals(settlement.bizId(), reservation.bizId())
+                || settlement.adminUserId() != null
+                || settlement.tokenCount() == null
+                || settlement.tokenCount() < 0) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "模型预检积分结算流水不合法");
+        }
+        try {
+            if (Math.subtractExact(reservedCredit, settlement.changeAmount()) < 0) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "模型预检积分结算金额不合法");
+            }
+        } catch (ArithmeticException overflow) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "模型预检积分结算金额不合法", overflow);
+        }
+    }
+
+    private long negateReservationAmount(long changeAmount) {
+        if (changeAmount >= 0) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务积分预授权金额不合法");
+        }
+        try {
+            return Math.negateExact(changeAmount);
+        } catch (ArithmeticException overflow) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成任务积分预授权金额不合法", overflow);
+        }
+    }
+
+    private boolean isPreflightReservation(CreditTransaction transaction) {
+        return transaction.remark() != null
+                && transaction.remark().startsWith(PREFLIGHT_RESERVATION_REMARK_PREFIX);
     }
 
     private void validateExistingInitialization(CreditTransaction transaction,
@@ -546,7 +703,7 @@ public class UserCreditServiceImpl implements UserCreditService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "积分预授权计价引用不能为空");
         }
         String normalized = pricingReference.trim();
-        if (normalized.length() > MAX_REMARK_LENGTH - "reservation:".length()) {
+        if (normalized.length() > MAX_REMARK_LENGTH - PREFLIGHT_RESERVATION_REMARK_PREFIX.length()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "积分预授权计价引用过长");
         }
         return normalized;
@@ -597,8 +754,20 @@ public class UserCreditServiceImpl implements UserCreditService {
         }
     }
 
-    private String reservationRemark(String pricingReference) {
-        return "reservation:" + pricingReference;
+    private String reservationRemark(ReservationPhase phase, String pricingReference) {
+        return (phase == ReservationPhase.PREFLIGHT
+                ? PREFLIGHT_RESERVATION_REMARK_PREFIX
+                : TASK_RESERVATION_REMARK_PREFIX) + pricingReference;
+    }
+
+    private String buildPreflightSettlementRemark(UserBillingDecision decision,
+                                                  long reservedCredit,
+                                                  long expectedCreditCost,
+                                                  long actualCreditCost) {
+        return "AI preflight settlement: " + billingAuditSummary(decision)
+                + ", reserved=" + reservedCredit
+                + ", expected=" + expectedCreditCost
+                + ", captured=" + actualCreditCost;
     }
 
     private String buildReservedGenerationRemark(UserBillingDecision decision,
@@ -628,6 +797,19 @@ public class UserCreditServiceImpl implements UserCreditService {
 
     private boolean hasPositiveId(Long value) {
         return value != null && value > 0;
+    }
+
+    private enum ReservationPhase {
+        PREFLIGHT,
+        TASK
+    }
+
+    private record ReservedCreditSettlement(
+            long expectedCreditCost,
+            long actualCreditCost,
+            long balanceDelta,
+            long balanceAfter
+    ) {
     }
 
     private record ValidatedAdjustment(

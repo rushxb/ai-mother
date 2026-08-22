@@ -112,6 +112,9 @@ class UserCreditPersistenceBoundaryArchitectureTest {
         assertTransactional("chargeGenerationTask", String.class);
         assertTransactional("reserveGenerationTask",
                 com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand.class);
+        assertTransactional("reserveGenerationPreflight",
+                com.rush.rushaicodemother.service.credit.GenerationCreditReservationCommand.class);
+        assertTransactional("settleGenerationPreflight", String.class);
     }
 
     @Test
@@ -159,6 +162,7 @@ class UserCreditPersistenceBoundaryArchitectureTest {
                 "GenerationTaskAdmissionService.java");
         assertFalse(appServiceSource.contains("userCreditService.ensureHasCredit"));
         assertTrue(admissionSource.contains("userCreditService.reserveGenerationTask"));
+        assertTrue(admissionSource.contains("userCreditService.reserveGenerationPreflight"));
         assertTrue(admissionSource.indexOf("findMatchingReplay")
                 < admissionSource.indexOf("reserveGenerationTask"));
         assertFalse(appServiceSource.contains("userService.ensureHasCredit"));

@@ -136,15 +136,18 @@ public class GenerationTaskAdmissionService {
     }
 
     /**
-     * 在可选模型澄清前执行不产生持久副作用的保守门禁。
+     * 在可选模型澄清前执行保守门禁，并以独立短事务冻结最坏路线额度。
      *
-     * <p>最终 {@link #admit(GenerationTaskCommand, GenerationTaskIdempotency)} 仍会在同一事务内
-     * 重做判断并冻结积分；本方法只防止明显无额度或无容量的请求先消耗 provider 成本。</p>
+     * <p>模型调用结束后不持有数据库锁；最终准入重做策略判断并接管这笔预授权。</p>
      */
     @Transactional(rollbackFor = Exception.class)
-    public void assertMayPreflight(GenerationTaskRequest request,
+    public void assertMayPreflight(String taskId,
+                                   GenerationTaskRequest request,
                                    CodeGenTypeEnum targetType,
                                    IntentProfile intentProfile) {
+        if (taskId == null || !taskId.matches("[A-Za-z0-9_-]{1,128}")) {
+            throw new IllegalArgumentException("preflight 任务 ID 不合法");
+        }
         if (request == null || request.app() == null || request.loginUser() == null
                 || request.app().getTenantId() == null || request.app().getTenantId() <= 0
                 || request.loginUser().getId() == null || request.loginUser().getId() <= 0) {
@@ -154,8 +157,6 @@ public class GenerationTaskAdmissionService {
         Objects.requireNonNull(intentProfile, "preflight 意图画像不能为空");
         aiModelRuntimeService.ensureGenerationModelsConfigured();
         GenerationCreditReservationQuote upperBoundQuote = reservationPolicy.quoteUpperBound(targetType);
-        userCreditService.ensureHasCredit(
-                request.loginUser().getId(), upperBoundQuote.reservedCredit());
         GenerationTaskAdmissionSnapshot snapshot = admissionRepository.lockScopeAndMeasure(
                 request.app().getTenantId(), request.loginUser().getId(), request.app().getId());
         GenerationTaskPreflightAdmissionContext context = new GenerationTaskPreflightAdmissionContext(
@@ -168,6 +169,18 @@ public class GenerationTaskAdmissionService {
         admissionPolicies.stream()
                 .sorted(AnnotationAwareOrderComparator.INSTANCE)
                 .forEach(policy -> policy.assertMayPreflight(context));
+        userCreditService.reserveGenerationPreflight(new GenerationCreditReservationCommand(
+                taskId,
+                request.loginUser().getId(),
+                request.app().getTenantId(),
+                upperBoundQuote.reservedCredit(),
+                upperBoundQuote.pricingReference()
+        ));
+    }
+
+    /** 回收没有被正式任务接管的预检预授权。 */
+    public void settlePreflightReservation(String taskId) {
+        userCreditService.settleGenerationPreflight(taskId);
     }
 
     private Optional<GenerationTaskSubmissionReceipt> findMatchingReplay(

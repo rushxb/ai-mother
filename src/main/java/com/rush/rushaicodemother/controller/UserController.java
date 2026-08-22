@@ -17,6 +17,8 @@ import com.rush.rushaicodemother.model.dto.user.UserUpdateRequest;
 import com.rush.rushaicodemother.model.vo.AdminUserVO;
 import com.rush.rushaicodemother.model.vo.LoginUserVO;
 import com.rush.rushaicodemother.model.vo.PublicUserSummaryVO;
+import com.rush.rushaicodemother.ratelimiter.annotation.RateLimit;
+import com.rush.rushaicodemother.ratelimiter.enums.RateLimitType;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.UserService;
 import com.rush.rushaicodemother.service.credit.AdminCreditAdjustmentCommand;
@@ -42,12 +44,25 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/user")
 public class UserController {
 
+    private static final String REGISTRATION_RATE_LIMIT_KEY = "authentication:register";
+    private static final int REGISTRATION_RATE_LIMIT = 3;
+    private static final int REGISTRATION_RATE_INTERVAL_SECONDS = 60;
+    private static final String LOGIN_RATE_LIMIT_KEY = "authentication:login";
+    private static final int LOGIN_RATE_LIMIT = 10;
+    private static final int LOGIN_RATE_INTERVAL_SECONDS = 60;
+
     private final UserService userService;
     private final UserCreditService userCreditService;
     private final UserDirectoryService userDirectoryService;
 
     /** 用户注册。 */
     @PostMapping("/register")
+    @RateLimit(
+            key = REGISTRATION_RATE_LIMIT_KEY,
+            limitType = RateLimitType.IP,
+            rate = REGISTRATION_RATE_LIMIT,
+            rateInterval = REGISTRATION_RATE_INTERVAL_SECONDS,
+            message = "注册请求过于频繁，请稍后再试")
     public BaseResponse<Long> userRegister(@Valid @RequestBody UserRegisterRequest userRegisterRequest) {
         long userId = userService.userRegister(
                 userRegisterRequest.getUserAccount(),
@@ -59,6 +74,12 @@ public class UserController {
 
     /** 用户登录。 */
     @PostMapping("/login")
+    @RateLimit(
+            key = LOGIN_RATE_LIMIT_KEY,
+            limitType = RateLimitType.IP,
+            rate = LOGIN_RATE_LIMIT,
+            rateInterval = LOGIN_RATE_INTERVAL_SECONDS,
+            message = "登录请求过于频繁，请稍后再试")
     public BaseResponse<LoginUserVO> userLogin(@Valid @RequestBody UserLoginRequest userLoginRequest,
                                                 HttpServletRequest request) {
         LoginUserVO loginUserVO = userService.userLogin(

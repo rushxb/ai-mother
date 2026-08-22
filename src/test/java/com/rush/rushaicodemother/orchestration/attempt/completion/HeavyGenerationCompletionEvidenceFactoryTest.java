@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationA
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationEvidenceRecorder;
@@ -44,8 +45,13 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
                 List.of(),
                 List.of()
         ).toArtifact());
+        GenerationExecutionContext context = executionContext();
+        context.bindExecutionFence(new GenerationExecutionFence(
+                "heavy-completion-test", "worker-a", 7L));
+        GenerationSession session = new GenerationSession(preparation, context);
         GenerationVerificationEvidenceRecorder.recordPassed(
                 preparation,
+                session,
                 GenerationValidationObservation.passed(
                         CodeGenTypeEnum.VUE_PROJECT,
                         "expert_validation",
@@ -56,11 +62,10 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
                         ),
                         Map.of()
                 ));
-        GenerationExecutionContext context = executionContext();
         context.recordSuccessfulWorkspaceMutations(2);
 
         GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
-                preparation, new GenerationSession(preparation, context));
+                preparation, session);
 
         assertTrue(evidence.contains(GenerationCompletionEvidenceType.INTENT_COVERAGE));
         assertTrue(evidence.contains(GenerationCompletionEvidenceType.WORKSPACE_CHANGE));
@@ -190,6 +195,39 @@ class HeavyGenerationCompletionEvidenceFactoryTest {
 
         GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
                 preparation, new GenerationSession(preparation));
+
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.FAST_VALIDATION));
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.BUILD_VALIDATION));
+        assertFalse(evidence.contains(GenerationCompletionEvidenceType.EXPERT_VALIDATION));
+    }
+
+    @Test
+    void verificationEvidenceForAnotherTaskMustNotSatisfyCompletion() {
+        GenerationPreparation preparation = preparation(null);
+        preparation.putArtifact(artifact(
+                GenerationVerificationEvidenceRecorder.ARTIFACT_KEY,
+                Map.of(
+                        "schemaVersion", "v2",
+                        "status", "passed",
+                        "source", "foreign_task_validation",
+                        "appId", 1L,
+                        "taskId", "another-task",
+                        "executionEpoch", 7L,
+                        "targetType", CodeGenTypeEnum.VUE_PROJECT.getValue(),
+                        "passedSteps", List.of(
+                                GenerationExecutionPlan.ValidationStep.FAST_CHECK.name(),
+                                GenerationExecutionPlan.ValidationStep.BUILD.name(),
+                                GenerationExecutionPlan.ValidationStep.EXPERT_CHECK.name()
+                        ),
+                        "details", Map.of()
+                )
+        ));
+        GenerationExecutionContext context = executionContext();
+        context.bindExecutionFence(new GenerationExecutionFence(
+                "heavy-completion-test", "worker-a", 7L));
+
+        GenerationCompletionEvidenceSet evidence = HeavyGenerationCompletionEvidenceFactory.collect(
+                preparation, new GenerationSession(preparation, context));
 
         assertFalse(evidence.contains(GenerationCompletionEvidenceType.FAST_VALIDATION));
         assertFalse(evidence.contains(GenerationCompletionEvidenceType.BUILD_VALIDATION));

@@ -110,7 +110,7 @@ public class CreatePostGenerationValidationService {
             if (!passed) {
                 return ValidationOutcome.failed("create_post_generation_validation_failed");
             }
-            return GenerationVerificationEvidenceRecorder.latestObservation(preparation)
+            return GenerationVerificationEvidenceRecorder.latestObservation(preparation, session)
                     .filter(observation -> observation.targetType() == codeGenType)
                     .map(ValidationOutcome::passed)
                     .orElseGet(() -> ValidationOutcome.failed("create_validation_evidence_missing"));

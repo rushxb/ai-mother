@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.verification;
 
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 
 import java.util.Optional;
@@ -12,37 +13,52 @@ public final class GenerationVerificationEvidenceRecorder {
 
     /** 仅记录验证器返回的实际观测结果。 */
     public static void recordPassed(GenerationPreparation preparation,
+                                    GenerationSession session,
                                     GenerationValidationObservation observation) {
-        if (preparation == null || observation == null) {
-            throw new IllegalArgumentException("生成准备和验证观测不能为空");
+        if (preparation == null || session == null || observation == null) {
+            throw new IllegalArgumentException("生成准备、会话和验证观测不能为空");
         }
-        GenerationVerificationEvidenceArtifact evidence = currentEvidence(preparation)
+        GenerationVerificationEvidenceArtifact.VerificationSubject subject =
+                GenerationVerificationEvidenceArtifact.currentSubject(preparation, session);
+        GenerationVerificationEvidenceArtifact evidence = currentEvidence(preparation, subject)
                 .map(current -> current.merge(observation))
                 .orElseGet(() -> GenerationVerificationEvidenceArtifact
-                        .fromObservation(observation, preparation.targetType()));
+                        .fromObservation(observation, subject));
         preparation.putArtifact(evidence.toArtifact());
     }
 
-    /** 读取最近一次持久化的实际验证观测；结构不完整时失败关闭。 */
+    /** 读取最近一次记录的实际验证观测；结构不完整或执行主体变化时失败关闭。 */
     public static Optional<GenerationValidationObservation> latestObservation(
-            GenerationPreparation preparation
+            GenerationPreparation preparation,
+            GenerationSession session
     ) {
         if (preparation == null) {
             return Optional.empty();
         }
-        return currentEvidence(preparation)
-                .map(GenerationVerificationEvidenceArtifact::toObservation);
+        GenerationArtifact artifact = preparation.artifact(ARTIFACT_KEY);
+        if (artifact == null) {
+            return Optional.empty();
+        }
+        try {
+            GenerationVerificationEvidenceArtifact.VerificationSubject subject =
+                    GenerationVerificationEvidenceArtifact.currentSubject(preparation, session);
+            return currentEvidence(preparation, subject)
+                    .map(GenerationVerificationEvidenceArtifact::toObservation);
+        } catch (IllegalArgumentException invalidSubject) {
+            return Optional.empty();
+        }
     }
 
     private static Optional<GenerationVerificationEvidenceArtifact> currentEvidence(
-            GenerationPreparation preparation) {
+            GenerationPreparation preparation,
+            GenerationVerificationEvidenceArtifact.VerificationSubject subject) {
         GenerationArtifact artifact = preparation.artifact(ARTIFACT_KEY);
         if (artifact == null) {
             return Optional.empty();
         }
         try {
             return Optional.of(GenerationVerificationEvidenceArtifact.fromArtifact(
-                    artifact, preparation.targetType()));
+                    artifact, subject));
         } catch (IllegalArgumentException invalidEvidence) {
             return Optional.empty();
         }

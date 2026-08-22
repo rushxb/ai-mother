@@ -41,6 +41,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudge
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionLimits;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionProperties;
@@ -900,7 +901,7 @@ class HeavyGenerationRepairBudgetTest {
         for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
             budgets.put(kind, kind == GenerationBudgetKind.REPAIR_ROUND ? repairBudget : 5);
         }
-        return new GenerationExecutionContext(
+        GenerationExecutionContext context = new GenerationExecutionContext(
                 taskId,
                 appId,
                 7L,
@@ -913,6 +914,8 @@ class HeavyGenerationRepairBudgetTest {
                 ),
                 Clock.systemUTC()
         );
+        context.bindExecutionFence(new GenerationExecutionFence(taskId, "worker-a", 1L));
+        return context;
     }
 
     private GenerationPreparation preparation(String taskId) {

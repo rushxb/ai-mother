@@ -20,7 +20,8 @@ class GenerationVerificationEvidenceArtifactArchitectureTest {
 
         assertThat(recorder)
                 .contains("GenerationVerificationEvidenceArtifact.fromArtifact(")
-                .contains(".fromObservation(observation, preparation.targetType())")
+                .contains("GenerationVerificationEvidenceArtifact.currentSubject(preparation, session)")
+                .contains(".fromObservation(observation, subject)")
                 .contains("evidence.toArtifact()")
                 .doesNotContain("payload().get(")
                 .doesNotContain("\"verification_evidence\"");
@@ -32,7 +33,7 @@ class GenerationVerificationEvidenceArtifactArchitectureTest {
                 "attempt", "completion", "HeavyGenerationCompletionEvidenceFactory.java")));
 
         assertThat(completionFactory)
-                .contains("GenerationVerificationEvidenceRecorder.latestObservation(preparation)")
+                .contains("GenerationVerificationEvidenceRecorder.latestObservation(preparation, session)")
                 .doesNotContain("payload().get(\"passedSteps\")")
                 .doesNotContain("\"verification_evidence\"");
     }

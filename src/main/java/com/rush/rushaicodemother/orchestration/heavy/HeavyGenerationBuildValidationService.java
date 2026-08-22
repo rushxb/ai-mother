@@ -123,7 +123,12 @@ public class HeavyGenerationBuildValidationService {
             }
             if (runtimeResult == null || runtimeResult.isPassed()) {
                 recordSuccessfulValidation(
-                        preparation, buildResult, runtimeResult, "heavy_build_validation");
+                        preparation,
+                        session,
+                        buildResult,
+                        runtimeResult,
+                        "heavy_build_validation"
+                );
                 return true;
             }
             validationFailure = ValidationFailure.runtime(runtimeResult);
@@ -211,7 +216,12 @@ public class HeavyGenerationBuildValidationService {
                     generationOrchestrationMetricsCollector.recordAutoRepair(
                             orchestrationMode(preparation), repairStage, "success");
                     recordSuccessfulValidation(
-                            preparation, buildResult, runtimeResult, "heavy_build_repair_validation");
+                            preparation,
+                            session,
+                            buildResult,
+                            runtimeResult,
+                            "heavy_build_repair_validation"
+                    );
                     return true;
                 }
                 validationFailure = ValidationFailure.runtime(runtimeResult);
@@ -232,6 +242,7 @@ public class HeavyGenerationBuildValidationService {
      */
     private void recordSuccessfulValidation(
             GenerationPreparation preparation,
+            GenerationSession session,
             ProjectBuildValidationResult buildResult,
             ProjectRuntimeValidationResult runtimeResult,
             String source
@@ -253,6 +264,7 @@ public class HeavyGenerationBuildValidationService {
         }
         GenerationVerificationEvidenceRecorder.recordPassed(
                 preparation,
+                session,
                 GenerationValidationObservation.passed(
                         preparation.targetType(), source, passedSteps, details));
     }

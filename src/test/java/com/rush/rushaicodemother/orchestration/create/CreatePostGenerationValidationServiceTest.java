@@ -79,13 +79,15 @@ class CreatePostGenerationValidationServiceTest {
         GenerationExecutionFence fence = new GenerationExecutionFence("task-create", "worker-a", 7L);
         GenerationExecutionContext executionContext = mock(GenerationExecutionContext.class);
         when(executionContext.taskId()).thenReturn(fence.taskId());
+        when(executionContext.appId()).thenReturn(11L);
         when(executionContext.executionFence()).thenReturn(fence);
         GenerationSession session = new GenerationSession(null, executionContext);
         GenerationExecutionWorkspace executionWorkspace = executionWorkspace(fence);
         session.bindExecutionWorkspace(executionWorkspace);
         when(buildValidationService.runWithAutoRepair(
                 eq(11L), any(User.class), any(), eq(session))).thenAnswer(invocation ->
-                recordBuildObservation(invocation.getArgument(2), CodeGenTypeEnum.VUE_PROJECT));
+                recordBuildObservation(
+                        invocation.getArgument(2), session, CodeGenTypeEnum.VUE_PROJECT));
         SlotFillResult result = SlotFillResult.success(
                 "vue-default",
                 List.of("hero"),
@@ -128,7 +130,7 @@ class CreatePostGenerationValidationServiceTest {
                 mock(HeavyGenerationBuildValidationService.class);
         CreatePostGenerationValidationService service = new CreatePostGenerationValidationService(
                 contextService, buildValidationService);
-        GenerationSession session = new GenerationSession(null);
+        GenerationSession session = managedSession(13L, "task-planned-create");
         User user = new User();
         GenerationExecutionPlan executionPlan = mock(GenerationExecutionPlan.class);
         when(executionPlan.validationGraph()).thenReturn(
@@ -140,7 +142,8 @@ class CreatePostGenerationValidationServiceTest {
                 eq(session),
                 any(GenerationVerificationPolicy.class)))
                 .thenAnswer(invocation ->
-                        recordBuildObservation(invocation.getArgument(2), CodeGenTypeEnum.VUE_PROJECT));
+                        recordBuildObservation(
+                                invocation.getArgument(2), session, CodeGenTypeEnum.VUE_PROJECT));
 
         CreatePostGenerationValidationService.ValidationOutcome outcome = service.validate(
                 13L,
@@ -169,11 +172,12 @@ class CreatePostGenerationValidationServiceTest {
                 mock(HeavyGenerationBuildValidationService.class);
         CreatePostGenerationValidationService service = new CreatePostGenerationValidationService(
                 contextService, buildValidationService);
-        GenerationSession session = new GenerationSession(null);
+        GenerationSession session = managedSession(12L, "task-backend-create");
         User user = new User();
         when(buildValidationService.runWithAutoRepair(eq(12L), eq(user), any(), eq(session)))
                 .thenAnswer(invocation ->
-                        recordBuildObservation(invocation.getArgument(2), CodeGenTypeEnum.BACKEND_PROJECT));
+                        recordBuildObservation(
+                                invocation.getArgument(2), session, CodeGenTypeEnum.BACKEND_PROJECT));
 
         CreatePostGenerationValidationService.ValidationOutcome outcome = service.validate(
                 12L,
@@ -190,15 +194,21 @@ class CreatePostGenerationValidationServiceTest {
         assertTrue(outcome.observation().passedSteps().contains(
                 GenerationExecutionPlan.ValidationStep.BUILD));
         verify(buildValidationService).runWithAutoRepair(eq(12L), eq(user), any(), eq(session));
-        verify(contextService).clearContext(12L, "task-backend-create");
+        verify(contextService).clearContext(
+                12L,
+                "task-backend-create",
+                session.executionContext().executionFence()
+        );
     }
 
     private boolean recordBuildObservation(
             GenerationPreparation preparation,
+            GenerationSession session,
             CodeGenTypeEnum targetType
     ) {
         GenerationVerificationEvidenceRecorder.recordPassed(
                 preparation,
+                session,
                 GenerationValidationObservation.passed(
                         targetType,
                         "create_build_validation",
@@ -207,6 +217,15 @@ class CreatePostGenerationValidationServiceTest {
                                 GenerationExecutionPlan.ValidationStep.BUILD),
                         Map.of("stage", "done")));
         return true;
+    }
+
+    private GenerationSession managedSession(Long appId, String taskId) {
+        GenerationExecutionFence fence = new GenerationExecutionFence(taskId, "worker-a", 7L);
+        GenerationExecutionContext context = mock(GenerationExecutionContext.class);
+        when(context.taskId()).thenReturn(taskId);
+        when(context.appId()).thenReturn(appId);
+        when(context.executionFence()).thenReturn(fence);
+        return new GenerationSession(null, context);
     }
 
     private GenerationExecutionWorkspace executionWorkspace(GenerationExecutionFence fence) {

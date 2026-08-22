@@ -16,6 +16,8 @@ import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -110,7 +112,7 @@ class HeavyGenerationDiagnosticBoundaryTest {
                     mock(GenerationPreviewMilestoneService.class)
             );
             GenerationPreparation preparation = preparation(taskId, new HashMap<>());
-            GenerationSession session = new GenerationSession(preparation);
+            GenerationSession session = managedSession(preparation, appId);
 
             boolean passed = service.runWithAutoRepair(
                     appId,
@@ -208,6 +210,19 @@ class HeavyGenerationDiagnosticBoundaryTest {
                 Map.of(),
                 taskId
         );
+    }
+
+    private GenerationSession managedSession(
+            GenerationPreparation preparation,
+            Long appId
+    ) {
+        GenerationExecutionFence fence = new GenerationExecutionFence(
+                preparation.taskId(), "worker-a", 1L);
+        GenerationExecutionContext context = mock(GenerationExecutionContext.class);
+        when(context.taskId()).thenReturn(preparation.taskId());
+        when(context.appId()).thenReturn(appId);
+        when(context.executionFence()).thenReturn(fence);
+        return new GenerationSession(preparation, context);
     }
 
     private void assertSafeBuildDiagnostic(String diagnostic) {

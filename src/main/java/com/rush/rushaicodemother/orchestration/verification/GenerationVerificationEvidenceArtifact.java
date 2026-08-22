@@ -1,9 +1,14 @@
 package com.rush.rushaicodemother.orchestration.verification;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.GenerationPreparation;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 
+import java.math.BigDecimal;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,25 +27,56 @@ public final class GenerationVerificationEvidenceArtifact {
 
     private static final String ROLE = "Verification";
     private static final String TITLE = "工程验证证据";
+    private static final String SCHEMA_VERSION = "v2";
     private static final String PASSED_STATUS = "passed";
 
+    private final VerificationSubject subject;
     private final GenerationValidationObservation observation;
 
     private GenerationVerificationEvidenceArtifact(
+            VerificationSubject subject,
             GenerationValidationObservation observation) {
+        this.subject = Objects.requireNonNull(subject, "验证证据主体不能为空");
         this.observation = Objects.requireNonNull(observation, "验证观测不能为空");
     }
 
-    /** 从验证器的实际通过结果创建规范制品，并拒绝写入错误工程类型的检查点。 */
+    /** 从当前受租约保护的生成会话提取不可变验证主体。 */
+    public static VerificationSubject currentSubject(
+            GenerationPreparation preparation,
+            GenerationSession session) {
+        if (preparation == null || session == null) {
+            throw new IllegalArgumentException("生成准备和会话不能为空");
+        }
+        GenerationExecutionContext context = session.executionContext();
+        if (context == null) {
+            throw new IllegalArgumentException("验证证据必须绑定生成执行上下文");
+        }
+        GenerationExecutionFence fence = context.executionFence();
+        if (fence == null) {
+            throw new IllegalArgumentException("验证证据必须绑定生成执行围栏");
+        }
+        if (!Objects.equals(preparation.taskId(), context.taskId())
+                || !Objects.equals(context.taskId(), fence.taskId())) {
+            throw invalid("taskId", "与当前生成执行上下文不一致");
+        }
+        return new VerificationSubject(
+                requirePositive(context.appId(), "appId"),
+                context.taskId(),
+                fence.executionEpoch(),
+                preparation.targetType()
+        );
+    }
+
+    /** 从验证器的实际通过结果创建规范制品，并拒绝写入错误执行主体的检查点。 */
     public static GenerationVerificationEvidenceArtifact fromObservation(
             GenerationValidationObservation observation,
-            CodeGenTypeEnum expectedTargetType) {
+            VerificationSubject subject) {
         Objects.requireNonNull(observation, "验证观测不能为空");
-        Objects.requireNonNull(expectedTargetType, "当前任务目标类型不能为空");
-        if (observation.targetType() != expectedTargetType) {
+        Objects.requireNonNull(subject, "当前验证主体不能为空");
+        if (observation.targetType() != subject.targetType()) {
             throw invalid("targetType", "与当前任务工程类型不一致");
         }
-        return new GenerationVerificationEvidenceArtifact(observation);
+        return new GenerationVerificationEvidenceArtifact(subject, observation);
     }
 
     /**
@@ -51,19 +87,21 @@ public final class GenerationVerificationEvidenceArtifact {
      */
     public static GenerationVerificationEvidenceArtifact fromArtifact(
             GenerationArtifact artifact,
-            CodeGenTypeEnum expectedTargetType) {
+            VerificationSubject expectedSubject) {
         if (artifact == null) {
             throw new IllegalArgumentException("验证证据制品不能为空");
         }
-        if (expectedTargetType == null) {
-            throw new IllegalArgumentException("当前任务目标类型不能为空");
-        }
+        Objects.requireNonNull(expectedSubject, "当前验证主体不能为空");
         if (!KEY.equals(artifact.key())) {
             throw invalid("key", "不是验证证据制品");
         }
         Map<String, Object> payload = artifact.payload();
         if (payload == null) {
             throw new IllegalArgumentException("验证证据载荷不能为空");
+        }
+        String schemaVersion = requireText(payload.get("schemaVersion"), "schemaVersion");
+        if (!SCHEMA_VERSION.equals(schemaVersion)) {
+            throw invalid("schemaVersion", "仅支持 v2");
         }
         String status = requireText(payload.get("status"), "status");
         if (!PASSED_STATUS.equals(status)) {
@@ -74,15 +112,21 @@ public final class GenerationVerificationEvidenceArtifact {
         if (targetType == null) {
             throw invalid("targetType", "不是有效的工程类型");
         }
-        if (targetType != expectedTargetType) {
-            throw invalid("targetType", "与当前任务工程类型不一致");
+        VerificationSubject actualSubject = new VerificationSubject(
+                requirePositive(payload.get("appId"), "appId"),
+                requireText(payload.get("taskId"), "taskId"),
+                requirePositive(payload.get("executionEpoch"), "executionEpoch"),
+                targetType
+        );
+        if (!actualSubject.equals(expectedSubject)) {
+            throw invalid("subject", "与当前生成执行主体不一致");
         }
         String source = requireText(payload.get("source"), "source");
         EnumSet<GenerationExecutionPlan.ValidationStep> passedSteps =
                 requirePassedSteps(payload.get("passedSteps"));
         Map<String, Object> details = requireDetails(payload.get("details"));
         return fromObservation(GenerationValidationObservation.passed(
-                targetType, source, passedSteps, details), expectedTargetType);
+                targetType, source, passedSteps, details), expectedSubject);
     }
 
     /** 合并同一工程类型的后续实际观测；来源和详情以最新验证阶段为准。 */
@@ -95,7 +139,7 @@ public final class GenerationVerificationEvidenceArtifact {
         EnumSet<GenerationExecutionPlan.ValidationStep> mergedSteps =
                 EnumSet.copyOf(observation.passedSteps());
         mergedSteps.addAll(latestObservation.passedSteps());
-        return new GenerationVerificationEvidenceArtifact(GenerationValidationObservation.passed(
+        return new GenerationVerificationEvidenceArtifact(subject, GenerationValidationObservation.passed(
                 latestObservation.targetType(),
                 latestObservation.source(),
                 mergedSteps,
@@ -105,8 +149,12 @@ public final class GenerationVerificationEvidenceArtifact {
     /** 转换为可写入任务检查点的通用制品。 */
     public GenerationArtifact toArtifact() {
         Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("schemaVersion", SCHEMA_VERSION);
         payload.put("status", PASSED_STATUS);
         payload.put("source", observation.source());
+        payload.put("appId", subject.appId());
+        payload.put("taskId", subject.taskId());
+        payload.put("executionEpoch", subject.executionEpoch());
         payload.put("targetType", observation.targetType().getValue());
         payload.put("passedSteps", observation.passedSteps().stream()
                 .sorted()
@@ -161,7 +209,42 @@ public final class GenerationVerificationEvidenceArtifact {
         throw invalid(fieldName, "必须为非空字符串");
     }
 
+    private static long requirePositive(Object value, String fieldName) {
+        if (!(value instanceof Number number)) {
+            throw invalid(fieldName, "必须为正整数");
+        }
+        try {
+            long result = new BigDecimal(number.toString()).longValueExact();
+            if (result <= 0) {
+                throw invalid(fieldName, "必须为正整数");
+            }
+            return result;
+        } catch (ArithmeticException | NumberFormatException exception) {
+            throw invalid(fieldName, "必须为正整数");
+        }
+    }
+
     private static IllegalArgumentException invalid(String fieldName, String reason) {
         return new IllegalArgumentException("验证证据字段 " + fieldName + reason);
+    }
+
+    /** 验证事实所归属的持久执行主体；任一维度变化都必须重新执行验证。 */
+    public record VerificationSubject(
+            long appId,
+            String taskId,
+            long executionEpoch,
+            CodeGenTypeEnum targetType
+    ) {
+
+        public VerificationSubject {
+            if (appId <= 0) {
+                throw invalid("appId", "必须为正整数");
+            }
+            taskId = requireText(taskId, "taskId");
+            if (executionEpoch <= 0) {
+                throw invalid("executionEpoch", "必须为正整数");
+            }
+            Objects.requireNonNull(targetType, "验证证据工程类型不能为空");
+        }
     }
 }

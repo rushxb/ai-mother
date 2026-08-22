@@ -44,7 +44,7 @@ public final class HeavyGenerationCompletionEvidenceFactory {
                     "heavy_workspace",
                     "工作区存在已确认的有效变更"));
         }
-        GenerationVerificationEvidenceRecorder.latestObservation(preparation)
+        GenerationVerificationEvidenceRecorder.latestObservation(preparation, session)
                 .ifPresent(observation -> addVerificationEvidence(observation, evidence));
         return new GenerationCompletionEvidenceSet(evidence);
     }

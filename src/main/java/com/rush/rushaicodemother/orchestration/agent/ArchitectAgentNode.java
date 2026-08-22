@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.agent;
 
+import com.rush.rushaicodemother.orchestration.artifact.ArchitecturePlan;
 import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
@@ -44,10 +45,11 @@ public class ArchitectAgentNode extends BaseGenerationAgentNode {
         );
         ArchitecturePlan architecturePlan = new ArchitecturePlan(
                 modules, constraints, context.getTargetType(), modules.size() > 1);
-        Map<String, Object> payload = architecturePlan.toPayload();
-        GenerationArtifact artifact = GenerationArtifact.of("architecture_plan", "Architect", "架构规划", payload);
+        GenerationArtifact artifact = architecturePlan.toArtifact();
         return AgentNodeResult.of(
-                modules.size() > 1 ? "已完成模块划分，可并行生成" : "已完成工程结构规划",
+                architecturePlan.parallelizable()
+                        ? "已完成模块划分，可并行生成"
+                        : "已完成工程结构规划",
                 List.of(artifact),
                 Map.of("moduleCount", architecturePlan.modules().size(),
                         "parallelizable", architecturePlan.parallelizable())

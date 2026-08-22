@@ -146,6 +146,34 @@ class CodeAgentNodeTest {
     }
 
     @Test
+    void recoveredArchitecturePlanForAnotherProjectTypeMustFailClosed() {
+        GenerationAgentContext context = newContext(false);
+        context.putArtifacts(List.of(
+                GenerationArtifact.of("requirements", "Planner", "需求与目标", Map.of(
+                        "patchFirst", false,
+                        "requiresBuild", true,
+                        "validationMode", "build_validation",
+                        "generationMode", "full_generation",
+                        "goals", List.of("生成 Vue 应用")
+                )),
+                GenerationArtifact.of("architecture_plan", "Architect", "架构规划", Map.of(
+                        "modules", List.of("backend-api", "database"),
+                        "constraints", List.of("使用 Go HTTP 服务"),
+                        "targetType", CodeGenTypeEnum.BACKEND_PROJECT.getValue(),
+                        "parallelizable", true
+                )),
+                contextSummary(List.of(), List.of(), List.of())
+        ));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> node.execute(context)
+        );
+
+        assertTrue(exception.getMessage().contains("架构计划目标类型"));
+    }
+
+    @Test
     void malformedRecoveredContextSummaryMustFailWithDomainDiagnostic() {
         GenerationAgentContext context = newContext(true);
         context.putArtifacts(List.of(

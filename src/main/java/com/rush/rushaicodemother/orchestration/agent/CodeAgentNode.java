@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.agent;
 
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
+import com.rush.rushaicodemother.orchestration.artifact.ArchitecturePlan;
 import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
@@ -55,9 +56,9 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                 .map(ContextSummaryArtifact::fromArtifact)
                 .orElseThrow(() -> new IllegalStateException("缺少项目上下文制品，无法生成代码规范"));
         String projectContext = contextSummary.projectContext();
-        ArchitecturePlan architecturePlan = context.getArtifact("architecture_plan")
-                .map(artifact -> ArchitecturePlan.fromPayload(
-                        artifact.payload(), context.getTargetType()))
+        ArchitecturePlan architecturePlan = context.getArtifact(ArchitecturePlan.KEY)
+                .map(artifact -> ArchitecturePlan.fromArtifact(
+                        artifact, context.getTargetType()))
                 .orElseThrow(() -> new IllegalStateException("缺少架构计划，无法生成代码规范"));
         List<String> modules = architecturePlan.modules();
         List<String> goals = requirements.goals();

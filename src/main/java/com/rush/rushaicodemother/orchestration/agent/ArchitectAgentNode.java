@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.agent;
 
+import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
@@ -31,7 +32,10 @@ public class ArchitectAgentNode extends BaseGenerationAgentNode {
  */
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
-        String projectContext = artifactStringValue(context, "context_summary", "projectContext", "");
+        String projectContext = context.getArtifact(ContextSummaryArtifact.KEY)
+                .map(ContextSummaryArtifact::fromArtifact)
+                .map(ContextSummaryArtifact::projectContext)
+                .orElseThrow(() -> new IllegalStateException("缺少项目上下文制品，无法完成架构规划"));
         List<String> modules = support.inferModules(context.getRequest().userMessage(), projectContext);
         List<String> constraints = List.of(
                 "优先复用已有目录和依赖",

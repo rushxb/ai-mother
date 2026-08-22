@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.dag;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
+import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateArtifact;
@@ -104,6 +105,11 @@ public class GenerationAgentContext {
                     requirements, targetType);
             targetType = restored.targetType();
             upgradeRequired = restored.upgradeRequired();
+        }
+        GenerationArtifact contextSummary = artifacts.get(ContextSummaryArtifact.KEY);
+        if (contextSummary != null) {
+            // 恢复时立即验证，避免损坏字段到 Code 阶段才以强转异常暴露。
+            ContextSummaryArtifact.fromArtifact(contextSummary);
         }
         GenerationArtifact qualityGate = artifacts.get(QualityGateArtifact.KEY);
         if (qualityGate != null) {

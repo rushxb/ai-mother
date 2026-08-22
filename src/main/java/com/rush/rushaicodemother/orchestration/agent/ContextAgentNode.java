@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.agent;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.context.AiContextBoundaryService;
 import com.rush.rushaicodemother.memory.GenerationWorkingMemoryService;
@@ -15,7 +16,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.File;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -88,26 +88,29 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                 context.getRequest().userMessage(),
                 protectedContext.content()
         );
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("intent", contextPackage.intent());
-        payload.put("selectedFiles", normalizedSelectedFiles);
-        payload.put("indexedFileCount", contextPackage.indexedFileCount());
-        payload.put("indexedSymbolCount", contextPackage.indexedSymbolCount());
-        payload.put("indexHits", contextPackage.indexHits());
-        payload.put("contextMode", contextPackage.contextMode());
-        payload.put("projectContext", protectedContext.content());
-        payload.put("contextDigest", protectedContext.digest());
-        payload.put("contextTrust", "untrusted_repository_data");
-        payload.put("contextSecretsRedacted", protectedContext.redacted());
-        payload.put("contextTruncated", protectedContext.truncated());
-        payload.put("contextSourceChars", protectedContext.sourceChars());
-        payload.put("memoryContext", StrUtil.blankToDefault(context.getRequest().resolveMemoryContext(), ""));
-        payload.put("hasGeneratedCode", context.getRequest().hasGeneratedCode());
-        payload.put("recipeIds", matchedRecipes.stream().map(GenerationRecipe::id).toList());
-        payload.put("recipes", support.buildRecipePayloads(matchedRecipes));
-        payload.put("skillIds", matchedSkills.stream().map(GenerationSkill::id).toList());
-        payload.put("skills", support.buildSkillPayloads(matchedSkills));
-        GenerationArtifact artifact = GenerationArtifact.of("context_summary", "Context", "项目上下文", payload);
+        GenerationArtifact artifact = ContextSummaryArtifact.create(
+                new ContextSummaryArtifact.RepositoryContext(
+                        contextPackage.intent(),
+                        normalizedSelectedFiles,
+                        contextPackage.indexedFileCount(),
+                        contextPackage.indexedSymbolCount(),
+                        contextPackage.indexHits(),
+                        contextPackage.contextMode(),
+                        protectedContext.content()
+                ),
+                new ContextSummaryArtifact.ContextProtection(
+                        protectedContext.digest(),
+                        protectedContext.redacted(),
+                        protectedContext.truncated(),
+                        protectedContext.sourceChars()
+                ),
+                new ContextSummaryArtifact.AgentGuidance(
+                        StrUtil.blankToDefault(context.getRequest().resolveMemoryContext(), ""),
+                        context.getRequest().hasGeneratedCode(),
+                        support.buildRecipePayloads(matchedRecipes),
+                        support.buildSkillPayloads(matchedSkills)
+                )
+        ).toArtifact();
         String summary = StrUtil.isBlank(contextPackage.projectContext())
                 ? "未发现可复用项目上下文，将按新项目处理"
                 : "已提取意图化精简上下文";

@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.dag;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
+import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateArtifact;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationAgentContextCheckpointTest {
 
@@ -69,6 +71,33 @@ class GenerationAgentContextCheckpointTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new GenerationAgentContext(request(), task, true)
+        );
+    }
+
+    @Test
+    void malformedContextSummaryMustBeRejectedDuringCheckpointRestore() {
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-malformed-context-summary");
+        task.getArtifacts().put(
+                ContextSummaryArtifact.KEY,
+                GenerationArtifact.of(
+                        ContextSummaryArtifact.KEY,
+                        "Context",
+                        "损坏的项目上下文",
+                        Map.of(
+                                "intent", "app",
+                                "selectedFiles", List.of(Map.of("path", "src/App.vue"))
+                        )
+                )
+        );
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> new GenerationAgentContext(request(), task, true)
+        );
+
+        assertTrue(
+                exception.getMessage().contains("上下文制品字段 selectedFiles")
         );
     }
 

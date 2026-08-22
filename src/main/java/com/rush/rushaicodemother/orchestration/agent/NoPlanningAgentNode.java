@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.agent;
 
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
+import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
@@ -40,8 +41,10 @@ public class NoPlanningAgentNode extends BaseGenerationAgentNode {
 
         boolean patchFirst = context.getRequest().hasGeneratedCode();
         String validationMode = context.isHeavyPath() ? "build_validation" : "review_only";
-        List<String> selectedFiles = stringList(
-                context.getArtifactValue("context_summary", "selectedFiles"));
+        List<String> selectedFiles = context.getArtifact(ContextSummaryArtifact.KEY)
+                .map(ContextSummaryArtifact::fromArtifact)
+                .map(ContextSummaryArtifact::selectedFiles)
+                .orElseThrow(() -> new IllegalStateException("缺少项目上下文制品，无法生成无规划变更边界"));
         ChangePlan changePlan = new ChangePlan(
                 "v1",
                 patchFirst ? "targeted_update" : "project_bootstrap",
@@ -82,10 +85,4 @@ public class NoPlanningAgentNode extends BaseGenerationAgentNode {
         artifacts.addAll(result.artifacts());
     }
 
-    private List<String> stringList(Object value) {
-        if (!(value instanceof List<?> values)) {
-            return List.of();
-        }
-        return values.stream().filter(String.class::isInstance).map(String.class::cast).toList();
-    }
 }

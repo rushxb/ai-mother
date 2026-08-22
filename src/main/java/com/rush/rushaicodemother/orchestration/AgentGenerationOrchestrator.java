@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
+import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
@@ -241,23 +242,18 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
                 .map(ChangePlan::fromArtifact)
                 .map(ChangePlan::rollbackStrategy)
                 .orElse("");
-        String contextMode = artifactString(context, "context_summary", "contextMode");
-        int selectedFileCount = artifactListSize(context, "context_summary", "selectedFiles");
-        int indexedFileCount = artifactInt(context, "context_summary", "indexedFileCount");
-        int indexedSymbolCount = artifactInt(context, "context_summary", "indexedSymbolCount");
-        int indexHitCount = artifactListSize(context, "context_summary", "indexHits");
-        int contextChars = artifactString(context, "context_summary", "projectContext").length();
+        ContextSummaryArtifact contextSummary = requireContextSummary(context);
         metricsCollector.recordPatchFirstPlan(orchestrationMode, patchFirst);
         metricsCollector.recordBuildFixPlan(orchestrationMode, buildFixEnabled);
         metricsCollector.recordRollbackPlan(orchestrationMode, rollbackStrategy);
         metricsCollector.recordContextSnapshot(
                 orchestrationMode,
-                contextMode,
-                selectedFileCount,
-                indexedFileCount,
-                indexedSymbolCount,
-                indexHitCount,
-                contextChars
+                contextSummary.contextMode(),
+                contextSummary.selectedFiles().size(),
+                contextSummary.indexedFileCount(),
+                contextSummary.indexedSymbolCount(),
+                contextSummary.indexHitCount(),
+                contextSummary.projectContextChars()
         );
         if (gateResult != null) {
             metricsCollector.recordQualityGate(orchestrationMode, gateResult.passed(), gateResult.level());
@@ -276,6 +272,23 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
             throw new BusinessException(
                     ErrorCode.OPERATION_ERROR,
                     "代码生成规范已损坏，无法继续执行",
+                    exception
+            );
+        }
+    }
+
+    private ContextSummaryArtifact requireContextSummary(GenerationAgentContext context) {
+        GenerationArtifact artifact = context.getArtifact(ContextSummaryArtifact.KEY)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.OPERATION_ERROR,
+                        "缺少项目上下文制品"
+                ));
+        try {
+            return ContextSummaryArtifact.fromArtifact(artifact);
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "项目上下文制品已损坏，无法记录生成决策",
                     exception
             );
         }
@@ -312,32 +325,4 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         return value != null && Boolean.parseBoolean(String.valueOf(value));
     }
 
-    private String artifactString(GenerationAgentContext context, String artifactKey, String payloadKey) {
-        Object value = context.getArtifactValue(artifactKey, payloadKey);
-        return value == null ? "" : String.valueOf(value);
-    }
-
-    /** 返回制品{@code Int}。 */
-    private int artifactInt(GenerationAgentContext context, String artifactKey, String payloadKey) {
-        Object value = context.getArtifactValue(artifactKey, payloadKey);
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        if (value == null) {
-            return 0;
-        }
-        try {
-            return Integer.parseInt(String.valueOf(value));
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
-
-    private int artifactListSize(GenerationAgentContext context, String artifactKey, String payloadKey) {
-        Object value = context.getArtifactValue(artifactKey, payloadKey);
-        if (value instanceof List<?> listValue) {
-            return listValue.size();
-        }
-        return 0;
-    }
 }

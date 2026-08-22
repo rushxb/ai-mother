@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
+import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
@@ -49,17 +50,20 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                 .map(artifact -> GenerationRequirementsArtifact.fromArtifact(
                         artifact, context.getTargetType()))
                 .orElseThrow(() -> new IllegalStateException("缺少需求制品，无法生成代码规范"));
-        String projectContext = artifactStringValue(context, "context_summary", "projectContext", "");
+        ContextSummaryArtifact contextSummary = context
+                .getArtifact(ContextSummaryArtifact.KEY)
+                .map(ContextSummaryArtifact::fromArtifact)
+                .orElseThrow(() -> new IllegalStateException("缺少项目上下文制品，无法生成代码规范"));
+        String projectContext = contextSummary.projectContext();
         ArchitecturePlan architecturePlan = context.getArtifact("architecture_plan")
                 .map(artifact -> ArchitecturePlan.fromPayload(
                         artifact.payload(), context.getTargetType()))
                 .orElseThrow(() -> new IllegalStateException("缺少架构计划，无法生成代码规范"));
         List<String> modules = architecturePlan.modules();
         List<String> goals = requirements.goals();
-        @SuppressWarnings("unchecked")
-        List<String> selectedFiles = (List<String>) context.getArtifactValue("context_summary", "selectedFiles");
-        List<Map<String, Object>> recipes = readRecipePayloads(context, requirements);
-        List<Map<String, Object>> skills = readSkillPayloads(context, requirements);
+        List<String> selectedFiles = contextSummary.selectedFiles();
+        List<Map<String, Object>> recipes = contextSummary.recipes();
+        List<Map<String, Object>> skills = contextSummary.skills();
         TemplateBootstrapArtifact templateBootstrap = context
                 .getArtifact(TemplateBootstrapArtifact.KEY)
                 .map(artifact -> TemplateBootstrapArtifact.fromArtifact(
@@ -73,7 +77,8 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         String validationMode = requirements.validationMode();
         String generationMode = requirements.generationMode();
         String prompt = buildExecutionPrompt(
-                context, projectContext, modules, goals, skills, recipes, templateBootstrap, requirements);
+                context, contextSummary, projectContext, modules, goals, skills, recipes,
+                templateBootstrap, requirements);
         ChangePlan changePlan = buildChangePlan(modules, selectedFiles, patchFirst, validationMode, requiresBuild);
         Map<String, Object> specificationDetails = new LinkedHashMap<>();
         specificationDetails.put("modulePlan", modules == null ? List.of() : modules);
@@ -110,6 +115,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
 
     /** 构建并返回执行提示词。 */
     private String buildExecutionPrompt(GenerationAgentContext context,
+                                        ContextSummaryArtifact contextSummary,
                                         String projectContext,
                                         List<String> modules,
                                          List<String> goals,
@@ -130,7 +136,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                     + context.getTargetType().getText() + "。");
             lines.add("必须保留已有业务能力与设计意图，并迁移为可持续迭代的工程结构。");
         }
-        String memoryContext = artifactStringValue(context, "context_summary", "memoryContext", "");
+        String memoryContext = contextSummary.memoryContext();
         if (StrUtil.isNotBlank(memoryContext)) {
             lines.add("");
             lines.add(memoryContext);
@@ -175,7 +181,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         lines.add("【ChangePlan】" + "scope=" + buildChangeScope(modules, patchFirst)
                 + ", validate=" + validationMode
                 + ", rollback=" + (requiresBuild ? "snapshot_or_manual_retry" : "manual_retry")
-                + ", modify=" + formatFileListForPrompt(context.getArtifactValue("context_summary", "selectedFiles"))
+                + ", modify=" + formatFileListForPrompt(contextSummary.selectedFiles())
                 + ", add=[]"
                 + ", delete=[]"
                 + ", impacted=" + formatModulesForPrompt(modules));
@@ -226,30 +232,6 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         lines.add("- Repository 必须使用 SQLite 参数化 SQL；Handler 必须使用 internal/response 统一 JSON 响应；Service 负责业务规则和中文错误消息。");
         lines.add("- 不新增 Go Web 框架或 ORM，不改稳定基础设施文件，不硬编码密钥、私有地址、端口或数据库路径。");
         lines.add("- 新增业务能力优先沿用模板中的 @AI_INJECT_MODULE_WIRING、@AI_INJECT_ROUTE 锚点和 RegisterRoutes 约定，避免重建工程骨架。");
-    }
-
-    /** 读取{@code Recipe}{@code Payloads}。 */
-    @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> readRecipePayloads(
-            GenerationAgentContext context,
-            GenerationRequirementsArtifact requirements) {
-        Object contextRecipes = context.getArtifactValue("context_summary", "recipes");
-        if (contextRecipes instanceof List<?> list && list.stream().allMatch(Map.class::isInstance)) {
-            return (List<Map<String, Object>>) contextRecipes;
-        }
-        return requirements.recipes();
-    }
-
-    /** 读取{@code Skill}{@code Payloads}。 */
-    @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> readSkillPayloads(
-            GenerationAgentContext context,
-            GenerationRequirementsArtifact requirements) {
-        Object contextSkills = context.getArtifactValue("context_summary", "skills");
-        if (contextSkills instanceof List<?> list && list.stream().allMatch(Map.class::isInstance)) {
-            return (List<Map<String, Object>>) contextSkills;
-        }
-        return requirements.skills();
     }
 
     /** 追加{@code Recipe}{@code Instructions}。 */
@@ -355,12 +337,8 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         return "single_module_patch";
     }
 
-    @SuppressWarnings("unchecked")
-    private String formatFileListForPrompt(Object selectedFilesObj) {
-        if (!(selectedFilesObj instanceof List<?> selectedFiles)) {
-            return "[]";
-        }
-        List<String> normalizedSelectedFiles = normalizeSelectedFiles((List<String>) selectedFiles);
+    private String formatFileListForPrompt(List<String> selectedFiles) {
+        List<String> normalizedSelectedFiles = normalizeSelectedFiles(selectedFiles);
         return normalizedSelectedFiles.isEmpty() ? "[]" : normalizedSelectedFiles.toString();
     }
 

@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
@@ -47,12 +48,9 @@ class CodeAgentNodeTest {
                 GenerationArtifact.of("architecture_plan", "Architect", "架构规划", Map.of(
                         "modules", List.of("navigation", "form")
                 )),
-                GenerationArtifact.of("context_summary", "Context", "项目上下文", Map.of(
-                        "selectedFiles", List.of("src/router/index.ts", "src/components/UserForm.vue"),
-                        "projectContext", "",
-                        "intent", "navigation",
-                        "contextMode", "intent_selected_files",
-                        "recipes", List.of(Map.of(
+                contextSummary(
+                        List.of("src/router/index.ts", "src/components/UserForm.vue"),
+                        List.of(Map.of(
                                 "id", "form-settings",
                                 "title", "表单 / 设置页",
                                 "modules", List.of("form", "settings"),
@@ -60,7 +58,7 @@ class CodeAgentNodeTest {
                                 "validationHints", List.of("验证必填校验"),
                                 "databaseRequired", false
                         )),
-                        "skills", List.of(Map.of(
+                        List.of(Map.of(
                                 "id", "vue-admin-dashboard",
                                 "title", "Vue Admin Dashboard",
                                 "modules", List.of("dashboard", "navigation"),
@@ -69,7 +67,7 @@ class CodeAgentNodeTest {
                                 "promptInstructions", "- 页面、路由和菜单要一起改。",
                                 "databaseRequired", false
                         ))
-                ))
+                )
         ));
 
         AgentNodeResult result = node.execute(context);
@@ -113,6 +111,7 @@ class CodeAgentNodeTest {
                 GenerationArtifact.of("architecture_plan", "Architect", "架构规划", Map.of(
                         "modules", List.of("app")
                 )),
+                contextSummary(List.of(), List.of(), List.of()),
                 GenerationArtifact.of("template_bootstrap", "Template", "项目模板", Map.of(
                         "bootstrapped", true,
                         "templateId", "vue-web-basic",
@@ -147,6 +146,35 @@ class CodeAgentNodeTest {
     }
 
     @Test
+    void malformedRecoveredContextSummaryMustFailWithDomainDiagnostic() {
+        GenerationAgentContext context = newContext(true);
+        context.putArtifacts(List.of(
+                GenerationArtifact.of("requirements", "Planner", "需求与目标", Map.of(
+                        "patchFirst", true,
+                        "requiresBuild", true,
+                        "validationMode", "build_validation",
+                        "generationMode", "patch_first_update",
+                        "goals", List.of("保留现有能力")
+                )),
+                GenerationArtifact.of("architecture_plan", "Architect", "架构规划", Map.of(
+                        "modules", List.of("app")
+                )),
+                GenerationArtifact.of("context_summary", "Context", "项目上下文", Map.of(
+                        "intent", "app",
+                        "selectedFiles", List.of(Map.of("path", "src/App.vue")),
+                        "projectContext", "当前项目摘要"
+                ))
+        ));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> node.execute(context)
+        );
+
+        assertTrue(exception.getMessage().contains("上下文制品字段 selectedFiles"));
+    }
+
+    @Test
     void malformedRecoveredApiContractMustNotBeSilentlyOmittedFromPrompt() {
         GenerationAgentContext context = newContext(false);
         context.putArtifacts(List.of(
@@ -160,6 +188,7 @@ class CodeAgentNodeTest {
                 GenerationArtifact.of("architecture_plan", "Architect", "架构规划", Map.of(
                         "modules", List.of("app")
                 )),
+                contextSummary(List.of(), List.of(), List.of()),
                 GenerationArtifact.of(ApiContractArtifact.KEY, "Planner", "API 字段契约", Map.of(
                         "status", "ready"
                 ))
@@ -189,5 +218,35 @@ class CodeAgentNodeTest {
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
         task.setTaskId("task-1");
         return new GenerationAgentContext(request, task, true);
+    }
+
+    private GenerationArtifact contextSummary(
+            List<String> selectedFiles,
+            List<Map<String, Object>> recipes,
+            List<Map<String, Object>> skills
+    ) {
+        return ContextSummaryArtifact.create(
+                new ContextSummaryArtifact.RepositoryContext(
+                        "navigation",
+                        selectedFiles,
+                        0,
+                        0,
+                        List.of(),
+                        "intent_selected_files",
+                        ""
+                ),
+                new ContextSummaryArtifact.ContextProtection(
+                        "0".repeat(64),
+                        false,
+                        false,
+                        0
+                ),
+                new ContextSummaryArtifact.AgentGuidance(
+                        "",
+                        true,
+                        recipes,
+                        skills
+                )
+        ).toArtifact();
     }
 }

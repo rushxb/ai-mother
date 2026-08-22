@@ -103,6 +103,37 @@ class ReviewAgentNodeTest {
                 .anyMatch(message -> message.contains("validationLevel")));
     }
 
+    @Test
+    void patchFirstMustRejectBootstrapChangePlanRecoveredFromCheckpoint() {
+        GenerationAgentContext context = newContext();
+        context.putArtifacts(List.of(
+                GenerationArtifact.of("generation_spec", "Code", "生成规范", Map.of(
+                        "enhancedPrompt", "prompt",
+                        "patchFirst", true,
+                        "requiresBuild", true,
+                        "validationMode", "build_validation",
+                        "generationMode", "patch_first_update"
+                )),
+                GenerationArtifact.of("change_plan", "Code", "变更计划", Map.of(
+                        "schemaVersion", "v1",
+                        "changeScope", "project_bootstrap",
+                        "addFiles", List.of(),
+                        "modifyFiles", List.of(),
+                        "deleteFiles", List.of(),
+                        "impactedModules", List.of(),
+                        "validationLevel", "build_validation",
+                        "rollbackStrategy", "rollback_to_last_stable_snapshot_or_manual_retry"
+                ))
+        ));
+
+        node.execute(context);
+
+        assertFalse(context.getQualityGateResult().passed());
+        assertTrue(context.getQualityGateResult().blockers().stream()
+                .anyMatch(message -> message.contains("patch-first")
+                        && message.contains("project_bootstrap")));
+    }
+
     private GenerationAgentContext newContext() {
         App app = new App();
         app.setId(1L);

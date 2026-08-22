@@ -11,7 +11,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -33,9 +32,14 @@ public class GenerationPatchResultService {
                                 String taskId,
                                 GenerationArtifact changePlanArtifact,
                                 GenerationArtifact diffSummaryArtifact) {
-        ChangePlan changePlan = ChangePlan.fromPayload(payload(changePlanArtifact));
-        if (changePlan == null) {
+        if (changePlanArtifact == null) {
             return PatchResult.skipped(appId, taskId, "change_plan_missing");
+        }
+        ChangePlan changePlan;
+        try {
+            changePlan = ChangePlan.fromArtifact(changePlanArtifact);
+        } catch (IllegalArgumentException invalidArtifact) {
+            return PatchResult.skipped(appId, taskId, "change_plan_invalid");
         }
         if ("project_bootstrap".equals(changePlan.changeScope())) {
             return PatchResult.skipped(appId, taskId, "project_bootstrap_not_patch_first");
@@ -113,10 +117,6 @@ public class GenerationPatchResultService {
                 .filter(file -> !actualSet.contains(file))
                 .map(file -> kind + ":" + file)
                 .toList();
-    }
-
-    private Map<String, Object> payload(GenerationArtifact artifact) {
-        return artifact == null || artifact.payload() == null ? Map.of() : artifact.payload();
     }
 
     /** 规范化文件。 */

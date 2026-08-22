@@ -12,6 +12,7 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
+import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
@@ -137,6 +138,29 @@ class HeavyGenerationSessionCompletionServiceTest {
                         && command.reason().equals("failed")
                         && command.memorySummary() != null));
         verifyNoInteractions(terminalIntentService);
+    }
+
+    @Test
+    void invalidChangePlanMustNotBlockFailedTaskFinalization() {
+        GenerationTaskFinalizer finalizer = mock(GenerationTaskFinalizer.class);
+        HeavyGenerationSessionCompletionService service = service(
+                finalizer, mock(GenerationOutcomeMemoryService.class));
+        GenerationPreparation preparation = preparation();
+        preparation.putArtifact(GenerationArtifact.of(
+                ChangePlan.KEY,
+                "test",
+                "损坏的变更计划",
+                Map.of("schemaVersion", "v1")
+        ));
+        GenerationSession session = new GenerationSession(preparation);
+        session.bindTaskRequest(new GenerationTaskRequest(app(), "创建订单管理页面", user()));
+
+        assertDoesNotThrow(() -> service.completeClaimed(
+                1L, session, preparation, GenerationTerminalOutcome.FAILED));
+
+        verify(finalizer).finalizeManaged(org.mockito.ArgumentMatchers.argThat(command ->
+                command.status() == GenerationTaskStatus.FAILED
+                        && command.memorySummary().contains("变更计划：制品无效，未纳入结果记忆")));
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
+import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
@@ -202,9 +203,15 @@ public class HeavyGenerationSessionCompletionService {
         lines.add("生成类型：" + (preparation.targetType() == null ? "unknown" : preparation.targetType().getValue())
                 + "，阶段：" + StrUtil.blankToDefault(preparation.generatingStage(), "unknown")
                 + "，构建校验：" + preparation.requiresBuildValidation());
-        GenerationArtifact changePlan = preparation.artifact("change_plan");
-        if (changePlan != null) {
-            lines.add("变更计划：" + compactMemoryText(String.valueOf(changePlan.payload()), 900));
+        GenerationArtifact changePlanArtifact = preparation.artifact(ChangePlan.KEY);
+        if (changePlanArtifact != null) {
+            try {
+                ChangePlan changePlan = ChangePlan.fromArtifact(changePlanArtifact);
+                lines.add("变更计划：" + compactMemoryText(String.valueOf(changePlan.toPayload()), 900));
+            } catch (IllegalArgumentException exception) {
+                // 结果记忆是非关键旁路，损坏制品不能阻塞失败任务完成终态结算。
+                lines.add("变更计划：制品无效，未纳入结果记忆");
+            }
         }
         appendDiffSummaryMemory(lines, appId, preparation);
         appendPatchResultMemory(lines, appId, preparation);

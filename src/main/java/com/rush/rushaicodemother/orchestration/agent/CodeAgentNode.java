@@ -87,7 +87,7 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
         specificationDetails.put("skillIds", readSkillIds(skills));
         specificationDetails.put("skills", skills);
         specificationDetails.put("recipes", recipes);
-        GenerationArtifact changePlanArtifact = GenerationArtifact.of("change_plan", "Code", "变更计划", changePlan.toPayload());
+        GenerationArtifact changePlanArtifact = changePlan.toArtifact("Code", "变更计划");
         GenerationArtifact artifact = GenerationSpecificationArtifact.execution(
                 prompt,
                 patchFirst,

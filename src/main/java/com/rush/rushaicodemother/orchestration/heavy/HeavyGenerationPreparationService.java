@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.context.GenerationMemoryContextOverlapExecutor;
 import com.rush.rushaicodemother.orchestration.context.GenerationMemoryContextOverlapExecutor.MemoryContextHandle;
 import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentAssembler;
@@ -22,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.function.Function;
 
 @Service
@@ -126,9 +128,19 @@ public class HeavyGenerationPreparationService {
         if (app == null || app.getId() == null || preparation == null) {
             return;
         }
-        GenerationArtifact changePlanArtifact = preparation.artifact("change_plan");
-        ChangePlan changePlan = changePlanArtifact == null ? null : ChangePlan.fromPayload(changePlanArtifact.payload());
-        boolean allowUnplannedWrite = changePlan != null && "project_bootstrap".equals(changePlan.changeScope());
+        GenerationArtifact changePlanArtifact = preparation.artifact(ChangePlan.KEY);
+        ChangePlan changePlan = changePlanArtifact == null ? null : ChangePlan.fromArtifact(changePlanArtifact);
+        if (changePlan != null) {
+            GenerationArtifact specificationArtifact = preparation.artifact(GenerationSpecificationArtifact.KEY);
+            GenerationSpecificationArtifact specification = GenerationSpecificationArtifact.fromArtifact(
+                    specificationArtifact
+            );
+            List<String> blockers = changePlan.validateAgainst(specification);
+            if (!blockers.isEmpty()) {
+                throw new IllegalArgumentException("变更计划与生成规范不一致: " + String.join("；", blockers));
+            }
+        }
+        boolean allowUnplannedWrite = changePlan != null && changePlan.allowsUnplannedWrite();
         String generationMode = allowUnplannedWrite ? "full_generation" : "patch_first";
         generationToolExecutionContextService.bindChangePlan(
                 app.getId(),

@@ -39,9 +39,8 @@ public class BuildFixAgentNode extends BaseGenerationAgentNode {
         boolean patchFirst = specification.patchFirst();
         String validationMode = specification.validationMode();
         String generationMode = specification.generationMode();
-        ChangePlan changePlan = context.getArtifact("change_plan")
-                .map(GenerationArtifact::payload)
-                .map(ChangePlan::fromPayload)
+        ChangePlan changePlan = context.getArtifact(ChangePlan.KEY)
+                .map(ChangePlan::fromArtifact)
                 .orElse(null);
         String rollbackStrategy = changePlan == null
                 ? (requiresBuild ? "rollback_to_last_stable_snapshot_or_manual_retry" : "manual_retry_without_snapshot")
@@ -57,9 +56,7 @@ public class BuildFixAgentNode extends BaseGenerationAgentNode {
         payload.put("enabled", requiresBuild);
         payload.put("rollbackStrategy", rollbackStrategy);
         payload.put("impactedModules", changePlan == null ? List.of() : changePlan.impactedModules());
-        payload.put("fileChangeCount", changePlan == null
-                ? 0
-                : changePlan.addFiles().size() + changePlan.modifyFiles().size() + changePlan.deleteFiles().size());
+        payload.put("fileChangeCount", changePlan == null ? 0 : changePlan.fileChangeCount());
         GenerationArtifact artifact = GenerationArtifact.of("buildfix_plan", "BuildFix", "构建修复策略", payload);
         return AgentNodeResult.of(
                 requiresBuild ? "已配置构建校验、自动修复和失败回退策略" : "当前模式无需 BuildFix，仅保留失败回退策略",

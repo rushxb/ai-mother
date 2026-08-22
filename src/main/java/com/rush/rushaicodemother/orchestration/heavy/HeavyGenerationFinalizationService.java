@@ -257,7 +257,7 @@ public class HeavyGenerationFinalizationService {
         PatchResult patchResult = generationPatchResultService.evaluate(
                 appId,
                 preparation.taskId(),
-                preparation.artifact("change_plan"),
+                preparation.artifact(ChangePlan.KEY),
                 diffSummary
         );
         GenerationArtifact patchResultArtifact = patchResult.toArtifact();
@@ -286,9 +286,9 @@ public class HeavyGenerationFinalizationService {
                 && session.executionWorkspace().codeGenType() == preparation.targetType()
                 ? session.executionWorkspace().workspace().canonicalRootPath()
                 : generationWorkspaceService.resolve(appId, preparation.targetType()).canonicalRootPath();
-        ChangePlan changePlan = preparation.artifact("change_plan") == null
+        ChangePlan changePlan = preparation.artifact(ChangePlan.KEY) == null
                 ? null
-                : ChangePlan.fromPayload(preparation.artifact("change_plan").payload());
+                : ChangePlan.fromArtifact(preparation.artifact(ChangePlan.KEY));
         OrphanFileReviewService.OrphanFileReviewResult result = orphanFileReviewService.review(projectRoot, changePlan);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("status", result.status());

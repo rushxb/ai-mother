@@ -135,12 +135,10 @@ public class CreatePostGenerationValidationService {
                         .postGenerationValidation(true)
                         .toArtifact("CREATE", "CREATE 模板生成后验证规范")
         );
-        artifacts.put("change_plan", GenerationArtifact.of(
-                "change_plan",
-                "CREATE",
-                "CREATE 模板生成后修复边界",
-                changePlan(result).toPayload()
-        ));
+        artifacts.put(
+                ChangePlan.KEY,
+                changePlan(result).toArtifact("CREATE", "CREATE 模板生成后修复边界")
+        );
         return new GenerationPreparation(
                 codeGenType,
                 codeGenType,

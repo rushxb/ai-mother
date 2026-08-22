@@ -6,7 +6,9 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * 标准化变更计划契约。
@@ -21,6 +23,12 @@ public record ChangePlan(
         String validationLevel,
         String rollbackStrategy
 ) {
+
+    public static final String KEY = "change_plan";
+
+    private static final Pattern CHANGE_SCOPE_PATTERN = Pattern.compile("[a-z][a-z0-9_]{0,63}");
+
+    private static final Pattern WINDOWS_ABSOLUTE_PATH_PATTERN = Pattern.compile("^[a-zA-Z]:/.*");
 
     private static final Set<String> SUPPORTED_VALIDATION_LEVELS = Set.of(
             "review_only", "build_validation", "validate_light", "build_light", "full_build"
@@ -61,6 +69,47 @@ public record ChangePlan(
     }
 
     /**
+     * 从持久化制品恢复规范化变更计划。
+     *
+     * <p>持久检查点会跨进程、跨版本恢复，并最终参与工具写入授权。这里采用严格类型与
+     * 规范路径校验，禁止通过默认值、字符串强转或静默丢弃非法路径把损坏制品变成合法计划。</p>
+     */
+    public static ChangePlan fromArtifact(GenerationArtifact artifact) {
+        if (artifact == null) {
+            throw invalidField("artifact", "制品不能为空");
+        }
+        if (!KEY.equals(artifact.key())) {
+            throw invalidField("key", "制品类型不匹配: " + artifact.key());
+        }
+        Map<String, Object> payload = artifact.payload();
+        if (payload == null) {
+            throw invalidField("payload", "载荷不能为空");
+        }
+        String schemaVersion = requireText(payload.get("schemaVersion"), "schemaVersion");
+        if (!"v1".equals(schemaVersion)) {
+            throw invalidField("schemaVersion", "不受支持: " + schemaVersion);
+        }
+        String changeScope = requireText(payload.get("changeScope"), "changeScope");
+        if (!CHANGE_SCOPE_PATTERN.matcher(changeScope).matches()) {
+            throw invalidField("changeScope", "格式不合法: " + changeScope);
+        }
+        String validationLevel = requireText(payload.get("validationLevel"), "validationLevel");
+        if (!SUPPORTED_VALIDATION_LEVELS.contains(validationLevel)) {
+            throw invalidField("validationLevel", "不受支持: " + validationLevel);
+        }
+        return new ChangePlan(
+                schemaVersion,
+                changeScope,
+                requireCanonicalFileList(payload.get("addFiles"), "addFiles"),
+                requireCanonicalFileList(payload.get("modifyFiles"), "modifyFiles"),
+                requireCanonicalFileList(payload.get("deleteFiles"), "deleteFiles"),
+                requireCanonicalNameList(payload.get("impactedModules"), "impactedModules"),
+                validationLevel,
+                requireText(payload.get("rollbackStrategy"), "rollbackStrategy")
+        );
+    }
+
+    /**
  * 将当前对象转换为载荷。
  *
  * @return 载荷集合
@@ -78,6 +127,16 @@ public record ChangePlan(
         return payload;
     }
 
+    /** 以统一 key 写入可恢复的 DAG 制品。 */
+    public GenerationArtifact toArtifact(String role, String title) {
+        return GenerationArtifact.of(
+                KEY,
+                requireText(role, "role"),
+                requireText(title, "title"),
+                toPayload()
+        );
+    }
+
     public boolean hasFileChanges() {
         return !addFiles.isEmpty() || !modifyFiles.isEmpty() || !deleteFiles.isEmpty();
     }
@@ -92,6 +151,39 @@ public record ChangePlan(
     }
 
     /**
+     * 是否允许工具在显式文件计划之外创建完整工程。
+     *
+     * <p>该权限只能由规范化的 bootstrap 计划派生，调用方不得再次解释 scope 字符串。</p>
+     */
+    public boolean allowsUnplannedWrite() {
+        return isProjectBootstrap();
+    }
+
+    /** 返回计划内新增、修改和删除文件总数。 */
+    public int fileChangeCount() {
+        return addFiles.size() + modifyFiles.size() + deleteFiles.size();
+    }
+
+    /** 校验变更计划与同一检查点中的代码生成规范是否一致。 */
+    public List<String> validateAgainst(GenerationSpecificationArtifact specification) {
+        Objects.requireNonNull(specification, "代码生成规范不能为空");
+        if (specification.patchFirst()) {
+            return validateForPatchFirst(
+                    specification.requiresBuild(),
+                    specification.validationMode()
+            );
+        }
+        List<String> blockers = new java.util.ArrayList<>();
+        if (!isProjectBootstrap()) {
+            blockers.add("完整生成规范必须声明 project_bootstrap 变更计划");
+        }
+        if (!specification.validationMode().equals(validationLevel)) {
+            blockers.add("变更计划 validationLevel 与生成规范不一致");
+        }
+        return List.copyOf(blockers);
+    }
+
+    /**
  * 校验{@code ate}{@code For}补丁{@code First}是否有效。
  *
  * @param requiresBuild {@code requiresBuild} 对应的调用参数
@@ -103,7 +195,9 @@ public record ChangePlan(
         if (!"v1".equals(schemaVersion)) {
             blockers.add("变更计划 schemaVersion 不受支持: " + schemaVersion);
         }
-        if (!isProjectBootstrap() && !hasFileChanges()) {
+        if (isProjectBootstrap()) {
+            blockers.add("patch-first 变更计划不能声明 project_bootstrap 写入范围");
+        } else if (!hasFileChanges()) {
             blockers.add("变更计划缺少新增、修改或删除文件范围");
         }
         if (!SUPPORTED_VALIDATION_LEVELS.contains(validationLevel)) {
@@ -131,9 +225,16 @@ public record ChangePlan(
         return paths.stream()
                 .filter(StrUtil::isNotBlank)
                 .map(path -> path.replace("\\", "/").trim())
-                .filter(path -> !path.startsWith("/") && !path.contains(".."))
+                .filter(ChangePlan::isWorkspaceRelativePath)
                 .distinct()
                 .toList();
+    }
+
+    /** 变更计划只接受工作区内相对路径，避免持久制品绕过写入边界。 */
+    private static boolean isWorkspaceRelativePath(String path) {
+        return !path.startsWith("/")
+                && !WINDOWS_ABSOLUTE_PATH_PATTERN.matcher(path).matches()
+                && !path.contains("..");
     }
 
     private boolean isProjectBootstrap() {
@@ -153,6 +254,49 @@ public record ChangePlan(
 
     private static String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private static List<String> requireCanonicalFileList(Object value, String fieldName) {
+        List<String> values = requireStringList(value, fieldName);
+        List<String> normalized = normalizeFilePaths(values);
+        if (!normalized.equals(values)) {
+            throw invalidField(fieldName, "必须为去重后的规范相对路径，且不能包含绝对路径或上级目录");
+        }
+        return normalized;
+    }
+
+    private static List<String> requireCanonicalNameList(Object value, String fieldName) {
+        List<String> values = requireStringList(value, fieldName);
+        List<String> normalized = normalizeNames(values);
+        if (!normalized.equals(values)) {
+            throw invalidField(fieldName, "必须为去重后的非空名称列表");
+        }
+        return normalized;
+    }
+
+    private static List<String> requireStringList(Object value, String fieldName) {
+        if (!(value instanceof List<?> values)) {
+            throw invalidField(fieldName, "必须为字符串列表");
+        }
+        List<String> result = new java.util.ArrayList<>(values.size());
+        for (Object item : values) {
+            if (!(item instanceof String text) || text.isBlank()) {
+                throw invalidField(fieldName, "只能包含非空字符串");
+            }
+            result.add(text.trim());
+        }
+        return List.copyOf(result);
+    }
+
+    private static String requireText(Object value, String fieldName) {
+        if (!(value instanceof String text) || text.isBlank()) {
+            throw invalidField(fieldName, "必须为非空字符串");
+        }
+        return text.trim();
+    }
+
+    private static IllegalArgumentException invalidField(String fieldName, String reason) {
+        return new IllegalArgumentException("变更计划制品字段 " + fieldName + ": " + reason);
     }
 
     /** 列出符合条件的值。 */

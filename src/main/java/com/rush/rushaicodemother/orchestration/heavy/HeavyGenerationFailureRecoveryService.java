@@ -12,6 +12,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadl
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
+import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
@@ -170,7 +171,7 @@ public class HeavyGenerationFailureRecoveryService {
         GenerationArtifact rollbackRestore = generationRollbackRestoreService.restoreIfAllowed(
                 appId,
                 preparation.taskId(),
-                preparation.artifact("change_plan"),
+                preparation.artifact(ChangePlan.KEY),
                 preparation.artifact(RollbackPoint.KEY)
         );
         preparation.putArtifact(rollbackRestore);

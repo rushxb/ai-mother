@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
+import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateResult;
@@ -236,7 +237,10 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
         String orchestrationMode = context.getOrchestrationMode();
         boolean patchFirst = requireGenerationSpecification(context.getArtifacts()).patchFirst();
         boolean buildFixEnabled = artifactBoolean(context, "buildfix_plan", "enabled");
-        String rollbackStrategy = artifactString(context, "change_plan", "rollbackStrategy");
+        String rollbackStrategy = context.getArtifact(ChangePlan.KEY)
+                .map(ChangePlan::fromArtifact)
+                .map(ChangePlan::rollbackStrategy)
+                .orElse("");
         String contextMode = artifactString(context, "context_summary", "contextMode");
         int selectedFileCount = artifactListSize(context, "context_summary", "selectedFiles");
         int indexedFileCount = artifactInt(context, "context_summary", "indexedFileCount");

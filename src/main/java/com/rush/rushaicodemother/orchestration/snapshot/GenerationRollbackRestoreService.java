@@ -15,7 +15,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -86,7 +85,19 @@ public class GenerationRollbackRestoreService {
                             String taskId,
                             GenerationArtifact changePlanArtifact,
                             GenerationArtifact rollbackPointArtifact) {
-        ChangePlan changePlan = ChangePlan.fromPayload(payload(changePlanArtifact));
+        ChangePlan changePlan;
+        try {
+            changePlan = changePlanArtifact == null ? null : ChangePlan.fromArtifact(changePlanArtifact);
+        } catch (IllegalArgumentException invalidArtifact) {
+            return RollbackRestore.skipped(
+                    appId,
+                    taskId,
+                    "manual_retry_without_snapshot",
+                    "",
+                    "",
+                    "change_plan_invalid"
+            );
+        }
         String rollbackStrategy = changePlan == null ? "manual_retry_without_snapshot" : changePlan.rollbackStrategy();
         if (changePlan == null || !changePlan.requiresSnapshotRollback()) {
             return RollbackRestore.skipped(appId, taskId, rollbackStrategy, "", "", "rollback_strategy_not_snapshot");
@@ -219,10 +230,6 @@ public class GenerationRollbackRestoreService {
     private Path backupPath(Long appId, String taskId) {
         String backupName = snapshotNamePolicy.createTaskScopedName("failed_generation", taskId);
         return snapshotWorkspaceService.resolveSnapshot(appId, backupName);
-    }
-
-    private Map<String, Object> payload(GenerationArtifact artifact) {
-        return artifact == null || artifact.payload() == null ? Map.of() : artifact.payload();
     }
 
 }

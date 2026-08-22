@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -217,23 +219,29 @@ class GenerationRollbackRestoreServiceTest {
     }
 
     private GenerationArtifact snapshotChangePlan() {
-        return GenerationArtifact.of("change_plan", "test", "plan", Map.of(
-                "schemaVersion", "v1",
-                "changeScope", "component_update",
-                "modifyFiles", java.util.List.of("src/App.vue"),
-                "validationLevel", "build_validation",
-                "rollbackStrategy", "rollback_to_last_stable_snapshot_or_manual_retry"
-        ));
+        return new ChangePlan(
+                "v1",
+                "component_update",
+                List.of(),
+                List.of("src/App.vue"),
+                List.of(),
+                List.of("frontend"),
+                "build_validation",
+                "rollback_to_last_stable_snapshot_or_manual_retry"
+        ).toArtifact("test", "plan");
     }
 
     private GenerationArtifact manualChangePlan() {
-        return GenerationArtifact.of("change_plan", "test", "plan", Map.of(
-                "schemaVersion", "v1",
-                "changeScope", "component_update",
-                "modifyFiles", java.util.List.of("index.html"),
-                "validationLevel", "review_only",
-                "rollbackStrategy", "manual_retry_without_snapshot"
-        ));
+        return new ChangePlan(
+                "v1",
+                "component_update",
+                List.of(),
+                List.of("index.html"),
+                List.of(),
+                List.of("frontend"),
+                "review_only",
+                "manual_retry_without_snapshot"
+        ).toArtifact("test", "plan");
     }
 
     private GenerationArtifact rollbackPoint(Long appId,

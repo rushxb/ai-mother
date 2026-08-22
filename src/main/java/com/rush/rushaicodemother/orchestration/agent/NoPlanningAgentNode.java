@@ -59,8 +59,7 @@ public class NoPlanningAgentNode extends BaseGenerationAgentNode {
         specificationDetails.put("parallelModuleCount", 0);
         specificationDetails.put("executionMode", "unplanned_generation");
         specificationDetails.put("changePlan", changePlan.toPayload());
-        GenerationArtifact changePlanArtifact = GenerationArtifact.of(
-                "change_plan", "NoPlan", "最小变更边界", changePlan.toPayload());
+        GenerationArtifact changePlanArtifact = changePlan.toArtifact("NoPlan", "最小变更边界");
         GenerationArtifact generationSpec = GenerationSpecificationArtifact.execution(
                 context.getRequest().userMessage(),
                 patchFirst,

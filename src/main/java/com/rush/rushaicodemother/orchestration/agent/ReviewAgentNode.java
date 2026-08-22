@@ -66,9 +66,8 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         boolean requiresBuild = specification.requiresBuild();
         String validationMode = specification.validationMode();
         String generationMode = specification.generationMode();
-        ChangePlan changePlan = context.getArtifact("change_plan")
-                .map(GenerationArtifact::payload)
-                .map(ChangePlan::fromPayload)
+        ChangePlan changePlan = context.getArtifact(ChangePlan.KEY)
+                .map(ChangePlan::fromArtifact)
                 .orElse(null);
         boolean hasChangePlan = changePlan != null;
         if (prompt.isBlank()) {
@@ -79,12 +78,15 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         if (patchFirst && !hasChangePlan) {
             blockers.add("缺少标准化变更计划，无法执行 patch-first 生成");
         } else if (patchFirst) {
-            blockers.addAll(changePlan.validateForPatchFirst(requiresBuild, validationMode));
+            blockers.addAll(changePlan.validateAgainst(specification));
             if (blockers.isEmpty()) {
                 passes.add("变更计划已生成并通过契约校验");
             }
         } else if (hasChangePlan) {
-            passes.add("完整生成计划已生成");
+            blockers.addAll(changePlan.validateAgainst(specification));
+            if (blockers.isEmpty()) {
+                passes.add("完整生成计划已生成并通过契约校验");
+            }
         }
         if (patchFirst) {
             passes.add("已启用 patch-first 计划型生成");

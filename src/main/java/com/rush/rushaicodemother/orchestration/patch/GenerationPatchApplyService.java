@@ -14,7 +14,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 
 /** 协调有界验证、事务性变更和补丁指标。 */
 @Slf4j
@@ -49,13 +48,14 @@ public class GenerationPatchApplyService {
             return record(PatchApplyResult.skipped(
                     appId, taskId, pathToString(normalizeRoot(projectRoot)), "change_plan_missing"));
         }
-        return apply(
-                appId,
-                taskId,
-                projectRoot,
-                ChangePlan.fromPayload(payload(changePlanArtifact)),
-                operations
-        );
+        ChangePlan changePlan;
+        try {
+            changePlan = ChangePlan.fromArtifact(changePlanArtifact);
+        } catch (IllegalArgumentException invalidArtifact) {
+            return record(PatchApplyResult.skipped(
+                    appId, taskId, pathToString(normalizeRoot(projectRoot)), "change_plan_invalid"));
+        }
+        return apply(appId, taskId, projectRoot, changePlan, operations);
     }
 
     /**
@@ -215,10 +215,6 @@ public class GenerationPatchApplyService {
 
     private String pathToString(Path path) {
         return path == null ? "" : path.toString();
-    }
-
-    private Map<String, Object> payload(GenerationArtifact artifact) {
-        return artifact == null || artifact.payload() == null ? Map.of() : artifact.payload();
     }
 
     private PatchApplyResult record(PatchApplyResult result) {

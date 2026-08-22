@@ -14,13 +14,17 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import static com.rush.rushaicodemother.constant.UserConstant.USER_LOGIN_STATE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -65,8 +69,31 @@ class UserServiceImplSecurityTest {
         LoginUserVO loginUser = userService.userLogin("legacy-user", "legacy-password", request);
 
         assertEquals(9L, loginUser.getId());
-        verify(session).setAttribute(USER_LOGIN_STATE, 9L);
+        InOrder sessionBindingOrder = inOrder(request, session);
+        sessionBindingOrder.verify(request).getSession(true);
+        sessionBindingOrder.verify(request).changeSessionId();
+        sessionBindingOrder.verify(session).setAttribute(USER_LOGIN_STATE, 9L);
         verify(userPersistenceService).updatePasswordHash(9L, "bcrypt-upgraded-hash");
+    }
+
+    @Test
+    void successfulLoginMustRotateSessionIdentifierBeforeBindingUser() {
+        User user = User.builder()
+                .id(15L)
+                .userAccount("session-user")
+                .userPassword("bcrypt-hash")
+                .build();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        HttpSession session = request.getSession(true);
+        String anonymousSessionId = session.getId();
+        when(userPersistenceService.findActiveByAccount("session-user")).thenReturn(user);
+        when(passwordHashService.verify("valid-password", "bcrypt-hash"))
+                .thenReturn(PasswordVerificationResult.matched(false));
+
+        userService.userLogin("session-user", "valid-password", request);
+
+        assertNotEquals(anonymousSessionId, session.getId());
+        assertEquals(15L, session.getAttribute(USER_LOGIN_STATE));
     }
 
     @Test

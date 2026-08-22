@@ -180,9 +180,18 @@ public class UserServiceImpl implements UserService {
             upgradePasswordHash(user.getId(), userPassword);
         }
 
-        // Session 只保存用户 ID，避免把密码哈希等完整用户数据写入 Redis Session。
-        request.getSession(true).setAttribute(USER_LOGIN_STATE, user.getId());
+        bindAuthenticatedSession(request, user.getId());
         return userViewConverter.toLoginUserView(user);
+    }
+
+    /**
+     * 在写入登录态之前轮换 Session ID，阻止登录前已泄漏的会话标识被原地升级为认证会话。
+     */
+    private void bindAuthenticatedSession(HttpServletRequest request, Long userId) {
+        HttpSession session = request.getSession(true);
+        request.changeSessionId();
+        // Session 只保存用户 ID，避免把密码哈希等完整用户数据写入 Redis Session。
+        session.setAttribute(USER_LOGIN_STATE, userId);
     }
 
     /**

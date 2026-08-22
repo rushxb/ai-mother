@@ -107,7 +107,14 @@ public class GenerationAgentContext {
         }
         GenerationArtifact qualityGate = artifacts.get(QualityGateArtifact.KEY);
         if (qualityGate != null) {
-            qualityGateResult = QualityGateArtifact.fromArtifact(qualityGate).result();
+            QualityGateArtifact.ReviewSubject reviewSubject = QualityGateArtifact.reviewSubject(
+                    targetType,
+                    artifacts
+            );
+            qualityGateResult = QualityGateArtifact.fromArtifact(
+                    qualityGate,
+                    reviewSubject
+            ).result();
         }
     }
 }

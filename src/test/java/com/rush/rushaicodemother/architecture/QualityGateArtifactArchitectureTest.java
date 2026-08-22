@@ -25,6 +25,7 @@ class QualityGateArtifactArchitectureTest {
             assertThat(Files.readString(source))
                     .as("%s 必须通过强类型质量门禁制品读写", source)
                     .contains("QualityGateArtifact")
+                    .contains("QualityGateArtifact.reviewSubject(")
                     .doesNotContain("\"quality_gate\"");
         }
     }

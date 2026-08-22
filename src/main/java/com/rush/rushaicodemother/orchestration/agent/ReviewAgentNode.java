@@ -121,8 +121,12 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
         reviewDetails.put("securityWarnings", securityReviewResult.warnings());
         reviewDetails.put("backendBlockers", backendReviewResult.blockers());
         reviewDetails.put("backendWarnings", backendReviewResult.warnings());
+        QualityGateArtifact.ReviewSubject reviewSubject = QualityGateArtifact.reviewSubject(
+                context.getTargetType(),
+                context.getArtifacts()
+        );
         GenerationArtifact artifact = QualityGateArtifact
-                .fromResult(gateResult, reviewDetails)
+                .fromResult(gateResult, reviewSubject, reviewDetails)
                 .toArtifact("Review", "质量门禁");
         return AgentNodeResult.of(
                 gateResult.passed() ? "质量门禁通过，允许执行代码生成" : "质量门禁未通过，阻止后续生成",

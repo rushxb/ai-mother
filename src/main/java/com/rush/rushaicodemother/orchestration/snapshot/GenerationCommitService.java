@@ -115,7 +115,7 @@ public class GenerationCommitService {
     ) {
         GenerationCommitResult result = commit(appId, taskId, diffSummaryArtifact);
         metricsCollector.recordGenerationCommit(result.provider(), result.status(), result.reason());
-        return GenerationArtifact.of("generation_commit", "Orchestrator", "生成结果本地 Git 提交", result.toPayload());
+        return result.toArtifact();
     }
 
     /**

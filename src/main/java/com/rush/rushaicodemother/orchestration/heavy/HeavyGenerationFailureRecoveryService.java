@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudge
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
@@ -256,7 +257,7 @@ public class HeavyGenerationFailureRecoveryService {
         putArtifactPayload(data, preparation, RollbackPoint.KEY);
         putArtifactPayload(data, preparation, "diff_summary");
         putArtifactPayload(data, preparation, "patch_result");
-        putArtifactPayload(data, preparation, "generation_commit");
+        putArtifactPayload(data, preparation, GenerationCommitResult.KEY);
         putArtifactPayload(data, preparation, "rollback_restore");
         return data;
     }

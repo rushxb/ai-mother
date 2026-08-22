@@ -3,9 +3,12 @@ package com.rush.rushaicodemother.orchestration.artifact;
 import cn.hutool.core.util.StrUtil;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 生成结果本地 Git 提交契约。
@@ -26,11 +29,21 @@ public record GenerationCommitResult(
         LocalDateTime createdAt
 ) {
 
+    public static final String KEY = "generation_commit";
+
+    private static final String SCHEMA_VERSION = "v1";
+    private static final String PROVIDER = "local_git";
+    private static final String STATUS_COMMITTED = "committed";
+    private static final String STATUS_SKIPPED = "skipped";
+    private static final String STATUS_FAILED = "failed";
+    private static final String ROLE = "Orchestrator";
+    private static final String TITLE = "生成结果本地 Git 提交";
+
     /** 创建生成提交结果实例并完成必要的依赖和初始状态设置。 */
     public GenerationCommitResult {
-        schemaVersion = StrUtil.blankToDefault(schemaVersion, "v1");
-        provider = StrUtil.blankToDefault(provider, "local_git");
-        status = StrUtil.blankToDefault(status, "skipped");
+        schemaVersion = StrUtil.blankToDefault(schemaVersion, SCHEMA_VERSION);
+        provider = StrUtil.blankToDefault(provider, PROVIDER);
+        status = StrUtil.blankToDefault(status, STATUS_SKIPPED);
         projectPath = StrUtil.blankToDefault(projectPath, "");
         commitId = StrUtil.blankToDefault(commitId, "");
         shortCommitId = StrUtil.blankToDefault(shortCommitId, "");
@@ -57,11 +70,11 @@ public record GenerationCommitResult(
                                                    String commitId,
                                                    String branch,
                                                    List<String> committedFiles) {
-        String shortCommitId = StrUtil.isBlank(commitId) ? "" : StrUtil.sub(commitId, 0, Math.min(12, commitId.length()));
+        String shortCommitId = abbreviateCommitId(commitId);
         return new GenerationCommitResult(
-                "v1",
-                "local_git",
-                "committed",
+                SCHEMA_VERSION,
+                PROVIDER,
+                STATUS_COMMITTED,
                 appId,
                 taskId,
                 projectPath,
@@ -92,11 +105,11 @@ public record GenerationCommitResult(
                                                  String commitId,
                                                  String branch,
                                                  String reason) {
-        String shortCommitId = StrUtil.isBlank(commitId) ? "" : StrUtil.sub(commitId, 0, Math.min(12, commitId.length()));
+        String shortCommitId = abbreviateCommitId(commitId);
         return new GenerationCommitResult(
-                "v1",
-                "local_git",
-                "skipped",
+                SCHEMA_VERSION,
+                PROVIDER,
+                STATUS_SKIPPED,
                 appId,
                 taskId,
                 projectPath,
@@ -127,11 +140,11 @@ public record GenerationCommitResult(
                                                 String commitId,
                                                 String branch,
                                                 String reason) {
-        String shortCommitId = StrUtil.isBlank(commitId) ? "" : StrUtil.sub(commitId, 0, Math.min(12, commitId.length()));
+        String shortCommitId = abbreviateCommitId(commitId);
         return new GenerationCommitResult(
-                "v1",
-                "local_git",
-                "failed",
+                SCHEMA_VERSION,
+                PROVIDER,
+                STATUS_FAILED,
                 appId,
                 taskId,
                 projectPath,
@@ -143,6 +156,53 @@ public record GenerationCommitResult(
                 reason,
                 LocalDateTime.now()
         );
+    }
+
+    /**
+     * 从持久制品恢复可信提交事实，并拒绝串任务或内部字段互相矛盾的载荷。
+     */
+    public static GenerationCommitResult fromArtifact(GenerationArtifact artifact,
+                                                       Long expectedAppId,
+                                                       String expectedTaskId) {
+        Objects.requireNonNull(artifact, "生成提交制品不能为空");
+        if (!KEY.equals(artifact.key())) {
+            throw invalidField("key", "制品类型不匹配: " + artifact.key());
+        }
+        Map<String, Object> payload = Objects.requireNonNull(
+                artifact.payload(), "生成提交制品载荷不能为空");
+        GenerationCommitResult result = new GenerationCommitResult(
+                requireExactText(payload, "schemaVersion", SCHEMA_VERSION),
+                requireExactText(payload, "provider", PROVIDER),
+                requireStatus(payload.get("status")),
+                requirePositiveLong(payload.get("appId"), "appId"),
+                requireText(payload.get("taskId"), "taskId", false),
+                requireText(payload.get("projectPath"), "projectPath", true),
+                requireText(payload.get("commitId"), "commitId", true),
+                requireText(payload.get("shortCommitId"), "shortCommitId", true),
+                requireText(payload.get("branch"), "branch", true),
+                requireNonNegativeInteger(payload.get("committedFileCount"), "committedFileCount"),
+                requireStringList(payload.get("committedFiles"), "committedFiles"),
+                requireText(payload.get("reason"), "reason", true),
+                requireCreatedAt(payload.get("createdAt"))
+        );
+        result.validateContext(expectedAppId, expectedTaskId);
+        result.validateState();
+        return result;
+    }
+
+    /** 从持久制品恢复提交事实，调用方无需绑定特定任务上下文。 */
+    public static GenerationCommitResult fromArtifact(GenerationArtifact artifact) {
+        return fromArtifact(artifact, null, null);
+    }
+
+    /** 是否确实生成了本地 Git 提交。 */
+    public boolean committed() {
+        return STATUS_COMMITTED.equals(status);
+    }
+
+    /** 转换为统一 key、角色和标题的持久制品。 */
+    public GenerationArtifact toArtifact() {
+        return GenerationArtifact.of(KEY, ROLE, TITLE, toPayload());
     }
 
     /**
@@ -166,5 +226,134 @@ public record GenerationCommitResult(
         payload.put("reason", reason);
         payload.put("createdAt", createdAt.toString());
         return payload;
+    }
+
+    private void validateContext(Long expectedAppId, String expectedTaskId) {
+        if (expectedAppId != null && !Objects.equals(expectedAppId, appId)) {
+            throw invalidField("appId", "与当前任务上下文不一致");
+        }
+        if (StrUtil.isNotBlank(expectedTaskId) && !expectedTaskId.trim().equals(taskId)) {
+            throw invalidField("taskId", "与当前任务上下文不一致");
+        }
+    }
+
+    private void validateState() {
+        if (committedFileCount != committedFiles.size()) {
+            throw invalidField("committedFileCount", "与提交文件列表长度不一致");
+        }
+        if (new LinkedHashSet<>(committedFiles).size() != committedFiles.size()) {
+            throw invalidField("committedFiles", "不能包含重复文件");
+        }
+        String expectedShortCommitId = abbreviateCommitId(commitId);
+        if (!expectedShortCommitId.equals(shortCommitId)) {
+            throw invalidField("shortCommitId", "与完整提交编号不一致");
+        }
+        if (STATUS_COMMITTED.equals(status)) {
+            if (StrUtil.isBlank(projectPath) || StrUtil.isBlank(commitId)) {
+                throw invalidField("status", "为 committed 时必须包含项目路径和提交编号");
+            }
+            if (committedFiles.isEmpty()) {
+                throw invalidField("committedFiles", "在 committed 状态下不能为空");
+            }
+            if (StrUtil.isNotBlank(reason)) {
+                throw invalidField("reason", "在 committed 状态下必须为空");
+            }
+            return;
+        }
+        if (!committedFiles.isEmpty() || committedFileCount != 0) {
+            throw invalidField("status", "为 skipped 或 failed 时不能携带提交文件");
+        }
+        if (StrUtil.isBlank(reason)) {
+            throw invalidField("reason", "在 skipped 或 failed 状态下不能为空");
+        }
+    }
+
+    private static String abbreviateCommitId(String commitId) {
+        return StrUtil.isBlank(commitId)
+                ? ""
+                : StrUtil.sub(commitId, 0, Math.min(12, commitId.length()));
+    }
+
+    private static String requireExactText(Map<String, Object> payload,
+                                           String fieldName,
+                                           String expected) {
+        String actual = requireText(payload.get(fieldName), fieldName, false);
+        if (!expected.equals(actual)) {
+            throw invalidField(fieldName, "不受支持: " + actual);
+        }
+        return actual;
+    }
+
+    private static String requireStatus(Object value) {
+        String status = requireText(value, "status", false);
+        if (!STATUS_COMMITTED.equals(status)
+                && !STATUS_SKIPPED.equals(status)
+                && !STATUS_FAILED.equals(status)) {
+            throw invalidField("status", "不受支持: " + status);
+        }
+        return status;
+    }
+
+    private static String requireText(Object value, String fieldName, boolean allowBlank) {
+        if (!(value instanceof String text)) {
+            throw invalidField(fieldName, "必须为字符串");
+        }
+        String normalized = text.trim();
+        if (!allowBlank && normalized.isBlank()) {
+            throw invalidField(fieldName, "不能为空");
+        }
+        return normalized;
+    }
+
+    private static long requireLong(Object value, String fieldName) {
+        if (!(value instanceof Number number)) {
+            throw invalidField(fieldName, "必须为整数");
+        }
+        long parsed = number.longValue();
+        if (number.doubleValue() != (double) parsed) {
+            throw invalidField(fieldName, "必须为整数");
+        }
+        return parsed;
+    }
+
+    private static Long requirePositiveLong(Object value, String fieldName) {
+        long parsed = requireLong(value, fieldName);
+        if (parsed <= 0) {
+            throw invalidField(fieldName, "必须为正整数");
+        }
+        return parsed;
+    }
+
+    private static int requireNonNegativeInteger(Object value, String fieldName) {
+        long parsed = requireLong(value, fieldName);
+        if (parsed < 0 || parsed > Integer.MAX_VALUE) {
+            throw invalidField(fieldName, "必须为非负整数");
+        }
+        return (int) parsed;
+    }
+
+    private static List<String> requireStringList(Object value, String fieldName) {
+        if (!(value instanceof List<?> values)) {
+            throw invalidField(fieldName, "必须为字符串列表");
+        }
+        return values.stream()
+                .map(item -> requireText(item, fieldName, false))
+                .toList();
+    }
+
+    private static LocalDateTime requireCreatedAt(Object value) {
+        if (value instanceof LocalDateTime createdAt) {
+            return createdAt;
+        }
+        String text = requireText(value, "createdAt", false);
+        try {
+            return LocalDateTime.parse(text);
+        } catch (DateTimeParseException exception) {
+            throw invalidField("createdAt", "不是有效的时间");
+        }
+    }
+
+    private static IllegalArgumentException invalidField(String fieldName, String reason) {
+        return new IllegalArgumentException("生成提交制品字段 " + fieldName + ": " + reason);
     }
 }

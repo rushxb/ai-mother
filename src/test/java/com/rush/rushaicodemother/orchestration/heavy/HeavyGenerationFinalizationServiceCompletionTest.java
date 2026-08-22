@@ -3,6 +3,8 @@ package com.rush.rushaicodemother.orchestration.heavy;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
@@ -15,12 +17,42 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 class HeavyGenerationFinalizationServiceCompletionTest {
+
+    @Test
+    void commitEventMustRejectArtifactFromAnotherTask() {
+        HeavyGenerationFinalizationService service = new HeavyGenerationFinalizationService(
+                null, null, null, null, null, null, mock(GenerationCompletionPolicy.class));
+        GenerationPreparation preparation = new GenerationPreparation(
+                CodeGenTypeEnum.VUE_PROJECT,
+                CodeGenTypeEnum.VUE_PROJECT,
+                false,
+                "build",
+                "测试任务",
+                List.of(),
+                new LinkedHashMap<>(),
+                null,
+                Map.of(),
+                "heavy-finalization-test"
+        );
+        GenerationArtifact foreignCommit = GenerationCommitResult.committed(
+                1L,
+                "foreign-task",
+                "/project",
+                "1234567890abcdef",
+                "main",
+                List.of("src/App.vue")
+        ).toArtifact();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.buildCommitResultEventData(preparation, foreignCommit));
+    }
 
     @Test
     void legacyBackendTaskMustUseBuildCompletionGraph() {

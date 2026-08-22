@@ -133,12 +133,7 @@ public class HeavyGenerationFinalizationService {
                 preparation.taskId(),
                 preparation.artifact(DiffSummary.KEY)
         );
-        GenerationArtifact commitArtifact = GenerationArtifact.of(
-                "generation_commit",
-                "Orchestrator",
-                "生成结果本地 Git 提交",
-                commitResult.toPayload()
-        );
+        GenerationArtifact commitArtifact = commitResult.toArtifact();
         preparation.putArtifact(commitArtifact);
         generationOrchestrationMetricsCollector.recordGenerationCommit(
                 commitResult.provider(),
@@ -229,20 +224,25 @@ public class HeavyGenerationFinalizationService {
  * 构建并提交并返回结果事件{@code Data}。
  *
  * @param preparation {@code preparation} 对应的调用参数
- * @param commitResult 提交结果
+ * @param commitArtifact 提交结果制品
  * @return 提交结果事件{@code Data}集合
  */
     public Map<String, Object> buildCommitResultEventData(GenerationPreparation preparation,
-                                                          GenerationArtifact commitResult) {
+                                                          GenerationArtifact commitArtifact) {
+        GenerationCommitResult result = GenerationCommitResult.fromArtifact(
+                commitArtifact,
+                null,
+                preparation.taskId()
+        );
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("agent", "Orchestrator");
         data.put("stage", "commit");
-        data.put("status", commitResult.payload().get("status"));
-        data.put("summary", "committed".equals(String.valueOf(commitResult.payload().get("status")))
+        data.put("status", result.status());
+        data.put("summary", result.committed()
                 ? "生成结果已提交到本地 Git"
                 : "生成结果本地 Git 提交已跳过或失败");
         data.put("taskId", preparation.taskId());
-        data.put("artifact", commitResult.payload());
+        data.put("artifact", commitArtifact.payload());
         return data;
     }
 

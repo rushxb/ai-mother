@@ -14,9 +14,12 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -100,6 +103,63 @@ class DefaultAppDeletionServiceTest {
         verify(artifactLifecycleService, never())
                 .prepareDeletion(org.mockito.ArgumentMatchers.any(App.class));
         verify(lifecycleDataMapper, never()).hardDeleteApp(11L);
+    }
+
+    @Test
+    void shouldRejectDeletionWhileApplicationGenerationIsActive() {
+        App activeApp = app();
+        activeApp.setIsGenerating(1);
+        activeApp.setGeneratingTaskId("task-running");
+        activeApp.setGenerationExecutionEpoch(3L);
+        activeApp.setGenerationLeaseUntil(java.time.LocalDateTime.now().plusMinutes(1));
+        when(lifecycleDataMapper.selectDeletionState(11L)).thenReturn(activeApp);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> deletionService.delete(11L)
+        );
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
+        assertTrue(exception.getMessage().contains("正在生成"));
+        verify(devServerManager, never()).stopDevServer(11L);
+        verify(artifactLifecycleService, never())
+                .prepareDeletion(org.mockito.ArgumentMatchers.any(App.class));
+        verify(lifecycleDataMapper, never()).deleteGenerationTasks(11L);
+        verify(lifecycleDataMapper, never()).hardDeleteApp(11L);
+    }
+
+    @Test
+    void shouldRejectDeletionWhileGenerationTaskIsQueued() {
+        when(lifecycleDataMapper.countNonTerminalGenerationTasks(11L)).thenReturn(1);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> deletionService.delete(11L)
+        );
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
+        assertTrue(exception.getMessage().contains("生成任务"));
+        verify(lifecycleDataMapper).countNonTerminalGenerationTasks(11L);
+        verify(devServerManager, never()).stopDevServer(11L);
+        verify(artifactLifecycleService, never())
+                .prepareDeletion(org.mockito.ArgumentMatchers.any(App.class));
+        verify(lifecycleDataMapper, never()).deleteGenerationTasks(11L);
+        verify(lifecycleDataMapper, never()).hardDeleteApp(11L);
+    }
+
+    @Test
+    void shouldReadAndLockDeletionStateInsideDatabaseTransaction() {
+        AtomicBoolean transactionActive = new AtomicBoolean();
+        transactionOperations = transactionTracking(transactionActive);
+        when(lifecycleDataMapper.selectDeletionState(11L)).thenAnswer(invocation -> {
+            assertTrue(transactionActive.get(), "删除状态行锁必须在数据库事务内获取");
+            return app();
+        });
+        rebuildService();
+
+        deletionService.delete(11L);
+
+        verify(lifecycleDataMapper).hardDeleteApp(11L);
     }
 
     @Test
@@ -209,6 +269,7 @@ class DefaultAppDeletionServiceTest {
         assertSame(stopFailure, exception);
         verifyNoInteractions(artifactLifecycleService);
         verify(lifecycleDataMapper).selectDeletionState(11L);
+        verify(lifecycleDataMapper).countNonTerminalGenerationTasks(11L);
         verifyNoMoreInteractions(lifecycleDataMapper);
     }
 
@@ -242,6 +303,20 @@ class DefaultAppDeletionServiceTest {
         };
     }
 
+    private TransactionOperations transactionTracking(AtomicBoolean transactionActive) {
+        return new TransactionOperations() {
+            @Override
+            public <T> T execute(TransactionCallback<T> action) {
+                transactionActive.set(true);
+                try {
+                    return action.doInTransaction(mock(TransactionStatus.class));
+                } finally {
+                    transactionActive.set(false);
+                }
+            }
+        };
+    }
+
     private App app() {
         return App.builder()
                 .id(11L)
@@ -249,6 +324,7 @@ class DefaultAppDeletionServiceTest {
                 .tenantId(3L)
                 .codeGenType("html")
                 .deployKey("Deploy11")
+                .isGenerating(0)
                 .build();
     }
 }

@@ -12,10 +12,32 @@ import org.apache.ibatis.annotations.Select;
  */
 public interface AppLifecycleDataMapper {
 
-    /** 获取删除锁内需要重新确认的最新应用状态。 */
-    @Select("select id, userId, codeGenType, deployKey from app "
-            + "where id = #{appId} and isDelete = 0")
+    /**
+     * 在删除事务内锁定应用，并加载删除决策所需的全部事实。
+     *
+     * <p>字段必须显式列全：删除流程既要创建租户级记忆清理请求，也要拒绝仍被生成任务
+     * 持有的应用。使用 {@code FOR UPDATE} 与生成任务提交时的应用行锁串行，避免检查通过后
+     * 又插入一条已预授权的排队任务。</p>
+     */
+    @Select("""
+            select id, userId, tenantId, codeGenType, deployKey,
+                   isGenerating, generatingTaskId, generationLeaseUntil,
+                   generationExecutionEpoch
+            from app
+            where id = #{appId} and isDelete = 0
+            for update
+            """)
     App selectDeletionState(@Param("appId") Long appId);
+
+    /** 统计会被应用删除破坏结算或恢复语义的非终态生成任务。 */
+    @Select("""
+            select count(*)
+            from generation_task
+            where appId = #{appId}
+              and status not in ('success', 'failed', 'cancelled', 'deadline_exceeded')
+              and isDelete = 0
+            """)
+    int countNonTerminalGenerationTasks(@Param("appId") Long appId);
 
     @Delete("delete from generation_model_call where appId = #{appId}")
     int deleteGenerationModelCalls(@Param("appId") Long appId);

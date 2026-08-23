@@ -135,6 +135,28 @@ class GenerationTaskCommandCodecTest {
     }
 
     @Test
+    void currentSchemaWithoutFrozenExecutionPlanMustFailClosed() throws Exception {
+        ObjectNode payload = completeCommandPayload();
+        payload.remove("executionPlan");
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> GenerationTaskCommandCodec.fromJson(JSON_MAPPER.writeValueAsString(payload)));
+
+        assertEquals("任务命令 schema 10 缺少必需字段: executionPlan", exception.getMessage());
+    }
+
+    @Test
+    void currentSchemaWithoutPlanningVariantMustFailClosed() throws Exception {
+        ObjectNode payload = completeCommandPayload();
+        payload.remove("planningVariant");
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> GenerationTaskCommandCodec.fromJson(JSON_MAPPER.writeValueAsString(payload)));
+
+        assertEquals("任务命令 schema 10 缺少必需字段: planningVariant", exception.getMessage());
+    }
+
+    @Test
     void textualSchemaVersionMustNotBypassRequiredFieldValidation() throws Exception {
         ObjectNode payload = completeCommandPayload();
         payload.put("schemaVersion", "10");
@@ -225,6 +247,25 @@ class GenerationTaskCommandCodecTest {
 
         assertEquals(6, restored.schemaVersion());
         assertNull(restored.executionPlan());
+    }
+
+    @Test
+    void schemaEightCommandWithoutFrozenExecutionPlanRemainsReadable() {
+        String json = """
+                {"schemaVersion":8,"taskId":"schema-eight-task","appId":1,"userId":2,"tenantId":3,
+                "userPrompt":"legacy","codeGenType":"VUE_PROJECT","mode":"AGENT_EDIT",
+                "routingConfidence":0.7,"routingReason":"legacy","fallbackPolicy":"NONE",
+                "expectedValidationLevel":"BUILD","fallbackReason":"",
+                "planningVariant":"CURRENT_DAG",
+                "submittedAt":"2026-07-17T00:00:00Z","deadlineAt":"2026-07-17T00:10:00Z"}
+                """;
+
+        GenerationTaskCommand restored = GenerationTaskCommandCodec.fromJson(json);
+
+        assertEquals(8, restored.schemaVersion());
+        assertEquals(GenerationPlanningVariant.CURRENT_DAG, restored.planningVariant());
+        assertNull(restored.executionPlan());
+        assertEquals("legacy-task-command-v8", restored.scenarioDecision().ruleVersion());
     }
 
     @Test

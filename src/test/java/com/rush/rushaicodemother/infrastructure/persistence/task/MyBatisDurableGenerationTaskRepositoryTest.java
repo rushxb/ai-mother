@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.infrastructure.persistence.task;
 
+import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.GenerationTaskRuntimeMapper;
@@ -11,6 +12,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.decision.GenerationMutability;
+import com.rush.rushaicodemother.orchestration.decision.GenerationPreflightUsage;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.decision.GenerationToolPermissionProfile;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
@@ -21,7 +23,10 @@ import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingDecisionCode;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommandCodec;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskLease;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskLeaseRenewal;
@@ -35,10 +40,13 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -332,6 +340,8 @@ class MyBatisDurableGenerationTaskRepositoryTest {
                 GenerationToolPermissionProfile.WRITE_FENCED,
                 "intent-lexical/repository-test",
                 "c".repeat(64));
+        GenerationSlaEnvelope slaEnvelope = slaEnvelope();
+        GenerationExecutionPlan executionPlan = executionPlan(routeDecision, slaEnvelope);
         return new GenerationTaskCommand(
                 GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
                 "task-1",
@@ -347,15 +357,54 @@ class MyBatisDurableGenerationTaskRepositoryTest {
                 ExpectedValidationLevel.BUILD,
                 "",
                 GenerationRoutingDecisionCode.UNKNOWN,
-                null,
+                slaEnvelope,
                 GenerationTraceContext.empty(),
                 NOW,
                 NOW.plusSeconds(1_200),
                 resources,
                 profile,
-                null,
+                executionPlan,
                 GenerationPlanningVariant.CURRENT_DAG,
-                scenarioDecision);
+                scenarioDecision,
+                GenerationPreflightUsage.none());
+    }
+
+    private GenerationExecutionPlan executionPlan(GenerationModeDecision routeDecision,
+                                                  GenerationSlaEnvelope slaEnvelope) {
+        GenerationPerformanceProfile modelProfile = GenerationPerformanceProfile.balanced();
+        return new GenerationExecutionPlan(
+                routeDecision,
+                modelProfile,
+                new GenerationExecutionPlan.ContextBudget(
+                        2_000, 1_500, 800, 64, 6, "gpt-4o", 1.15),
+                new GenerationExecutionPlan.ToolPolicy(
+                        modelProfile.maxToolInvocations(),
+                        slaEnvelope.toLimits().limit(GenerationBudgetKind.TOOL_WRITE),
+                        true,
+                        true),
+                GenerationExecutionPlan.ValidationGraph.forLevel(ExpectedValidationLevel.BUILD),
+                new GenerationExecutionPlan.RepairBudget(
+                        slaEnvelope.toLimits().limit(GenerationBudgetKind.REPAIR_ROUND), true),
+                new GenerationExecutionPlan.CommitPolicy(true, true),
+                new GenerationExecutionPlan.PreviewPolicy(
+                        slaEnvelope.firstPreviewTimeout(), slaEnvelope.firstPreviewCompletionReserve()),
+                slaEnvelope);
+    }
+
+    private GenerationSlaEnvelope slaEnvelope() {
+        EnumMap<GenerationBudgetKind, Integer> budgets = new EnumMap<>(GenerationBudgetKind.class);
+        for (GenerationBudgetKind kind : GenerationBudgetKind.values()) {
+            budgets.put(kind, 2);
+        }
+        return new GenerationSlaEnvelope(
+                "repository-test",
+                Duration.ofMinutes(1),
+                Duration.ofSeconds(45),
+                Duration.ofMinutes(20),
+                Duration.ofMinutes(2),
+                Duration.ofMillis(500),
+                Map.copyOf(budgets),
+                "持久仓库测试使用完整现代任务契约");
     }
 
     private LocalDateTime toLocal(Instant value) {

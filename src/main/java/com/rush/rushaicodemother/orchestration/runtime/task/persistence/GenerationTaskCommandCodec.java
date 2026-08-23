@@ -8,6 +8,8 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 /** 用于在工作实例之间持久保存任务命令的 JSON 编解码器。 */
 public final class GenerationTaskCommandCodec {
 
+    private static final int PLANNING_VARIANT_SCHEMA_VERSION = 8;
+    private static final int FROZEN_EXECUTION_PLAN_SCHEMA_VERSION = 9;
     private static final int FROZEN_SCENARIO_DECISION_SCHEMA_VERSION = 9;
     private static final int PREFLIGHT_USAGE_SCHEMA_VERSION = 10;
 
@@ -47,6 +49,10 @@ public final class GenerationTaskCommandCodec {
             throw new IllegalArgumentException("Unable to deserialize generation task command", exception);
         }
         int schemaVersion = requireSchemaVersion(payload);
+        requirePersistedFieldSince(
+                payload, schemaVersion, "planningVariant", PLANNING_VARIANT_SCHEMA_VERSION);
+        requirePersistedFieldSince(
+                payload, schemaVersion, "executionPlan", FROZEN_EXECUTION_PLAN_SCHEMA_VERSION);
         requirePersistedFieldSince(
                 payload, schemaVersion, "scenarioDecision", FROZEN_SCENARIO_DECISION_SCHEMA_VERSION);
         requirePersistedFieldSince(

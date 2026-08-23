@@ -17,11 +17,31 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class ReadOnlyAnalysisServiceTest {
+
+    @Test
+    void emptyModelOutputMustNotBecomeACompletedAnalysis() {
+        AgentEditContextCollector contextCollector = mock(AgentEditContextCollector.class);
+        GenerationWorkspace workspace = workspace();
+        when(contextCollector.collect(workspace, "审计鉴权链路", CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(contextResult());
+        ReadOnlyAnalysisModel model = (taskId, request) ->
+                new ReadOnlyAnalysisResult(null, List.of(), List.of(), null);
+        ReadOnlyAnalysisService service = new ReadOnlyAnalysisService(contextCollector, model);
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> service.analyze(
+                        "read-only-empty", IntentOperationType.AUDIT, "审计鉴权链路",
+                        workspace, CodeGenTypeEnum.VUE_PROJECT));
+
+        assertEquals("只读分析未返回有效结论或发现", failure.getMessage());
+    }
 
     @Test
     void analysisMustOnlyPublishReferencesGroundedInCollectedWorkspaceContext() {

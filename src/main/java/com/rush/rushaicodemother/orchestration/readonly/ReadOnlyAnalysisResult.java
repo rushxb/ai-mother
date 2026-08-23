@@ -13,8 +13,10 @@ public record ReadOnlyAnalysisResult(
         String noChangeJustification
 ) {
 
+    private static final String EMPTY_ANALYSIS_SUMMARY = "分析已完成";
+
     public ReadOnlyAnalysisResult {
-        summary = textOrDefault(summary, "分析已完成");
+        summary = textOrDefault(summary, EMPTY_ANALYSIS_SUMMARY);
         findings = findings == null
                 ? List.of()
                 : findings.stream().filter(java.util.Objects::nonNull).toList();
@@ -29,6 +31,24 @@ public record ReadOnlyAnalysisResult(
     public ReadOnlyAnalysisResult withReferences(List<FileReference> groundedReferences) {
         return new ReadOnlyAnalysisResult(
                 summary, findings, groundedReferences, noChangeJustification);
+    }
+
+    /**
+     * 判断结果是否足以证明已经回答用户的只读意图。
+     *
+     * <p>文件引用只能证明模型看过哪些上下文，不能替代分析结论。模型返回空结构时，
+     * 构造器仍保留可展示的兜底文案，但该文案不得被完成门禁误当作有效分析。</p>
+     */
+    public boolean provesIntentCoverage() {
+        return !EMPTY_ANALYSIS_SUMMARY.equals(summary) || !findings.isEmpty();
+    }
+
+    /** 校验只读结果具备真实分析内容，并返回自身便于调用链继续处理。 */
+    public ReadOnlyAnalysisResult requireIntentCoverage() {
+        if (!provesIntentCoverage()) {
+            throw new IllegalStateException("只读分析未返回有效结论或发现");
+        }
+        return this;
     }
 
     /** 渲染面向用户的 Markdown 分析报告。 */

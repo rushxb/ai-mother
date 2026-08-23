@@ -88,6 +88,26 @@ class ReadOnlyGenerationPipelineTest {
                         outcome.completionEvidence()));
     }
 
+    @Test
+    void emptyAnalysisMustNotBeReportedAsSuccessfulIntentCoverage() {
+        ReadOnlyAnalysisService analysisService = mock(ReadOnlyAnalysisService.class);
+        GenerationPipelineRequest request = request("read-only-empty-analysis");
+        when(analysisService.analyze(
+                eq("read-only-empty-analysis"), eq(IntentOperationType.AUDIT),
+                eq("审计鉴权链路，不要修改代码"), eq(request.workspace()),
+                eq(CodeGenTypeEnum.VUE_PROJECT)))
+                .thenReturn(new ReadOnlyAnalysisResult(null, List.of(), List.of(), null));
+        ReadOnlyGenerationPipeline pipeline = new ReadOnlyGenerationPipeline(
+                mock(GenerationPerformanceMonitorService.class), analysisService);
+
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
+
+        assertEquals(GenerationTaskStatus.FAILED, outcome.terminalStatus());
+        assertEquals("read_only_analysis_failed", outcome.reason());
+        assertFalse(outcome.completionEvidence().contains(
+                GenerationCompletionEvidenceType.INTENT_COVERAGE));
+    }
+
     private GenerationPipelineRequest request(String taskId) {
         App app = App.builder().id(1L).userId(2L)
                 .codeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue()).build();

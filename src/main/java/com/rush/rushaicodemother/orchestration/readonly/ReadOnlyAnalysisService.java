@@ -54,6 +54,7 @@ public class ReadOnlyAnalysisService {
         if (rawResult == null) {
             throw new IllegalStateException("只读分析模型未返回结果");
         }
+        rawResult.requireIntentCoverage();
         return rawResult.withReferences(groundReferences(
                 rawResult.references(), allowedReferenceLineCounts));
     }

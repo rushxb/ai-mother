@@ -95,7 +95,9 @@ public class ReadOnlyGenerationPipeline implements GenerationPipeline {
                     request.intentProfile().operationType(),
                     request.taskRequest().message(),
                     request.workspace(),
-                    request.codeGenType());
+                    request.codeGenType())
+                    // 流水线边界再次校验，避免替代实现或恢复数据绕过服务内的不变量。
+                    .requireIntentCoverage();
             session.throwIfCancelled();
             GenerationPreparation preparation = createPreparation(request, execution.taskId(), analysis);
             session.bindPreparation(preparation);

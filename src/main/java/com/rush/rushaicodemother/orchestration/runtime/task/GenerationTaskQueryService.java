@@ -58,7 +58,12 @@ public class GenerationTaskQueryService {
         GenerationSession session = generationSessionRegistry.getByTaskId(taskId);
         if (session != null) {
             assertOwnedSession(session, actor);
-            return localSnapshot(session, safeFindDurableMetadata(taskId));
+            DurableGenerationTaskRecord durableTask = safeFindDurableMetadata(taskId);
+            if (durableTaskOverridesSession(durableTask, session)) {
+                assertOwnedTask(durableTask, actor);
+                return durableSnapshot(durableTask);
+            }
+            return localSnapshot(session, durableTask);
         }
         DurableGenerationTaskRecord task = requireDurableTask(taskId);
         assertOwnedTask(task, actor);
@@ -79,7 +84,12 @@ public class GenerationTaskQueryService {
         GenerationSession session = generationSessionRegistry.get(appId);
         if (session != null && session.isActive()) {
             assertOwnedSession(session, actor);
-            return Optional.of(localSnapshot(session, safeFindDurableMetadata(session.taskId())));
+            DurableGenerationTaskRecord durableTask = safeFindDurableMetadata(session.taskId());
+            if (durableTask != null && durableTask.terminal()) {
+                assertOwnedTask(durableTask, actor);
+                return Optional.empty();
+            }
+            return Optional.of(localSnapshot(session, durableTask));
         }
         return durableRepository.findLatestNonTerminalByAppId(appId)
                 .map(task -> {
@@ -173,7 +183,17 @@ public class GenerationTaskQueryService {
         GenerationSession session = generationSessionRegistry.get(appId);
         if (session != null) {
             assertOwnedSession(session, actor);
-            return session.asFlux();
+            DurableGenerationTaskRecord durableTask = findAuthorizedDurableTaskForSession(
+                    session, actor);
+            if (durableTask != null && durableTask.terminal()) {
+                return DurableGenerationTerminalEventProjection.legacy(durableTask);
+            }
+            if (session.isActive()) {
+                return session.asFlux();
+            }
+            if (durableTask != null) {
+                return generationEventStream.stream(durableTask.taskId());
+            }
         }
         return durableRepository.findLatestNonTerminalByAppId(appId)
                 .map(task -> {
@@ -198,6 +218,33 @@ public class GenerationTaskQueryService {
             assertOwnedTask(durableTask, actor);
         }
         return durableTask;
+    }
+
+    /** 查询本地会话对应的持久任务；遗留会话缺少 taskId 时不访问仓储。 */
+    private DurableGenerationTaskRecord findAuthorizedDurableTaskForSession(
+            GenerationSession session,
+            User actor
+    ) {
+        String taskId = session == null ? null : session.taskId();
+        if (taskId == null || taskId.isBlank()) {
+            return null;
+        }
+        return findAuthorizedDurableTask(taskId, actor);
+    }
+
+    /**
+     * 判断持久任务事实是否应覆盖本地会话。
+     *
+     * <p>终态一经事务提交即为权威事实；非终态时，仅当本地会话已经失活，
+     * 才回落持久快照。这样既保留活跃 worker 的实时预算/进度，又防止清理延迟或
+     * 跨节点接管期间的旧内存对象遮蔽数据库真相。</p>
+     */
+    private boolean durableTaskOverridesSession(
+            DurableGenerationTaskRecord durableTask,
+            GenerationSession session
+    ) {
+        return durableTask != null
+                && (durableTask.terminal() || session == null || !session.isActive());
     }
 
     /** 返回{@code local}快照。 */

@@ -11,6 +11,8 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
 import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEvent;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionSnapshot;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationTaskProgressEstimate;
@@ -84,6 +86,60 @@ class GenerationTaskQueryServiceDurableFallbackTest {
     }
 
     @Test
+    void taskStatusMustPreferDurableTerminalOverStaleActiveSession() {
+        GenerationSession staleSession = mock(GenerationSession.class);
+        GenerationExecutionContext executionContext = mock(GenerationExecutionContext.class);
+        App app = new App();
+        app.setId(1L);
+        app.setTenantId(100L);
+        Instant deadlineAt = SUBMITTED_AT.plusSeconds(1_200);
+        GenerationExecutionSnapshot staleExecution = new GenerationExecutionSnapshot(
+                "task-durable", 1L, 2L, SUBMITTED_AT, deadlineAt,
+                "default", deadlineAt, null, false, null, null,
+                java.util.Map.of(), java.util.Map.of());
+        when(staleSession.taskRequest()).thenReturn(
+                new GenerationTaskRequest(app, "build", user(2L)));
+        when(staleSession.isActive()).thenReturn(true);
+        when(staleSession.executionContext()).thenReturn(executionContext);
+        when(staleSession.route()).thenReturn("heavy_generation");
+        when(executionContext.snapshot()).thenReturn(staleExecution);
+        when(sessionRegistry.getByTaskId("task-durable")).thenReturn(staleSession);
+        when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(
+                record(2L, GenerationTaskStatus.SUCCESS)));
+
+        GenerationTaskSnapshot snapshot = service.get("task-durable", user(2L));
+
+        assertEquals("success", snapshot.status());
+    }
+
+    @Test
+    void taskStatusMustUseDurableProgressWhenRetainedLocalSessionIsInactive() {
+        GenerationSession retainedSession = mock(GenerationSession.class);
+        GenerationExecutionContext executionContext = mock(GenerationExecutionContext.class);
+        App app = new App();
+        app.setId(1L);
+        app.setTenantId(100L);
+        Instant deadlineAt = SUBMITTED_AT.plusSeconds(1_200);
+        GenerationExecutionSnapshot staleExecution = new GenerationExecutionSnapshot(
+                "task-durable", 1L, 2L, SUBMITTED_AT, deadlineAt,
+                "default", deadlineAt, null, false, null, null,
+                java.util.Map.of(), java.util.Map.of());
+        when(retainedSession.taskRequest()).thenReturn(
+                new GenerationTaskRequest(app, "build", user(2L)));
+        when(retainedSession.isActive()).thenReturn(false);
+        when(retainedSession.executionContext()).thenReturn(executionContext);
+        when(retainedSession.route()).thenReturn("heavy_generation");
+        when(executionContext.snapshot()).thenReturn(staleExecution);
+        when(sessionRegistry.getByTaskId("task-durable")).thenReturn(retainedSession);
+        when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(record(2L)));
+
+        GenerationTaskSnapshot snapshot = service.get("task-durable", user(2L));
+
+        assertEquals("queued", snapshot.status());
+        assertEquals("等待执行", snapshot.stageMessage());
+    }
+
+    @Test
     void latestNonTerminalAppTaskMustSupportRefreshAndCrossClientResume() {
         App app = new App();
         app.setId(1L);
@@ -96,6 +152,36 @@ class GenerationTaskQueryServiceDurableFallbackTest {
         assertTrue(snapshot.isPresent());
         assertEquals("task-durable", snapshot.orElseThrow().taskId());
         assertEquals("queued", snapshot.orElseThrow().status());
+    }
+
+    @Test
+    void activeTaskLookupMustNotExposeStaleSessionAfterDurableTerminal() {
+        App app = new App();
+        app.setId(1L);
+        app.setTenantId(100L);
+        GenerationSession staleSession = mock(GenerationSession.class);
+        GenerationExecutionContext executionContext = mock(GenerationExecutionContext.class);
+        Instant deadlineAt = SUBMITTED_AT.plusSeconds(1_200);
+        GenerationExecutionSnapshot staleExecution = new GenerationExecutionSnapshot(
+                "task-durable", 1L, 2L, SUBMITTED_AT, deadlineAt,
+                "default", deadlineAt, null, false, null, null,
+                java.util.Map.of(), java.util.Map.of());
+        when(appPersistenceService.findActiveById(1L)).thenReturn(app);
+        when(staleSession.taskId()).thenReturn("task-durable");
+        when(staleSession.taskRequest()).thenReturn(
+                new GenerationTaskRequest(app, "build", user(2L)));
+        when(staleSession.isActive()).thenReturn(true);
+        when(staleSession.executionContext()).thenReturn(executionContext);
+        when(staleSession.route()).thenReturn("heavy_generation");
+        when(executionContext.snapshot()).thenReturn(staleExecution);
+        when(sessionRegistry.get(1L)).thenReturn(staleSession);
+        when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(
+                record(2L, GenerationTaskStatus.SUCCESS)));
+
+        Optional<GenerationTaskSnapshot> snapshot = service
+                .findLatestNonTerminalForApp(1L, user(2L));
+
+        assertTrue(snapshot.isEmpty());
     }
 
     @Test
@@ -214,6 +300,58 @@ class GenerationTaskQueryServiceDurableFallbackTest {
                 .collectList().block(Duration.ofSeconds(1));
 
         assertEquals(GenerationStreamEvent.TASK_TERMINAL, events.getFirst().getType());
+    }
+
+    @Test
+    void appScopedEventsMustPreferDurableTerminalOverStaleActiveSession() {
+        GenerationSession staleSession = mock(GenerationSession.class);
+        App app = new App();
+        app.setId(1L);
+        app.setTenantId(100L);
+        when(staleSession.taskId()).thenReturn("task-durable");
+        when(staleSession.taskRequest()).thenReturn(
+                new GenerationTaskRequest(app, "build", user(2L)));
+        when(staleSession.isActive()).thenReturn(true);
+        when(staleSession.asFlux()).thenReturn(
+                Flux.just(GenerationStreamEvent.aiDelta("stale")));
+        when(sessionRegistry.get(1L)).thenReturn(staleSession);
+        when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(
+                record(2L, GenerationTaskStatus.SUCCESS)));
+
+        List<GenerationStreamEvent> events = service
+                .eventsForLatestNonTerminalAppTask(1L, user(2L))
+                .collectList().block(Duration.ofSeconds(1));
+
+        assertEquals(1, events.size());
+        assertEquals(GenerationStreamEvent.TASK_TERMINAL,
+                events.getFirst().getType());
+        assertEquals("success", events.getFirst().getData().get("status"));
+    }
+
+    @Test
+    void appScopedEventsMustUseSharedStreamWhenRetainedLocalSessionIsInactive() {
+        GenerationSession retainedSession = mock(GenerationSession.class);
+        App app = new App();
+        app.setId(1L);
+        app.setTenantId(100L);
+        when(retainedSession.taskId()).thenReturn("task-durable");
+        when(retainedSession.taskRequest()).thenReturn(
+                new GenerationTaskRequest(app, "build", user(2L)));
+        when(retainedSession.isActive()).thenReturn(false);
+        when(retainedSession.asFlux()).thenReturn(
+                Flux.just(GenerationStreamEvent.aiDelta("stale")));
+        when(sessionRegistry.get(1L)).thenReturn(retainedSession);
+        when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(record(2L)));
+        when(eventStream.stream("task-durable")).thenReturn(
+                Flux.just(GenerationStreamEvent.aiDelta("remote")));
+
+        List<GenerationStreamEvent> events = service
+                .eventsForLatestNonTerminalAppTask(1L, user(2L))
+                .collectList().block(Duration.ofSeconds(1));
+
+        assertEquals(1, events.size());
+        assertEquals("remote", events.getFirst().getText());
+        verify(eventStream).stream("task-durable");
     }
 
     @Test

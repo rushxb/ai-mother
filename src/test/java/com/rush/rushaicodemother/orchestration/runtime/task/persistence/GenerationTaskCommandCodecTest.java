@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.runtime.task.persistence;
 
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
@@ -39,6 +41,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class GenerationTaskCommandCodecTest {
+
+    private static final JsonMapper JSON_MAPPER = JsonMapper.builder()
+            .findAndAddModules()
+            .build();
 
     @Test
     void roundTripPreservesStructuredRoutingReasonAndSlaEnvelope() {
@@ -104,6 +110,53 @@ class GenerationTaskCommandCodecTest {
         assertNotNull(restored.scenarioDecision());
         assertEquals("legacy-task-command-v1", restored.scenarioDecision().ruleVersion());
         assertEquals(GenerationPreflightUsage.none(), restored.preflightUsage());
+    }
+
+    @Test
+    void currentSchemaWithoutFrozenScenarioDecisionMustFailClosed() throws Exception {
+        ObjectNode payload = completeCommandPayload();
+        payload.remove("scenarioDecision");
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> GenerationTaskCommandCodec.fromJson(JSON_MAPPER.writeValueAsString(payload)));
+
+        assertEquals("任务命令 schema 10 缺少必需字段: scenarioDecision", exception.getMessage());
+    }
+
+    @Test
+    void currentSchemaWithoutPreflightUsageMustFailClosed() throws Exception {
+        ObjectNode payload = completeCommandPayload();
+        payload.remove("preflightUsage");
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> GenerationTaskCommandCodec.fromJson(JSON_MAPPER.writeValueAsString(payload)));
+
+        assertEquals("任务命令 schema 10 缺少必需字段: preflightUsage", exception.getMessage());
+    }
+
+    @Test
+    void textualSchemaVersionMustNotBypassRequiredFieldValidation() throws Exception {
+        ObjectNode payload = completeCommandPayload();
+        payload.put("schemaVersion", "10");
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> GenerationTaskCommandCodec.fromJson(JSON_MAPPER.writeValueAsString(payload)));
+
+        assertEquals("任务命令 schemaVersion 必须是整数", exception.getMessage());
+    }
+
+    @Test
+    void schemaNineWithoutPreflightUsageRemainsReadable() throws Exception {
+        ObjectNode payload = completeCommandPayload();
+        payload.put("schemaVersion", 9);
+        payload.remove("preflightUsage");
+
+        GenerationTaskCommand restored = GenerationTaskCommandCodec.fromJson(
+                JSON_MAPPER.writeValueAsString(payload));
+
+        assertEquals(9, restored.schemaVersion());
+        assertEquals(GenerationPreflightUsage.none(), restored.preflightUsage());
+        assertEquals(scenarioDecision(), restored.scenarioDecision());
     }
 
     @Test
@@ -259,6 +312,27 @@ class GenerationTaskCommandCodecTest {
                 GenerationTraceContext.empty(), submittedAt, envelope.totalDeadline(submittedAt),
                 GenerationResourceRequirements.none(), profile(), executionPlan
         );
+    }
+
+    private ObjectNode completeCommandPayload() throws Exception {
+        Instant submittedAt = Instant.parse("2026-07-17T00:00:00Z");
+        GenerationSlaEnvelope envelope = envelope();
+        GenerationTaskCommand command = completeCommand(submittedAt, envelope);
+        return (ObjectNode) JSON_MAPPER.readTree(GenerationTaskCommandCodec.toJson(command));
+    }
+
+    private GenerationTaskCommand completeCommand(Instant submittedAt,
+                                                   GenerationSlaEnvelope envelope) {
+        return new GenerationTaskCommand(
+                GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
+                "task-complete", 1L, 2L, 100L, "build app", CodeGenTypeEnum.VUE_PROJECT,
+                GenerationMode.CREATE, 0.95, "template first", FallbackPolicy.NONE,
+                ExpectedValidationLevel.BUILD, "",
+                GenerationRoutingDecisionCode.CREATE_TEMPLATE_FIRST, envelope,
+                GenerationTraceContext.empty(), submittedAt, envelope.totalDeadline(submittedAt),
+                GenerationResourceRequirements.ofDatabaseRequirement(true), profile(), plan(envelope),
+                GenerationPlanningVariant.COMPACT_PLAN, scenarioDecision(),
+                GenerationPreflightUsage.none());
     }
 
     private IntentProfile profile() {

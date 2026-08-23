@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
+import static com.rush.rushaicodemother.orchestration.GenerationOrchestrationTestFixture.frozenRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -90,15 +91,8 @@ class BuildFixAgentNodeTest {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
-                app,
-                "修复构建失败",
-                CodeGenTypeEnum.VUE_PROJECT,
-                "update",
-                true,
-                null,
-                null
-        );
+        GenerationOrchestrationRequest request = frozenRequest(
+                app, "修复构建失败", CodeGenTypeEnum.VUE_PROJECT, "update", true);
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
         task.setTaskId("task-buildfix");
         return new GenerationAgentContext(request, task, true);

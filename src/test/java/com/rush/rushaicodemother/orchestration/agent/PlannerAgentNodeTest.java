@@ -25,41 +25,14 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlannerAgentNodeTest {
 
     @Test
-    void missingFrozenScenarioMustFailClosed() {
-        GenerationAgentSupport support = GenerationAgentTestFixture.support();
-        PlannerAgentNode planner = new PlannerAgentNode(
-                support, new GenerationRoutingSupport(support));
-        App app = App.builder()
-                .id(1L)
-                .codeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue())
-                .build();
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
-                app,
-                "调整标题",
-                CodeGenTypeEnum.VUE_PROJECT,
-                "update",
-                false,
-                ignored -> CodeGenTypeEnum.VUE_PROJECT,
-                null
-        );
-        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
-        task.setTaskId("task-planner-missing-scenario");
-        GenerationAgentContext context = new GenerationAgentContext(request, task, true);
-
-        assertThrows(IllegalStateException.class, () -> planner.execute(context));
-    }
-
-    @Test
     void frozenHighComplexityMustSurvivePlannerPromptInterpretation() {
         GenerationAgentSupport support = GenerationAgentTestFixture.support();
-        PlannerAgentNode planner = new PlannerAgentNode(
-                support, new GenerationRoutingSupport(support));
+        PlannerAgentNode planner = new PlannerAgentNode(support);
         IntentProfile clarifiedProfile = new IntentProfile(
                 IntentOperationType.EDIT,
                 Set.of(IntentAffectedScope.FRONTEND),

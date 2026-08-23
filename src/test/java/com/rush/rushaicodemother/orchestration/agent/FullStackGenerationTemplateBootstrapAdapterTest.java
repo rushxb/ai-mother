@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 
+import static com.rush.rushaicodemother.orchestration.GenerationOrchestrationTestFixture.frozenRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -72,15 +73,8 @@ class FullStackGenerationTemplateBootstrapAdapterTest {
         App app = new App();
         app.setId(9L);
         app.setCodeGenType(CodeGenTypeEnum.FULL_STACK_PROJECT.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
-                app,
-                "创建全栈商品管理",
-                CodeGenTypeEnum.FULL_STACK_PROJECT,
-                "create",
-                false,
-                prompt -> CodeGenTypeEnum.FULL_STACK_PROJECT,
-                null
-        );
+        GenerationOrchestrationRequest request = frozenRequest(
+                app, "创建全栈商品管理", CodeGenTypeEnum.FULL_STACK_PROJECT, "create", false);
         GenerationAgentContext context = new GenerationAgentContext(
                 request, new GenerationOrchestrationTask(), true);
         context.setTargetType(CodeGenTypeEnum.FULL_STACK_PROJECT);

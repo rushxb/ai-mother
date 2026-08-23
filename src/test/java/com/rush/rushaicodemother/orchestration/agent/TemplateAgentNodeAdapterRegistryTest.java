@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static com.rush.rushaicodemother.orchestration.GenerationOrchestrationTestFixture.frozenRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -165,15 +166,8 @@ class TemplateAgentNodeAdapterRegistryTest {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(targetType.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
-                app,
-                "创建测试项目",
-                targetType,
-                "create",
-                false,
-                prompt -> targetType,
-                null
-        );
+        GenerationOrchestrationRequest request = frozenRequest(
+                app, "创建测试项目", targetType, "create", false);
         GenerationAgentContext context = new GenerationAgentContext(
                 request,
                 new GenerationOrchestrationTask(),

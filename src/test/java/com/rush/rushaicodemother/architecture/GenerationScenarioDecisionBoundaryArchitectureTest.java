@@ -13,12 +13,23 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationScenarioDecisionBoundaryArchitectureTest {
+
+    @Test
+    void orchestrationRequestMustNotCarryASecondRoutingFunction() {
+        Set<Class<?>> requestFacts = recordComponentTypes(
+                com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest.class);
+
+        assertTrue(requestFacts.contains(GenerationScenarioDecision.class));
+        assertFalse(requestFacts.contains(Function.class),
+                "编排请求只能消费冻结场景决策，不能保留第二套路由函数");
+    }
 
     @Test
     void pipelineAndDurableCommandMustCarryTheScenarioDecisionItself() {

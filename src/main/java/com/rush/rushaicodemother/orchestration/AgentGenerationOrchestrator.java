@@ -6,7 +6,6 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
@@ -21,6 +20,7 @@ import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
 import com.rush.rushaicodemother.orchestration.planning.GenerationPlanningGraphRegistry;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackPointService;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -43,7 +43,6 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
     private final GenerationDagRunner dagRunner;
     private final GenerationOrchestrationTaskStore taskStore;
     private final GenerationPlanningGraphRegistry planningGraphRegistry;
-    private final GenerationRoutingSupport routingSupport;
     private final GenerationOrchestrationMetricsCollector metricsCollector;
     private final GenerationRollbackPointService rollbackPointService;
 
@@ -150,7 +149,8 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
     private boolean resolveOrchestrationMode(GenerationOrchestrationRequest request,
                                              GenerationOrchestrationTask task) {
         if (StrUtil.isBlank(task.getOrchestrationMode())) {
-            return routingSupport.shouldUseHeavyPath(request);
+            return request.scenarioDecision().routeDecision().mode()
+                    == GenerationMode.HEAVY_EXPERT;
         }
         if ("heavy".equals(task.getOrchestrationMode())) {
             return true;

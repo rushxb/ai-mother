@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
+import static com.rush.rushaicodemother.orchestration.GenerationOrchestrationTestFixture.frozenRequest;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -68,15 +69,8 @@ class BackendQualityReviewServiceTest {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.BACKEND_PROJECT.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
-                app,
-                "生成商品管理后端",
-                CodeGenTypeEnum.BACKEND_PROJECT,
-                "create",
-                false,
-                null,
-                null
-        );
+        GenerationOrchestrationRequest request = frozenRequest(
+                app, "生成商品管理后端", CodeGenTypeEnum.BACKEND_PROJECT, "create", false);
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
         task.setTaskId("api-contract-review-test");
         return new GenerationAgentContext(request, task, true);

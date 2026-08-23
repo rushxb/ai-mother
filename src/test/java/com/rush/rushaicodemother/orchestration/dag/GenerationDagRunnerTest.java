@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.rush.rushaicodemother.orchestration.GenerationOrchestrationTestFixture.frozenRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -651,15 +652,7 @@ class GenerationDagRunnerTest {
     }
 
     private GenerationOrchestrationRequest newRequest() {
-        return new GenerationOrchestrationRequest(
-                null,
-                "generate",
-                CodeGenTypeEnum.VUE_PROJECT,
-                "generating",
-                false,
-                ignored -> CodeGenTypeEnum.VUE_PROJECT,
-                ""
-        );
+        return frozenRequest(null, "generate", CodeGenTypeEnum.VUE_PROJECT, "generating", false);
     }
 
     private GenerationAgentNode successfulNode(String key,

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 
+import static com.rush.rushaicodemother.orchestration.GenerationOrchestrationTestFixture.frozenRequest;
 import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.support;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,14 +36,13 @@ class ContextAgentNodeTemplateTest {
             App app = new App();
             app.setId(301L);
             app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
-            GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+            GenerationOrchestrationRequest request = frozenRequest(
                     app,
                     "创建一个 Vue 后台管理仪表盘",
                     CodeGenTypeEnum.HTML,
                     "create",
                     false,
-                    prompt -> CodeGenTypeEnum.VUE_PROJECT,
-                    null
+                    CodeGenTypeEnum.VUE_PROJECT
             );
             GenerationAgentContext context = new GenerationAgentContext(request, new GenerationOrchestrationTask(), true);
             context.setTargetType(CodeGenTypeEnum.VUE_PROJECT);

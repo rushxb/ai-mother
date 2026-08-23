@@ -14,7 +14,6 @@ import com.rush.rushaicodemother.orchestration.agent.BuildFixAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.CodeAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.ContextAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.GenerationAgentSupport;
-import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.agent.PlannerAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.ReviewAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.TemplateAgentNode;
@@ -79,8 +78,7 @@ class AgentGenerationOrchestratorTest {
         when(taskStore.create(eq("runtime-task-heavy"), anyLong(), anyString())).thenReturn(task);
 
         GenerationAgentSupport support = support(codeOutputRoot("shared"));
-        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
-        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support);
 
         App app = new App();
         app.setId(1L);
@@ -115,8 +113,7 @@ class AgentGenerationOrchestratorTest {
             task.setTaskId("task-" + variant.name().toLowerCase());
             when(taskStore.create(anyLong(), anyString())).thenReturn(task);
             GenerationAgentSupport support = support(codeOutputRoot("ablation-" + variant.name()));
-            AgentGenerationOrchestrator orchestrator = buildOrchestrator(
-                    taskStore, support, new GenerationRoutingSupport(support));
+            AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support);
             App app = new App();
             app.setId(1L);
             app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
@@ -149,8 +146,7 @@ class AgentGenerationOrchestratorTest {
         task.setTaskId("task-no-plan-frozen-scenario");
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
         GenerationAgentSupport support = support(codeOutputRoot("no-plan-frozen-scenario"));
-        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
-        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support);
 
         App app = new App();
         app.setId(1L);
@@ -222,8 +218,7 @@ class AgentGenerationOrchestratorTest {
         when(taskStore.matchesRequest(restoredTask, "继续生成 Vue 应用")).thenReturn(true);
 
         GenerationAgentSupport support = support(codeOutputRoot("resume"));
-        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
-        PlannerAgentNode plannerNode = spy(new PlannerAgentNode(support, routingSupport));
+        PlannerAgentNode plannerNode = spy(new PlannerAgentNode(support));
         TemplateAgentNode templateNode = testTemplateAgentNode("resume");
         ContextAgentNode contextNode = new ContextAgentNode(support);
         ArchitectAgentNode architectNode = new ArchitectAgentNode(support);
@@ -244,8 +239,7 @@ class AgentGenerationOrchestratorTest {
                 taskStore,
                 planningGraphRegistry(
                         plannerNode, templateNode, contextNode, architectNode,
-                        codeNode, reviewNode, new BuildFixAgentNode(), routingSupport),
-                routingSupport,
+                        codeNode, reviewNode, new BuildFixAgentNode()),
                 metricsCollector,
                 testRollbackPointService("resume")
         );
@@ -288,8 +282,7 @@ class AgentGenerationOrchestratorTest {
         when(taskStore.matchesRequest(task, "创建一个 Vue 应用")).thenReturn(true);
 
         GenerationAgentSupport support = support(codeOutputRoot("completed-resume"));
-        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
-        PlannerAgentNode plannerNode = spy(new PlannerAgentNode(support, routingSupport));
+        PlannerAgentNode plannerNode = spy(new PlannerAgentNode(support));
         TemplateAgentNode templateNode = testTemplateAgentNode("completed-resume");
         ContextAgentNode contextNode = new ContextAgentNode(support);
         ArchitectAgentNode architectNode = new ArchitectAgentNode(support);
@@ -303,8 +296,7 @@ class AgentGenerationOrchestratorTest {
                 taskStore,
                 planningGraphRegistry(
                         plannerNode, templateNode, contextNode, architectNode,
-                        codeNode, reviewNode, new BuildFixAgentNode(), routingSupport),
-                routingSupport,
+                        codeNode, reviewNode, new BuildFixAgentNode()),
                 metricsCollector,
                 rollbackPointService
         );
@@ -347,11 +339,7 @@ class AgentGenerationOrchestratorTest {
                 .thenReturn(task);
         when(taskStore.matchesRequest(task, "创建一个 Vue 应用")).thenReturn(true);
         GenerationAgentSupport support = support(codeOutputRoot("missing-quality-gate"));
-        AgentGenerationOrchestrator orchestrator = buildOrchestrator(
-                taskStore,
-                support,
-                new GenerationRoutingSupport(support)
-        );
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support);
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
@@ -384,11 +372,7 @@ class AgentGenerationOrchestratorTest {
                 .thenReturn(task);
         when(taskStore.matchesRequest(task, "创建一个 Vue 应用")).thenReturn(true);
         GenerationAgentSupport support = support(codeOutputRoot("foreign-rollback-point"));
-        AgentGenerationOrchestrator orchestrator = buildOrchestrator(
-                taskStore,
-                support,
-                new GenerationRoutingSupport(support)
-        );
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support);
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
@@ -427,8 +411,7 @@ class AgentGenerationOrchestratorTest {
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
         GenerationAgentSupport support = support(codeOutputRoot("shared"));
-        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
-        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support);
 
         App app = new App();
         app.setId(1L);
@@ -461,8 +444,7 @@ class AgentGenerationOrchestratorTest {
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
         GenerationAgentSupport support = support(codeOutputRoot("shared"));
-        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
-        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support);
 
         App app = new App();
         app.setId(1L);
@@ -497,7 +479,6 @@ class AgentGenerationOrchestratorTest {
         when(taskStore.create(anyLong(), anyString())).thenReturn(task);
 
         GenerationAgentSupport support = support(codeOutputRoot("metrics"));
-        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         GenerationOrchestrationMetricsCollector metricsCollector = new GenerationOrchestrationMetricsCollector(meterRegistry);
         GenerationDagRunner dagRunner = new GenerationDagRunner(
@@ -507,15 +488,13 @@ class AgentGenerationOrchestratorTest {
                 dagRunner,
                 taskStore,
                 planningGraphRegistry(
-                        new PlannerAgentNode(support, routingSupport),
+                        new PlannerAgentNode(support),
                         testTemplateAgentNode("metrics"),
                         new ContextAgentNode(support),
                         new ArchitectAgentNode(support),
                         codeAgentNode(),
                         reviewAgentNode(),
-                        new BuildFixAgentNode(),
-                        routingSupport),
-                routingSupport,
+                        new BuildFixAgentNode()),
                 metricsCollector,
                 rollbackPointService
         );
@@ -536,7 +515,8 @@ class AgentGenerationOrchestratorTest {
                 null
         );
 
-        String orchestrationMode = routingSupport.shouldUseHeavyPath(request) ? "heavy" : "light";
+        String orchestrationMode = request.scenarioDecision().routeDecision().mode()
+                == GenerationMode.HEAVY_EXPERT ? "heavy" : "light";
         orchestrator.prepare(request);
 
         assertEquals(1.0, meterRegistry.counter(
@@ -566,8 +546,7 @@ class AgentGenerationOrchestratorTest {
     }
 
     private AgentGenerationOrchestrator buildOrchestrator(GenerationOrchestrationTaskStore taskStore,
-                                                          GenerationAgentSupport support,
-                                                          GenerationRoutingSupport routingSupport) {
+                                                          GenerationAgentSupport support) {
         GenerationOrchestrationMetricsCollector metricsCollector =
                 new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry());
         GenerationDagRunner dagRunner = new GenerationDagRunner(
@@ -577,15 +556,13 @@ class AgentGenerationOrchestratorTest {
                 dagRunner,
                 taskStore,
                 planningGraphRegistry(
-                        new PlannerAgentNode(support, routingSupport),
+                        new PlannerAgentNode(support),
                         testTemplateAgentNode("shared"),
                         new ContextAgentNode(support),
                         new ArchitectAgentNode(support),
                         codeAgentNode(),
                         reviewAgentNode(),
-                        new BuildFixAgentNode(),
-                        routingSupport),
-                routingSupport,
+                        new BuildFixAgentNode()),
                 metricsCollector,
                 rollbackPointService
         );
@@ -664,15 +641,14 @@ class AgentGenerationOrchestratorTest {
             ArchitectAgentNode architect,
             CodeAgentNode code,
             ReviewAgentNode review,
-            BuildFixAgentNode buildFix,
-            GenerationRoutingSupport routingSupport
+            BuildFixAgentNode buildFix
     ) {
         CurrentDagPlanningGraphAdapter currentDag = new CurrentDagPlanningGraphAdapter(
                 planner, template, context, architect, code, review, buildFix);
         return new GenerationPlanningGraphRegistry(List.of(
                 currentDag,
                 new CompactPlanningGraphAdapter(currentDag),
-                new NoPlanningGraphAdapter(template, context, routingSupport)
+                new NoPlanningGraphAdapter(template, context)
         ));
     }
 

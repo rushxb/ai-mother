@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static com.rush.rushaicodemother.orchestration.GenerationOrchestrationTestFixture.frozenRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -34,15 +35,8 @@ class GenerationRollbackPointServiceTest {
         App app = new App();
         app.setId(7L);
         app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
-                app,
-                "修改页面",
-                CodeGenTypeEnum.VUE_PROJECT,
-                "update",
-                true,
-                null,
-                null
-        );
+        GenerationOrchestrationRequest request = frozenRequest(
+                app, "修改页面", CodeGenTypeEnum.VUE_PROJECT, "update", true);
 
         GenerationTaskFenceGuard fenceGuard = mock(GenerationTaskFenceGuard.class);
         GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackPointService(
@@ -64,15 +58,8 @@ class GenerationRollbackPointServiceTest {
         App app = new App();
         app.setId(8L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
-                app,
-                "创建页面",
-                CodeGenTypeEnum.HTML,
-                "create",
-                false,
-                null,
-                null
-        );
+        GenerationOrchestrationRequest request = frozenRequest(
+                app, "创建页面", CodeGenTypeEnum.HTML, "create", false);
 
         GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackPointService(tempDir.resolve("out"), tempDir.resolve("snap"))
                 .prepareRollbackPoint(request, CodeGenTypeEnum.HTML, "task-8");
@@ -92,9 +79,8 @@ class GenerationRollbackPointServiceTest {
         App app = new App();
         app.setId(18L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
-                app, "修改页面", CodeGenTypeEnum.HTML, "update", true, null, null
-        );
+        GenerationOrchestrationRequest request = frozenRequest(
+                app, "修改页面", CodeGenTypeEnum.HTML, "update", true);
 
         GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackPointService(codeOutputRoot, codeSnapshotRoot).prepareRollbackPoint(request, CodeGenTypeEnum.HTML, "../" + "very-long-task-id".repeat(20));
 
@@ -116,9 +102,8 @@ class GenerationRollbackPointServiceTest {
         App app = new App();
         app.setId(19L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
-                app, "修改页面", CodeGenTypeEnum.HTML, "update", true, null, null
-        );
+        GenerationOrchestrationRequest request = frozenRequest(
+                app, "修改页面", CodeGenTypeEnum.HTML, "update", true);
         GenerationTaskFenceGuard fenceGuard = mock(GenerationTaskFenceGuard.class);
         GenerationRollbackPointService service = SnapshotServiceTestFixture.rollbackPointService(
                 codeOutputRoot, codeSnapshotRoot, fenceGuard);

@@ -4,7 +4,6 @@ import com.rush.rushaicodemother.orchestration.agent.ArchitectAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.BuildFixAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.CodeAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.ContextAgentNode;
-import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.agent.PlannerAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.ReviewAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.TemplateAgentNode;
@@ -20,7 +19,6 @@ class GenerationPlanningGraphBeanWiringTest {
             .withBean(PlannerAgentNode.class, () -> mock(PlannerAgentNode.class))
             .withBean(TemplateAgentNode.class, () -> mock(TemplateAgentNode.class))
             .withBean(ContextAgentNode.class, () -> mock(ContextAgentNode.class))
-            .withBean(GenerationRoutingSupport.class, () -> mock(GenerationRoutingSupport.class))
             .withBean(ArchitectAgentNode.class, () -> mock(ArchitectAgentNode.class))
             .withBean(CodeAgentNode.class, () -> mock(CodeAgentNode.class))
             .withBean(ReviewAgentNode.class, () -> mock(ReviewAgentNode.class))

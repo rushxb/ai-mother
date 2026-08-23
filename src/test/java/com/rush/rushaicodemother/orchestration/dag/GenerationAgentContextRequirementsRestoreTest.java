@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
+import static com.rush.rushaicodemother.orchestration.GenerationOrchestrationTestFixture.frozenRequest;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class GenerationAgentContextRequirementsRestoreTest {
@@ -36,14 +37,6 @@ class GenerationAgentContextRequirementsRestoreTest {
                 .id(1L)
                 .codeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue())
                 .build();
-        return new GenerationOrchestrationRequest(
-                app,
-                "继续生成",
-                CodeGenTypeEnum.VUE_PROJECT,
-                "生成中",
-                true,
-                null,
-                null
-        );
+        return frozenRequest(app, "继续生成", CodeGenTypeEnum.VUE_PROJECT, "生成中", true);
     }
 }

@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
+import static com.rush.rushaicodemother.orchestration.GenerationOrchestrationTestFixture.frozenRequest;
 import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.codeAgentNode;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -234,15 +235,8 @@ class CodeAgentNodeTest {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
-                app,
-                "优化登录页与表单交互",
-                CodeGenTypeEnum.VUE_PROJECT,
-                "update",
-                hasGeneratedCode,
-                null,
-                null
-        );
+        GenerationOrchestrationRequest request = frozenRequest(
+                app, "优化登录页与表单交互", CodeGenTypeEnum.VUE_PROJECT, "update", hasGeneratedCode);
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
         task.setTaskId("task-1");
         return new GenerationAgentContext(request, task, true);

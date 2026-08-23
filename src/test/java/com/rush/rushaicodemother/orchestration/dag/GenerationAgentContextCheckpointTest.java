@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static com.rush.rushaicodemother.orchestration.GenerationOrchestrationTestFixture.frozenRequest;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -102,15 +103,8 @@ class GenerationAgentContextCheckpointTest {
     }
 
     private GenerationOrchestrationRequest request() {
-        return new GenerationOrchestrationRequest(
-                null,
-                "生成一个后台管理系统",
-                CodeGenTypeEnum.VUE_PROJECT,
-                "generating",
-                false,
-                ignored -> CodeGenTypeEnum.VUE_PROJECT,
-                ""
-        );
+        return frozenRequest(
+                null, "生成一个后台管理系统", CodeGenTypeEnum.VUE_PROJECT, "generating", false);
     }
 
     private GenerationOrchestrationTask taskWithSpecification() {

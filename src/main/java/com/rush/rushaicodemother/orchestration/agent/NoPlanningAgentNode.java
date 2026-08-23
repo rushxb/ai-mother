@@ -20,22 +20,19 @@ public class NoPlanningAgentNode extends BaseGenerationAgentNode {
 
     private final TemplateAgentNode templateNode;
     private final ContextAgentNode contextNode;
-    private final GenerationRoutingSupport routingSupport;
 
     public NoPlanningAgentNode(TemplateAgentNode templateNode,
-                               ContextAgentNode contextNode,
-                               GenerationRoutingSupport routingSupport) {
+                               ContextAgentNode contextNode) {
         super("no_plan", "NoPlan", "planning", List.of(),
                 GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT);
         this.templateNode = Objects.requireNonNull(templateNode, "模板节点不能为空");
         this.contextNode = Objects.requireNonNull(contextNode, "上下文节点不能为空");
-        this.routingSupport = Objects.requireNonNull(routingSupport, "生成路由支持不能为空");
     }
 
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
         // 消融变体只能减少规划深度，不能绕过准入阶段已经冻结的场景事实。
-        CodeGenTypeEnum routedType = routingSupport.routeTargetType(context.getRequest());
+        CodeGenTypeEnum routedType = context.getRequest().scenarioDecision().targetType();
         context.setTargetType(CodeGenTypeEnum.max(context.getRequest().currentType(), routedType));
         context.setUpgradeRequired(context.getRequest().currentType().canUpgradeTo(context.getTargetType()));
 

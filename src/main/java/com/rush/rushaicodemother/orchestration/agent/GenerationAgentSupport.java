@@ -84,21 +84,6 @@ public class GenerationAgentSupport {
     }
 
     /**
- * 判断{@code Complex}请求是否满足约束。
- *
- * @param userMessage 用户消息
- * @return 满足条件时返回 {@code true}，否则返回 {@code false}
- */
-    public boolean isComplexRequest(String userMessage) {
-        String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
-        return containsAny(normalized,
-                "多模块", "多页面", "管理系统", "登录", "注册", "权限", "角色管理", "鉴权",
-                "状态管理", "图表", "复杂表单", "工作台", "dashboard", "支付", "结算",
-                "实时协作", "websocket", "多租户", "工作流", "审批", "消息队列", "高并发",
-                "分布式", "微服务");
-    }
-
-    /**
  * 返回{@code infer}{@code Modules}。
  *
  * @param userMessage 用户消息

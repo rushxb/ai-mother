@@ -48,7 +48,7 @@ class GenerationWorkspaceIndexSnapshotTest {
             write(workspace, "src/views/Login.vue", "<template>login token</template>");
             write(workspace, "src/router/index.ts", "export const routes = []");
             GenerationAgentSupport support = support(outputRoot, fileSystemService);
-            PlannerAgentNode planner = new PlannerAgentNode(support, new GenerationRoutingSupport(support));
+            PlannerAgentNode planner = new PlannerAgentNode(support);
             ContextAgentNode contextNode = new ContextAgentNode(support);
             GenerationAgentContext context = context();
 

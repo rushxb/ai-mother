@@ -4,7 +4,6 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 
-import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -16,7 +15,6 @@ public record GenerationOrchestrationRequest(
         CodeGenTypeEnum currentType,
         String generatingStage,
         boolean hasGeneratedCode,
-        Function<String, CodeGenTypeEnum> routingFunction,
         String memoryContext,
         Supplier<String> deferredMemoryContextSupplier,
         String taskId,
@@ -25,6 +23,9 @@ public record GenerationOrchestrationRequest(
 ) {
 
     public GenerationOrchestrationRequest {
+        if (scenarioDecision == null) {
+            throw new IllegalArgumentException("编排请求必须携带冻结场景决策");
+        }
         if (planningVariant == null) {
             planningVariant = GenerationPlanningVariant.CURRENT_DAG;
         }
@@ -39,68 +40,6 @@ public record GenerationOrchestrationRequest(
         return deferredMemoryContextSupplier == null
                 ? memoryContext
                 : deferredMemoryContextSupplier.get();
-    }
-
-    /** 兼容尚未携带冻结场景决策的规划实验与历史调用方。 */
-    public GenerationOrchestrationRequest(
-            App app,
-            String userMessage,
-            CodeGenTypeEnum currentType,
-            String generatingStage,
-            boolean hasGeneratedCode,
-            Function<String, CodeGenTypeEnum> routingFunction,
-            String memoryContext,
-            Supplier<String> deferredMemoryContextSupplier,
-            String taskId,
-            GenerationPlanningVariant planningVariant
-    ) {
-        this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
-                routingFunction, memoryContext, deferredMemoryContextSupplier, taskId,
-                planningVariant, null);
-    }
-
-    public GenerationOrchestrationRequest(
-            App app,
-            String userMessage,
-            CodeGenTypeEnum currentType,
-            String generatingStage,
-            boolean hasGeneratedCode,
-            Function<String, CodeGenTypeEnum> routingFunction,
-            String memoryContext,
-            String taskId
-    ) {
-        this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
-                routingFunction, memoryContext, null, taskId, GenerationPlanningVariant.CURRENT_DAG, null);
-    }
-
-    public GenerationOrchestrationRequest(
-            App app,
-            String userMessage,
-            CodeGenTypeEnum currentType,
-            String generatingStage,
-            boolean hasGeneratedCode,
-            Function<String, CodeGenTypeEnum> routingFunction,
-            String memoryContext,
-            Supplier<String> deferredMemoryContextSupplier,
-            String taskId
-    ) {
-        this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
-                routingFunction, memoryContext, deferredMemoryContextSupplier, taskId,
-                GenerationPlanningVariant.CURRENT_DAG, null);
-    }
-
-    /** 仍然将身份创建委托给任务存储的调用者的兼容性构造函数。 */
-    public GenerationOrchestrationRequest(
-            App app,
-            String userMessage,
-            CodeGenTypeEnum currentType,
-            String generatingStage,
-            boolean hasGeneratedCode,
-            Function<String, CodeGenTypeEnum> routingFunction,
-            String memoryContext
-    ) {
-        this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
-                routingFunction, memoryContext, null, null, GenerationPlanningVariant.CURRENT_DAG, null);
     }
 
     /**
@@ -130,7 +69,6 @@ public record GenerationOrchestrationRequest(
                 currentType,
                 generatingStage,
                 hasGeneratedCode,
-                null,
                 memoryContext,
                 deferredMemoryContextSupplier,
                 taskId,

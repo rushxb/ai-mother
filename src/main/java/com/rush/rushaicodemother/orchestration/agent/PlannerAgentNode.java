@@ -14,6 +14,7 @@ import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
 import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipe;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import org.springframework.stereotype.Component;
 
@@ -28,12 +29,10 @@ import java.util.Map;
 public class PlannerAgentNode extends BaseGenerationAgentNode {
 
     private final GenerationAgentSupport support;
-    private final GenerationRoutingSupport routingSupport;
 
-    public PlannerAgentNode(GenerationAgentSupport support, GenerationRoutingSupport routingSupport) {
+    public PlannerAgentNode(GenerationAgentSupport support) {
         super("planner", "Planner", "planning", List.of(), GenerationNodeReplayPolicy.REPLAY_SAFE);
         this.support = support;
-        this.routingSupport = routingSupport;
     }
 
     /**
@@ -46,17 +45,17 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
     public AgentNodeResult execute(GenerationAgentContext context) {
         String userMessage = StrUtil.blankToDefault(context.getRequest().userMessage(), "");
         GenerationScenarioDecision scenarioDecision = context.getRequest().scenarioDecision();
-        if (scenarioDecision == null) {
-            throw new IllegalStateException("Planner 必须消费准入阶段冻结的场景决策");
-        }
         // 复杂度会改变 DAG 深度与生成预算，不能在 Planner 中再次解析原始 Prompt。
         boolean complex = scenarioDecision.intentProfile().semanticComplexity()
                 == IntentSemanticComplexity.HIGH;
         boolean patchFirst = context.getRequest().hasGeneratedCode();
-        CodeGenTypeEnum routedType = routingSupport.routeTargetType(context.getRequest(), complex);
+        CodeGenTypeEnum routedType = scenarioDecision.targetType();
         context.setTargetType(CodeGenTypeEnum.max(context.getRequest().currentType(), routedType));
         context.setUpgradeRequired(context.getRequest().currentType().canUpgradeTo(context.getTargetType()));
-        boolean requiresBuild = routingSupport.requiresBuildValidation(context.getRequest(), context.getTargetType());
+        if (context.getTargetType() != scenarioDecision.targetType()) {
+            throw new IllegalStateException("规划目标工程类型与冻结场景决策不一致");
+        }
+        boolean requiresBuild = scenarioDecision.validationFloor() != ExpectedValidationLevel.FAST;
         String generationMode = patchFirst ? "patch_first_update" : "full_generation";
         String validationMode = requiresBuild ? "build_validation" : "review_only";
         List<GenerationRecipe> matchedRecipes = support.matchRecipes(userMessage, "");

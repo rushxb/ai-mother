@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.ai.tools;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContext;
@@ -17,9 +18,11 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -132,5 +135,23 @@ class SnapshotRollbackToolTest {
         assertEquals("快照已由同一审批调用删除: safe", result);
         verify(fenceGuard).assertCurrent("task-approval");
         verify(workspaceFileSystemService, never()).deleteDirectory(any(Path.class));
+    }
+
+    @Test
+    void staleTaskCancellationMustStopSnapshotMutationInsteadOfBecomingToolFeedback() throws Exception {
+        GenerationExecutionCancelledException cancellation =
+                new GenerationExecutionCancelledException("lease_lost");
+        when(executionContextService.getContext(9L)).thenReturn(Optional.of(
+                new GenerationToolExecutionContext(9L, "task-stale", "agent_edit", null,
+                        null, false, "test")));
+        doThrow(cancellation).when(fenceGuard).assertCurrent("task-stale");
+
+        GenerationExecutionCancelledException thrown = assertThrows(
+                GenerationExecutionCancelledException.class,
+                () -> tool.manageSnapshot("createSnapshot", "safe", null, 9L)
+        );
+
+        assertSame(cancellation, thrown);
+        verify(workspaceFileSystemService, never()).copyDirectory(any(Path.class), any(Path.class));
     }
 }

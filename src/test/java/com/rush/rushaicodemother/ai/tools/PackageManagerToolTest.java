@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -15,6 +16,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -118,6 +121,25 @@ class PackageManagerToolTest {
         assertEquals(fixture.projectRoot().toRealPath(), projectRootCaptor.getValue());
         assertEquals("frontend/package.json", operationCaptor.getValue().relativePath());
         assertTrue(operationCaptor.getValue().content().contains("\"marked\""));
+    }
+
+    @Test
+    void executionCancellationMustNotBeRenderedAsAnOrdinaryPackageError() throws Exception {
+        PackageToolFixture fixture = createFixture(7L);
+        GenerationExecutionCancelledException cancellation =
+                new GenerationExecutionCancelledException("user_cancelled");
+        when(fixture.gateway().applyPatch(
+                anyLong(), any(Path.class), any(PatchOperation.class), anyString(), anyString()))
+                .thenThrow(cancellation);
+
+        GenerationExecutionCancelledException thrown = assertThrows(
+                GenerationExecutionCancelledException.class,
+                () -> fixture.tool().managePackageJson(
+                        "addDependency", "marked", "^12.0.0", "dependencies",
+                        null, null, false, "渲染 markdown", 7L)
+        );
+
+        assertSame(cancellation, thrown);
     }
 
     private PackageManagerTool createTool(long appId) throws Exception {

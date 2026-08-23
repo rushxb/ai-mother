@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.ai.tools.policy.DependencyPolicyService;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -104,6 +105,9 @@ public class PackageManagerTool extends BaseTool {
             };
         } catch (ToolInputException e) {
             return renderInputError(e);
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            // 取消、截止时间与租约丢失属于任务控制信号，不能伪装成可重试的工具反馈。
+            throw executionPolicyFailure;
         } catch (Exception e) {
             log.error("管理 package.json 失败，action: {}", action, LogExceptionSanitizer.sanitize(e));
             return "管理 package.json 失败，请稍后重试";

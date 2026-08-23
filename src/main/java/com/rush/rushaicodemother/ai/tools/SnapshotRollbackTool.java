@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemSe
 import com.rush.rushaicodemother.orchestration.artifact.ManualSnapshot;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.tool.DestructiveToolAction;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
@@ -106,6 +107,9 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
             return renderInputError(new ToolInputException(e.getMessage(), e));
         } catch (GenerationApprovalRequiredException approvalRequired) {
             throw approvalRequired;
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            // 围栏失效和任务取消必须终止旧 worker，不能被转换成普通快照错误。
+            throw executionPolicyFailure;
         } catch (Exception e) {
             log.error("管理快照失败，action: {}, snapshotName: {}, exceptionType: {}",
                     action, snapshotName, e.getClass().getSimpleName());

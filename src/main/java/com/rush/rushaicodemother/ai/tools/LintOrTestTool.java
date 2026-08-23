@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.config.ProjectCommandProperties;
 import com.rush.rushaicodemother.infrastructure.diagnostic.PublicDiagnosticSanitizer;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandExecutor;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandResult;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -92,6 +93,9 @@ public class LintOrTestTool extends BaseTool {
             return PublicDiagnosticSanitizer.sanitizeForPublicOutput(builder.toString().trim());
         } catch (ToolInputException e) {
             return renderInputError(e);
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            // 外部进程已响应任务取消或围栏失效时，必须立即结束 Agent 回合。
+            throw executionPolicyFailure;
         } catch (Exception e) {
             log.error("执行项目校验失败，scriptName: {}", scriptName, LogExceptionSanitizer.sanitize(e));
             return "执行项目校验失败，请稍后重试";

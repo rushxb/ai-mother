@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.config.ProjectCommandProperties;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandExecutor;
 import com.rush.rushaicodemother.infrastructure.process.ProjectCommandResult;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -11,6 +12,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -102,5 +105,42 @@ class LintOrTestToolTest {
         assertFalse(report.contains("command-secret"));
         assertTrue(report.contains("src/App.vue:12:4"));
         assertTrue(report.contains("Cannot find module 'missing'"));
+    }
+
+    @Test
+    void executionCancellationMustStopTheToolCallInsteadOfBecomingModelFeedback() throws Exception {
+        long appId = 920_003L;
+        Path projectDirectory = Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR, "vue_project_" + appId)
+                .toAbsolutePath()
+                .normalize();
+        Files.createDirectories(projectDirectory);
+        Files.writeString(
+                projectDirectory.resolve("package.json"),
+                "{\"scripts\":{\"build\":\"vite build\"}}",
+                StandardCharsets.UTF_8
+        );
+        ProjectCommandExecutor executor = mock(ProjectCommandExecutor.class);
+        ProjectCommandProperties properties = new ProjectCommandProperties();
+        GenerationExecutionCancelledException cancellation =
+                new GenerationExecutionCancelledException("user_cancelled");
+        when(executor.executePnpmScript(
+                projectDirectory,
+                "build",
+                properties.getToolScriptTimeout(),
+                "test-task-" + appId,
+                "tool-check:build"
+        )).thenThrow(cancellation);
+        LintOrTestTool tool = new LintOrTestTool(
+                executor,
+                properties,
+                ToolPathSupportTestFixture.workspaceForApp(appId)
+        );
+
+        GenerationExecutionCancelledException thrown = assertThrows(
+                GenerationExecutionCancelledException.class,
+                () -> tool.runProjectCheck("build", "", appId)
+        );
+
+        assertSame(cancellation, thrown);
     }
 }

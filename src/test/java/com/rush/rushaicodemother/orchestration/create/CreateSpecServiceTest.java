@@ -9,16 +9,26 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationSynchronousModelCallSupervisor;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -28,6 +38,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CreateSpecServiceTest {
+
+    private static final GenerationSynchronousModelCallSupervisor MODEL_CALL_SUPERVISOR =
+            new GenerationSynchronousModelCallSupervisor();
+
+    @AfterAll
+    static void closeModelCallSupervisor() {
+        MODEL_CALL_SUPERVISOR.close();
+    }
 
     @Test
     void fallbackReasonMustNotExposeModelExceptionDetails() {
@@ -68,7 +86,7 @@ class CreateSpecServiceTest {
                             invocation.getArgument(0), plan, plan.slotGroups().getFirst(), "test");
                 });
         CreateSpecService service = new CreateSpecService(
-                serviceFactory, new CreateSpecNormalizer(), contexts);
+                serviceFactory, new CreateSpecNormalizer(), contexts, MODEL_CALL_SUPERVISOR);
 
         CreateSpecService.SpecResult result = service.generateManaged(
                 "create-spec-task", "创建一个官网", plan());
@@ -89,7 +107,7 @@ class CreateSpecServiceTest {
         context.cancel("user_requested");
         AiCreateSpecServiceFactory serviceFactory = mock(AiCreateSpecServiceFactory.class);
         CreateSpecService service = new CreateSpecService(
-                serviceFactory, new CreateSpecNormalizer(), contexts);
+                serviceFactory, new CreateSpecNormalizer(), contexts, MODEL_CALL_SUPERVISOR);
 
         assertThrows(GenerationExecutionCancelledException.class,
                 () -> service.generateManaged(
@@ -98,6 +116,56 @@ class CreateSpecServiceTest {
         assertEquals(0, context.used(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
         verify(serviceFactory, never()).createExecutionService(
                 any(Duration.class), any(Runnable.class), any(Runnable.class));
+    }
+
+    @Test
+    void cancellationDuringProviderCallMustReleaseCreateSpecWorkerPromptly() throws Exception {
+        GenerationExecutionContextService contexts =
+                new GenerationExecutionContextService(new GenerationRuntimeProperties());
+        GenerationExecutionContext context = contexts.start("create-spec-inflight-cancel", 11L, 22L);
+        AiCreateSpecServiceFactory serviceFactory = mock(AiCreateSpecServiceFactory.class);
+        AiCreateSpecService model = mock(AiCreateSpecService.class);
+        CountDownLatch providerEntered = new CountDownLatch(1);
+        CountDownLatch releaseProvider = new CountDownLatch(1);
+        when(serviceFactory.createExecutionService(
+                any(Duration.class), any(Runnable.class), any(Runnable.class)))
+                .thenReturn(model);
+        when(model.generateSpec(anyString(), anyString(), anyString(), anyString()))
+                .thenAnswer(invocation -> {
+                    providerEntered.countDown();
+                    awaitIgnoringInterruption(releaseProvider);
+                    return new CreateSpecDefaults().fromRequest(
+                            invocation.getArgument(0), plan(), plan().slotGroups().getFirst(), "test");
+                });
+
+        ExecutorService managedWorker = Executors.newSingleThreadExecutor();
+        try (AnnotationConfigApplicationContext spring = new AnnotationConfigApplicationContext()) {
+            spring.registerBean(AiCreateSpecServiceFactory.class, () -> serviceFactory);
+            spring.registerBean(CreateSpecNormalizer.class, CreateSpecNormalizer::new);
+            spring.registerBean(GenerationExecutionContextService.class, () -> contexts);
+            spring.registerBean(GenerationSynchronousModelCallSupervisor.class,
+                    GenerationSynchronousModelCallSupervisor::new);
+            spring.register(CreateSpecService.class);
+            spring.refresh();
+            CreateSpecService service = spring.getBean(CreateSpecService.class);
+            Future<Throwable> outcome = managedWorker.submit(() -> {
+                try {
+                    service.generateManaged("create-spec-inflight-cancel", "创建一个官网", plan());
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                }
+            });
+
+            assertTrue(providerEntered.await(1, TimeUnit.SECONDS));
+            context.cancel("user_requested");
+
+            Throwable failure = outcome.get(1, TimeUnit.SECONDS);
+            assertInstanceOf(GenerationExecutionCancelledException.class, failure);
+        } finally {
+            releaseProvider.countDown();
+            managedWorker.shutdownNow();
+        }
     }
 
     @Test
@@ -112,7 +180,7 @@ class CreateSpecServiceTest {
         when(context.optionalFirstPreviewOperationTimeout(Duration.ofMinutes(4)))
                 .thenReturn(Optional.empty());
         CreateSpecService service = new CreateSpecService(
-                serviceFactory, new CreateSpecNormalizer(), contexts);
+                serviceFactory, new CreateSpecNormalizer(), contexts, MODEL_CALL_SUPERVISOR);
 
         CreateSpecService.SpecResult result = service.generateManaged(
                 "create-spec-preview-cutoff", "创建一个官网", plan());
@@ -143,5 +211,20 @@ class CreateSpecServiceTest {
                 "test",
                 ""
         );
+    }
+
+    private static void awaitIgnoringInterruption(CountDownLatch latch) {
+        boolean interrupted = false;
+        while (true) {
+            try {
+                latch.await();
+                break;
+            } catch (InterruptedException ignored) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

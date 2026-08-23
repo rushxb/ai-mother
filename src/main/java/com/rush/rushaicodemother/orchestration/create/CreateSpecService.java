@@ -10,12 +10,14 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationSynchronousModelCallSupervisor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -29,23 +31,29 @@ public class CreateSpecService {
     private final CreateSpecDefaults defaults = new CreateSpecDefaults();
     private final CreateSpecNormalizer normalizer;
     private final GenerationExecutionContextService executionContextService;
+    private final GenerationSynchronousModelCallSupervisor modelCallSupervisor;
 
     public CreateSpecService(AiCreateSpecServiceFactory serviceFactory) {
-        this(serviceFactory, new CreateSpecNormalizer(), null);
+        this(serviceFactory, new CreateSpecNormalizer(), null, null);
     }
 
     public CreateSpecService(AiCreateSpecServiceFactory serviceFactory,
                              CreateSpecNormalizer normalizer) {
-        this(serviceFactory, normalizer, null);
+        this(serviceFactory, normalizer, null, null);
     }
 
     @Autowired
     public CreateSpecService(AiCreateSpecServiceFactory serviceFactory,
                              CreateSpecNormalizer normalizer,
-                             GenerationExecutionContextService executionContextService) {
-        this.serviceFactory = serviceFactory;
-        this.normalizer = normalizer;
+                             GenerationExecutionContextService executionContextService,
+                             GenerationSynchronousModelCallSupervisor modelCallSupervisor) {
+        this.serviceFactory = Objects.requireNonNull(serviceFactory, "CREATE 规格模型工厂不能为空");
+        this.normalizer = Objects.requireNonNull(normalizer, "CREATE 规格规范化器不能为空");
+        if ((executionContextService == null) != (modelCallSupervisor == null)) {
+            throw new IllegalArgumentException("CREATE 规格执行上下文与同步模型监督器必须同时配置");
+        }
         this.executionContextService = executionContextService;
+        this.modelCallSupervisor = modelCallSupervisor;
     }
 
     /**
@@ -127,15 +135,8 @@ public class CreateSpecService {
             AiCreateSpecService service = executionContext == null
                     ? serviceFactory.createService()
                     : createService(executionContext, modelTimeout.orElseThrow());
-            CreateSpec spec = service.generateSpec(
-                    StrUtil.blankToDefault(userMessage, ""),
-                    plan.codeGenType() == null ? "" : plan.codeGenType().getValue(),
-                    group.templateId(),
-                    plannedModules(plan, group)
-            );
-            if (executionContext != null) {
-                executionContext.assertCanContinue();
-            }
+            CreateSpec spec = invokeModel(
+                    service, executionContext, userMessage, plan, group);
             CreateSpecNormalizer.NormalizedSpec normalized = normalizer.normalize(spec, userMessage, plan, group);
             return SpecResult.available(normalized.spec(), "ai_spec", normalized.validation(), true);
         } catch (GenerationExecutionPolicyException policyFailure) {
@@ -154,6 +155,25 @@ public class CreateSpecService {
                     true
             );
         }
+    }
+
+    /** 受管模型调用统一响应任务取消和截止时间；非受管调用保持同步语义。 */
+    private CreateSpec invokeModel(AiCreateSpecService service,
+                                   GenerationExecutionContext executionContext,
+                                   String userMessage,
+                                   CreateGenerationPlan plan,
+                                   SlotGroup group) {
+        String safeUserMessage = StrUtil.blankToDefault(userMessage, "");
+        String codeGenType = plan.codeGenType() == null ? "" : plan.codeGenType().getValue();
+        String templateId = group.templateId();
+        String modules = plannedModules(plan, group);
+        if (executionContext == null) {
+            return service.generateSpec(safeUserMessage, codeGenType, templateId, modules);
+        }
+        return modelCallSupervisor.execute(
+                executionContext,
+                () -> service.generateSpec(safeUserMessage, codeGenType, templateId, modules)
+        );
     }
 
     SpecResult generateLocal(String userMessage, CreateGenerationPlan plan, String reason) {

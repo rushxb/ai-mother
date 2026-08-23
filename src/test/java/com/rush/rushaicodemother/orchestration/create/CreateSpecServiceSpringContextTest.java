@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.ai.AiCreateSpecServiceFactory;
 import com.rush.rushaicodemother.orchestration.create.recipe.CreateRecipeRenderer;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationSynchronousModelCallSupervisor;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
@@ -24,6 +25,7 @@ class CreateSpecServiceSpringContextTest {
                     CreateSpecService.class,
                     GenerationExecutionContextService.class,
                     GenerationRuntimeProperties.class,
+                    GenerationSynchronousModelCallSupervisor.class,
                     LandingSlotFallbackRenderer.class,
                     TemplateVariableEngine.class
             );

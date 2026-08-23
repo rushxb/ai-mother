@@ -57,6 +57,26 @@ public class FullStackPortAllocator {
                 ports.frontendPort(), ports.backendPort(), workspace);
     }
 
+    /**
+     * 释放已删除应用持有的稳定端口。
+     *
+     * <p>该操作幂等，只能在应用数据库删除事务成功提交后调用；否则仍存活应用的
+     * 前后端端口可能被其他应用复用。</p>
+     *
+     * @param appId 已删除的应用编号
+     */
+    public void release(Long appId) {
+        if (appId == null || appId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 错误");
+        }
+        AllocatedPorts releasedPorts = portAllocations.remove(appId);
+        if (releasedPorts == null) {
+            return;
+        }
+        reservedPorts.remove(releasedPorts.frontendPort());
+        reservedPorts.remove(releasedPorts.backendPort());
+    }
+
     /** 为应用分配一组稳定端口。 */
     private AllocatedPorts allocateNewPorts() {
         int frontendPort = allocatePort(FRONTEND_PORT_START, FRONTEND_PORT_END);

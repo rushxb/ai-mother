@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.mapper.AppLifecycleDataMapper;
 import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import com.rush.rushaicodemother.service.artifact.AppArtifactDeletionTransaction;
 import com.rush.rushaicodemother.service.artifact.AppArtifactLifecycleService;
@@ -25,6 +26,7 @@ public class DefaultAppDeletionService implements AppDeletionService {
     private final DevServerManager devServerManager;
     private final AppOperationLockManager operationLockManager;
     private final AppMemoryLifecycleService memoryLifecycleService;
+    private final FullStackPortAllocator fullStackPortAllocator;
     private final TransactionOperations transactionOperations;
 
     /**
@@ -35,6 +37,7 @@ public class DefaultAppDeletionService implements AppDeletionService {
  * @param devServerManager 开发服务器管理器
  * @param operationLockManager 操作锁管理器
  * @param memoryLifecycleService 记忆生命周期服务
+ * @param fullStackPortAllocator 全栈应用稳定端口分配器
  * @param transactionManager 事务管理器
  */
     @Autowired
@@ -43,6 +46,7 @@ public class DefaultAppDeletionService implements AppDeletionService {
                                      DevServerManager devServerManager,
                                      AppOperationLockManager operationLockManager,
                                      AppMemoryLifecycleService memoryLifecycleService,
+                                     FullStackPortAllocator fullStackPortAllocator,
                                      PlatformTransactionManager transactionManager) {
         this(
                 lifecycleDataMapper,
@@ -50,6 +54,7 @@ public class DefaultAppDeletionService implements AppDeletionService {
                 devServerManager,
                 operationLockManager,
                 memoryLifecycleService,
+                fullStackPortAllocator,
                 new TransactionTemplate(transactionManager)
         );
     }
@@ -59,12 +64,14 @@ public class DefaultAppDeletionService implements AppDeletionService {
                               DevServerManager devServerManager,
                               AppOperationLockManager operationLockManager,
                               AppMemoryLifecycleService memoryLifecycleService,
+                              FullStackPortAllocator fullStackPortAllocator,
                               TransactionOperations transactionOperations) {
         this.lifecycleDataMapper = lifecycleDataMapper;
         this.artifactLifecycleService = artifactLifecycleService;
         this.devServerManager = devServerManager;
         this.operationLockManager = operationLockManager;
         this.memoryLifecycleService = memoryLifecycleService;
+        this.fullStackPortAllocator = fullStackPortAllocator;
         this.transactionOperations = transactionOperations;
     }
 
@@ -112,6 +119,8 @@ public class DefaultAppDeletionService implements AppDeletionService {
         AppArtifactDeletionTransaction artifactTransaction = artifactTransactionRef.get();
         ThrowUtils.throwIf(artifactTransaction == null,
                 ErrorCode.SYSTEM_ERROR, "应用产物删除事务未创建");
+        // 数据库事务已提交，应用不可能继续合法使用原稳定端口；此时释放不会破坏回滚语义。
+        fullStackPortAllocator.release(appId);
         try {
             artifactTransaction.commit();
         } catch (RuntimeException cleanupFailure) {

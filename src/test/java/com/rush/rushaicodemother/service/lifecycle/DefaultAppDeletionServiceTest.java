@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.AppLifecycleDataMapper;
 import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.orchestration.fullstack.FullStackPortAllocator;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import com.rush.rushaicodemother.service.artifact.AppArtifactDeletionTransaction;
 import com.rush.rushaicodemother.service.artifact.AppArtifactLifecycleService;
@@ -36,6 +37,7 @@ class DefaultAppDeletionServiceTest {
     private DevServerManager devServerManager;
     private AppArtifactDeletionTransaction artifactTransaction;
     private AppMemoryLifecycleService memoryLifecycleService;
+    private FullStackPortAllocator fullStackPortAllocator;
     private TransactionOperations transactionOperations;
     private DefaultAppDeletionService deletionService;
 
@@ -46,6 +48,7 @@ class DefaultAppDeletionServiceTest {
         devServerManager = mock(DevServerManager.class);
         artifactTransaction = mock(AppArtifactDeletionTransaction.class);
         memoryLifecycleService = mock(AppMemoryLifecycleService.class);
+        fullStackPortAllocator = mock(FullStackPortAllocator.class);
         transactionOperations = immediateTransactions();
         when(artifactLifecycleService.prepareDeletion(org.mockito.ArgumentMatchers.any(App.class)))
                 .thenReturn(artifactTransaction);
@@ -65,6 +68,7 @@ class DefaultAppDeletionServiceTest {
                 artifactLifecycleService,
                 artifactTransaction,
                 memoryLifecycleService,
+                fullStackPortAllocator,
                 lifecycleDataMapper
         );
         ordered.verify(lifecycleDataMapper).selectDeletionState(11L);
@@ -84,6 +88,7 @@ class DefaultAppDeletionServiceTest {
         ordered.verify(lifecycleDataMapper).deleteRuntimeChannels(11L);
         ordered.verify(lifecycleDataMapper).deleteAnalyticsConfigurations(11L);
         ordered.verify(lifecycleDataMapper).hardDeleteApp(11L);
+        ordered.verify(fullStackPortAllocator).release(11L);
         ordered.verify(artifactTransaction).commit();
         verify(artifactTransaction, never()).rollback();
     }
@@ -222,6 +227,7 @@ class DefaultAppDeletionServiceTest {
         assertSame(commitFailure, exception);
         verify(lifecycleDataMapper).hardDeleteApp(11L);
         verify(artifactTransaction).rollback();
+        verify(fullStackPortAllocator, never()).release(11L);
     }
 
     @Test
@@ -254,6 +260,8 @@ class DefaultAppDeletionServiceTest {
 
         assertEquals(ErrorCode.SYSTEM_ERROR.getCode(), exception.getCode());
         assertSame(cleanupFailure, exception.getCause());
+        // 数据库已提交、应用已不存在，即使隔离目录清理失败也必须归还端口。
+        verify(fullStackPortAllocator).release(11L);
     }
 
     @Test
@@ -280,6 +288,7 @@ class DefaultAppDeletionServiceTest {
                 devServerManager,
                 new AppOperationLockManager(),
                 memoryLifecycleService,
+                fullStackPortAllocator,
                 transactionOperations
         );
     }

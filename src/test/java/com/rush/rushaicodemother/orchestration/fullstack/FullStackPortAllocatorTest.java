@@ -67,6 +67,30 @@ class FullStackPortAllocatorTest {
     }
 
     @Test
+    void deletedApplicationMustReleaseStablePortsForReuse() {
+        GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
+        FullStackPortAllocator allocator = new FullStackPortAllocator(workspaceService);
+        Path firstRoot = Path.of(
+                        "target", "test-workspaces", "full-stack-port-allocator", "deleted-app")
+                .toAbsolutePath()
+                .normalize();
+        Path nextRoot = Path.of(
+                        "target", "test-workspaces", "full-stack-port-allocator", "next-app")
+                .toAbsolutePath()
+                .normalize();
+
+        FullStackGenerationContext deleted = allocator.allocate(
+                workspace(41L, firstRoot, CodeGenTypeEnum.FULL_STACK_PROJECT));
+
+        allocator.release(41L);
+        FullStackGenerationContext next = allocator.allocate(
+                workspace(42L, nextRoot, CodeGenTypeEnum.FULL_STACK_PROJECT));
+
+        assertEquals(deleted.frontendPort(), next.frontendPort());
+        assertEquals(deleted.backendPort(), next.backendPort());
+    }
+
+    @Test
     void shouldRejectNonFullStackWorkspaceBeforePortAllocation() {
         GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
         FullStackPortAllocator allocator = new FullStackPortAllocator(workspaceService);
@@ -79,10 +103,14 @@ class FullStackPortAllocatorTest {
     }
 
     private GenerationWorkspace workspace(Path root, CodeGenTypeEnum codeGenType) {
+        return workspace(41L, root, codeGenType);
+    }
+
+    private GenerationWorkspace workspace(Long appId, Path root, CodeGenTypeEnum codeGenType) {
         Path frontendRoot = codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT ? root.resolve("frontend") : root;
         Path backendRoot = codeGenType == CodeGenTypeEnum.FULL_STACK_PROJECT ? root.resolve("backend") : null;
         return new GenerationWorkspace(
-                41L,
+                appId,
                 codeGenType,
                 root,
                 root,

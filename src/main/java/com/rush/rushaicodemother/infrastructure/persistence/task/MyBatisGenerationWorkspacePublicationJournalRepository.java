@@ -203,7 +203,8 @@ public class MyBatisGenerationWorkspacePublicationJournalRepository
         }
         GenerationWorkspacePublicationJournalEntry current = toEntry(
                 mapper.selectOne(pointer.taskId()), true);
-        if (!current.samePublication(pointer) || isPending(current.status())) {
+        if (!current.samePublication(pointer)
+                || current.status().requiresReconciliation()) {
             throw new IllegalStateException("publication reconciliation failure was not recorded");
         }
     }
@@ -236,12 +237,6 @@ public class MyBatisGenerationWorkspacePublicationJournalRepository
         if (!current.samePublication(pointer) || current.status() != expectedStatus) {
             throw new IllegalStateException("publication journal transition was rejected");
         }
-    }
-
-    private boolean isPending(GenerationWorkspacePublicationJournalStatus status) {
-        return status == GenerationWorkspacePublicationJournalStatus.PREPARED
-                || status == GenerationWorkspacePublicationJournalStatus.FILESYSTEM_ACTIVATED
-                || status == GenerationWorkspacePublicationJournalStatus.ROLLBACK_REQUIRED;
     }
 
     /** 将当前对象转换为条目。 */

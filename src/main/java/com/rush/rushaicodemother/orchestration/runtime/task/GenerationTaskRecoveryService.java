@@ -137,10 +137,7 @@ public class GenerationTaskRecoveryService {
                     continue;
                 }
                 if (publication != null
-                        && (publication.status()
-                                == GenerationWorkspacePublicationJournalStatus.FILESYSTEM_ACTIVATED
-                        || publication.status()
-                                == GenerationWorkspacePublicationJournalStatus.ROLLBACK_REQUIRED)) {
+                        && publication.status().requiresReconciliation()) {
                     log.warn("生成任务等待发布 journal 对账，暂缓终态化，taskId: {}", candidate.taskId());
                     continue;
                 }

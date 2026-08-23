@@ -167,6 +167,26 @@ class GenerationTaskRecoveryServiceTest {
     }
 
     @Test
+    void preparedPublicationMustWaitForJournalReconciliationBeforeChangingExecutionEpoch() {
+        GenerationTaskRecoveryCandidate candidate = orphanCandidate("task-prepared", 1L, 6L);
+        when(repository.findExpiredLeases(NOW, 25)).thenReturn(List.of(candidate));
+        when(publicationJournal.findByTaskId("task-prepared")).thenReturn(Optional.of(
+                publication(candidate, GenerationWorkspacePublicationJournalStatus.PREPARED)));
+
+        assertEquals(0, service.recoverExpiredTasks());
+
+        verify(repository, never()).requeueExpiredLease(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+        verify(taskFinalizer, never()).finalizeExpiredLease(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void expiredRunningTaskWithCheckpointMustBeRequeuedAndDispatchedForResume() {
         GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
         GenerationTaskDispatcher dispatcher = mock(GenerationTaskDispatcher.class);

@@ -533,7 +533,22 @@ public interface GenerationTaskRuntimeMapper {
             UPDATE generation_task
             SET status = 'queued', stage = 'queued', stageMessage = #{reason},
                 leaseOwner = NULL, leaseUntil = NULL, heartbeatAt = NULL,
-                dispatchAt = NULL, executionEpoch = executionEpoch + 1,
+                dispatchAt = NULL,
+                publicationStatus = NULL,
+                publicationCodeGenType = NULL,
+                publicationExecutionEpoch = NULL,
+                publicationPublishedAt = NULL,
+                publicationAttempts = 0,
+                publicationVersion = publicationVersion + 1,
+                publicationError = NULL,
+                publicationReconcileAfter = NULL,
+                publicationCommittedAt = NULL,
+                terminalIntentSchemaVersion = NULL,
+                terminalIntentPayloadJson = NULL,
+                terminalIntentExecutionEpoch = NULL,
+                terminalIntentPreparedAt = NULL,
+                terminalIntentFinalizedAt = NULL,
+                executionEpoch = executionEpoch + 1,
                 version = version + 1, updateTime = #{requeuedAt}
             WHERE taskId = #{taskId}
               AND status = #{expectedStatus}
@@ -541,6 +556,8 @@ public interface GenerationTaskRuntimeMapper {
               AND cancellationRequested = 0
               AND (deadlineAt IS NULL OR deadlineAt > #{requeuedAt})
               AND (leaseUntil IS NULL OR leaseUntil < #{requeuedAt})
+              AND terminalIntentFinalizedAt IS NULL
+              AND (publicationStatus IS NULL OR publicationStatus IN ('rolled_back', 'superseded'))
               AND isDelete = 0
             """)
     int requeueExpiredLease(@Param("taskId") String taskId,

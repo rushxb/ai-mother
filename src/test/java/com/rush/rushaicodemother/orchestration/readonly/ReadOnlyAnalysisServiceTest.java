@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -23,6 +24,33 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class ReadOnlyAnalysisServiceTest {
+
+    @Test
+    void analysisWithoutCollectedProjectEvidenceMustFailBeforeModelCall() {
+        AgentEditContextCollector contextCollector = mock(AgentEditContextCollector.class);
+        GenerationWorkspace workspace = workspace();
+        when(contextCollector.collect(workspace, "审计鉴权链路", CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(emptyContextResult());
+        AtomicBoolean modelCalled = new AtomicBoolean(false);
+        ReadOnlyAnalysisModel model = (taskId, request) -> {
+            modelCalled.set(true);
+            return new ReadOnlyAnalysisResult(
+                    "鉴权链路不存在风险",
+                    List.of(),
+                    List.of(),
+                    "本次请求仅要求审计，因此未修改工作区");
+        };
+        ReadOnlyAnalysisService service = new ReadOnlyAnalysisService(contextCollector, model);
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> service.analyze(
+                        "read-only-no-evidence", IntentOperationType.AUDIT, "审计鉴权链路",
+                        workspace, CodeGenTypeEnum.VUE_PROJECT));
+
+        assertEquals("只读分析未采集到可引用的项目文件", failure.getMessage());
+        assertFalse(modelCalled.get());
+    }
 
     @Test
     void emptyModelOutputMustNotBecomeACompletedAnalysis() {
@@ -166,6 +194,20 @@ class ReadOnlyAnalysisServiceTest {
                 List.of(),
                 List.of(),
                 "medium"
+        );
+    }
+
+    private AgentEditReadResult emptyContextResult() {
+        return new AgentEditReadResult(
+                "audit",
+                List.of(),
+                new EditContextPackage(List.of(), Map.of(), 0, ""),
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                "low"
         );
     }
 

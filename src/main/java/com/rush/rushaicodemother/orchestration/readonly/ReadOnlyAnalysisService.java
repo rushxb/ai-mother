@@ -43,6 +43,10 @@ public class ReadOnlyAnalysisService {
         requireReadOnlyOperation(operationType);
         AgentEditReadResult context = contextCollector.collect(workspace, userPrompt, codeGenType);
         Map<String, Integer> allowedReferenceLineCounts = collectReferenceLineCounts(context);
+        if (allowedReferenceLineCounts.isEmpty()) {
+            // 无项目事实时禁止调用模型：泛化结论既无法完成引用校验，也不应产生 provider 成本。
+            throw new IllegalStateException("只读分析未采集到可引用的项目文件");
+        }
         List<String> allowedReferences = List.copyOf(allowedReferenceLineCounts.keySet());
         ReadOnlyAnalysisRequest request = new ReadOnlyAnalysisRequest(
                 operationType,

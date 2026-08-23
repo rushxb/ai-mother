@@ -21,11 +21,12 @@ public class LocalGenerationTaskDispatcher implements GenerationTaskDispatcher {
  * @param taskId 任务编号
  */
     @Override
-    public void dispatch(String taskId) {
-        GenerationTaskDispatchResult result = executionService.schedule(taskId, null);
-        if (result == GenerationTaskDispatchResult.RETRY) {
-            throw new GenerationTaskCapacityExceededException(
-                    "Generation task could not acquire a local worker reservation: " + taskId);
+    public GenerationTaskDispatchResult dispatch(String taskId) {
+        try {
+            return executionService.schedule(taskId, null);
+        } catch (GenerationTaskCapacityExceededException capacityExceeded) {
+            // 执行器已释放 claim；保留 QUEUED，由持久重分发扫描在容量恢复后重试。
+            return GenerationTaskDispatchResult.RETRY;
         }
     }
 }

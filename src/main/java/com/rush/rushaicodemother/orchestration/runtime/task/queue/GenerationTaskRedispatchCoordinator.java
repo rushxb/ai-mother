@@ -2,19 +2,22 @@ package com.rush.rushaicodemother.orchestration.runtime.task.queue;
 
 import com.rush.rushaicodemother.config.GenerationTaskQueueProperties;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskDispatchResult;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskDispatcher;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 
-/** MySQL 支持的事务轮询发布者，以查找 Redis 中断期间丢失的队列写入。 */
+/**
+ * 基于 MySQL 真相源重新分派长期停留在 QUEUED 的任务。
+ *
+ * <p>local 与 Redis adapter 共用这一恢复环，避免瞬时容量或传输故障改变任务终态。</p>
+ */
 @Slf4j
 @Component
-@ConditionalOnProperty(prefix = "app.generation-task-queue", name = "transport", havingValue = "redis")
 public class GenerationTaskRedispatchCoordinator {
 
     private final DurableGenerationTaskRepository repository;
@@ -36,7 +39,10 @@ public class GenerationTaskRedispatchCoordinator {
         for (String taskId : repository.findDispatchableQueuedTaskIds(
                 now, now.minus(properties.getRedispatchAfter()), properties.getRedispatchBatchSize())) {
             try {
-                dispatcher.dispatch(taskId);
+                GenerationTaskDispatchResult result = dispatcher.dispatch(taskId);
+                if (result == GenerationTaskDispatchResult.RETRY) {
+                    log.debug("Generation task remains queued for a later redispatch, taskId: {}", taskId);
+                }
             } catch (RuntimeException failure) {
                 log.warn("Generation task redispatch failed, taskId: {}",
                         taskId, LogExceptionSanitizer.sanitize(failure));

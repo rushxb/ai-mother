@@ -217,6 +217,34 @@ class GenerationTaskSubmissionServiceTest {
     }
 
     @Test
+    void transientLocalCapacityMustKeepDurableTaskQueuedForRedispatch() {
+        GenerationTaskCommandExecutionService executionService =
+                mock(GenerationTaskCommandExecutionService.class);
+        when(executionService.schedule("task-local-deferred", null))
+                .thenReturn(GenerationTaskDispatchResult.RETRY);
+        when(eventStream.stream("task-local-deferred")).thenReturn(Flux.empty());
+        GenerationTaskDispatcher localDispatcher =
+                new LocalGenerationTaskDispatcher(executionService);
+        GenerationTaskSubmissionService service = new GenerationTaskSubmissionService(
+                () -> "task-local-deferred",
+                executionPlanner,
+                localDispatcher,
+                admissionService,
+                taskFinalizer,
+                eventStream,
+                null,
+                traceContextBridge,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        GenerationTaskResult result = service.submit(request(1L));
+
+        assertEquals(GenerationTaskStatus.QUEUED, result.submission().status());
+        assertTrue(result.created());
+        verify(taskFinalizer, never()).finalizeUnownedRuntime(
+                "task-local-deferred", GenerationTaskStatus.FAILED, "submission_failed");
+    }
+
+    @Test
     void primarySubmissionMustPreflightAfterIdentityAndPersistItsUsage() {
         GenerationScenarioPreflight preflight = mock(GenerationScenarioPreflight.class);
         GenerationPipelineRequest input = request(1L);

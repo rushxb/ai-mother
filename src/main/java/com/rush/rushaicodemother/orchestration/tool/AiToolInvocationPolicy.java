@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.ai.tools.BaseTool;
 import com.rush.rushaicodemother.ai.tools.ToolManager;
 import com.rush.rushaicodemother.ai.tools.ToolRiskLevel;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -25,6 +26,7 @@ public class AiToolInvocationPolicy {
 
     private final ToolManager toolManager;
     private final GenerationToolExecutionContextService executionContextService;
+    private final GenerationExecutionContextService runtimeExecutionContextService;
     private final ToolExecutionFailurePolicy failurePolicy;
     private final GenerationToolLoopGuard toolLoopGuard;
     private final GenerationAgentProductivityGuard productivityGuard;
@@ -59,6 +61,8 @@ public class AiToolInvocationPolicy {
         if (expectedCodeGenType == null || context.codeGenType() != expectedCodeGenType) {
             reject("codegen_type_mismatch");
         }
+        // 所有工具共用同一继续执行门禁；新增工具无需自行复制取消和截止时间判断。
+        runtimeExecutionContextService.assertCanContinue(context.taskId());
 
         BaseTool tool = toolManager.getTool(toolName);
         if (tool == null || !toolManager.isToolAllowedForCodeGen(toolName, expectedCodeGenType)) {

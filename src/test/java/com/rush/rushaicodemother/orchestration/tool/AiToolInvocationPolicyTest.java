@@ -8,6 +8,9 @@ import com.rush.rushaicodemother.ai.tools.BaseTool;
 import com.rush.rushaicodemother.ai.tools.ToolManager;
 import com.rush.rushaicodemother.ai.tools.ToolRiskLevel;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.invocation.InvocationContext;
@@ -25,6 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -39,6 +43,7 @@ class AiToolInvocationPolicyTest {
     private ToolExecutionFailurePolicy failurePolicy;
     private GenerationToolLoopGuard toolLoopGuard;
     private GenerationAgentProductivityGuard productivityGuard;
+    private GenerationExecutionContextService runtimeContexts;
     private AiToolInvocationPolicy policy;
 
     @BeforeEach
@@ -48,8 +53,10 @@ class AiToolInvocationPolicyTest {
         failurePolicy = mock(ToolExecutionFailurePolicy.class);
         toolLoopGuard = mock(GenerationToolLoopGuard.class);
         productivityGuard = mock(GenerationAgentProductivityGuard.class);
+        runtimeContexts = new GenerationExecutionContextService(new GenerationRuntimeProperties());
         policy = new AiToolInvocationPolicy(
-                toolManager, executionContexts, failurePolicy, toolLoopGuard, productivityGuard);
+                toolManager, executionContexts, runtimeContexts,
+                failurePolicy, toolLoopGuard, productivityGuard);
     }
 
     @Test
@@ -185,6 +192,25 @@ class AiToolInvocationPolicyTest {
         verify(toolLoopGuard).beforeInvocation(TASK_ID, request);
         verify(toolLoopGuard).completeInvocation(TASK_ID, request, "content", false);
         verify(productivityGuard).recordToolCompletion(TASK_ID, "readFile");
+    }
+
+    @Test
+    void cancelledTaskMustRejectReadOnlyToolBeforeInvocation() {
+        bindContext(CodeGenTypeEnum.VUE_PROJECT);
+        BaseTool tool = new TestTool("readFile", ToolRiskLevel.READ_ONLY);
+        allow(tool);
+        ToolExecutionRequest request = request(tool.getToolName(), "{\"path\":\"src/App.vue\"}");
+        runtimeContexts.start(TASK_ID, APP_ID, 7L);
+        runtimeContexts.cancelByTaskId(TASK_ID, "user_requested");
+
+        assertThrows(
+                GenerationExecutionCancelledException.class,
+                () -> policy.authorize(
+                        event(request),
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        GenerationPerformanceProfile.balanced())
+        );
+        verify(toolLoopGuard, never()).beforeInvocation(TASK_ID, request);
     }
 
     private void bindContext(CodeGenTypeEnum codeGenType) {

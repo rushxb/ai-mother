@@ -20,6 +20,9 @@ public interface DurableGenerationTaskRepository {
 
     void prepareFinalizationIntent(GenerationFinalizationCommand command, Instant preparedAt);
 
+    /** 发布已安全回滚时，按原始命令与当前执行围栏撤销未最终化的终态意图。 */
+    boolean abortFinalizationIntent(GenerationFinalizationCommand command, Instant abortedAt);
+
     Optional<GenerationFinalizationCommand> findFinalizationIntent(String taskId,
                                                                     long executionEpoch);
 

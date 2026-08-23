@@ -3,17 +3,22 @@ package com.rush.rushaicodemother.orchestration.workspace;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationDeferredException;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalIntentService;
 import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionLimits;
+import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -35,6 +40,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -119,6 +125,76 @@ class GenerationWorkspaceReleaseServiceTest {
                         fixture.session(), CodeGenTypeEnum.VUE_PROJECT));
 
         assertSame(publicationFailure, actual);
+        verifyNoInteractions(milestoneService);
+    }
+
+    @Test
+    void safelyRolledBackPublicationMustAbortPreparedSuccessIntent() {
+        ReleaseFixture fixture = fixture(CodeGenTypeEnum.VUE_PROJECT, "rolled-back-release");
+        GenerationPreviewMilestoneService milestoneService = mock(GenerationPreviewMilestoneService.class);
+        GenerationTerminalIntentService terminalIntentService = mock(GenerationTerminalIntentService.class);
+        GenerationFinalizationCommand successIntent = GenerationFinalizationCommand.of(
+                "rolled-back-release",
+                1L,
+                fixture.session().executionContext().executionFence(),
+                GenerationTaskStatus.SUCCESS,
+                null,
+                "生成完成",
+                GenerationOutcomeQuality.empty()
+        );
+        IllegalStateException publicationFailure = new IllegalStateException("发布前失败");
+        when(fixture.publicationService().publishWithMetadata(
+                fixture.session(), fixture.metadataService())).thenThrow(publicationFailure);
+        when(terminalIntentService.abortPrepared(successIntent)).thenReturn(true);
+        GenerationWorkspaceReleaseService service = new GenerationWorkspaceReleaseService(
+                fixture.publicationService(), fixture.metadataService(), milestoneService,
+                fixture.previewLifecycle(), terminalIntentService);
+
+        IllegalStateException actual = assertThrows(IllegalStateException.class,
+                () -> service.releaseVerified(
+                        fixture.session(), CodeGenTypeEnum.VUE_PROJECT, successIntent));
+
+        assertSame(publicationFailure, actual);
+        InOrder order = inOrder(
+                terminalIntentService, fixture.publicationService());
+        order.verify(terminalIntentService).prepare(successIntent);
+        order.verify(fixture.publicationService()).publishWithMetadata(
+                fixture.session(), fixture.metadataService());
+        order.verify(terminalIntentService).abortPrepared(successIntent);
+        verifyNoInteractions(milestoneService);
+    }
+
+    @Test
+    void uncertainPublicationMustPreservePreparedSuccessIntentForReconciliation() {
+        ReleaseFixture fixture = fixture(CodeGenTypeEnum.VUE_PROJECT, "uncertain-release");
+        GenerationPreviewMilestoneService milestoneService = mock(GenerationPreviewMilestoneService.class);
+        GenerationTerminalIntentService terminalIntentService = mock(GenerationTerminalIntentService.class);
+        GenerationFinalizationCommand successIntent = GenerationFinalizationCommand.of(
+                "uncertain-release",
+                1L,
+                fixture.session().executionContext().executionFence(),
+                GenerationTaskStatus.SUCCESS,
+                null,
+                "生成完成",
+                GenerationOutcomeQuality.empty()
+        );
+        GenerationWorkspacePublicationException publicationFailure =
+                new GenerationWorkspacePublicationException(
+                        false, new IllegalStateException("发布指针回滚失败"));
+        when(fixture.publicationService().publishWithMetadata(
+                fixture.session(), fixture.metadataService())).thenThrow(publicationFailure);
+        GenerationWorkspaceReleaseService service = new GenerationWorkspaceReleaseService(
+                fixture.publicationService(), fixture.metadataService(), milestoneService,
+                fixture.previewLifecycle(), terminalIntentService);
+
+        GenerationFinalizationDeferredException deferred = assertThrows(
+                GenerationFinalizationDeferredException.class,
+                () -> service.releaseVerified(
+                        fixture.session(), CodeGenTypeEnum.VUE_PROJECT, successIntent));
+
+        assertSame(publicationFailure, deferred.getCause());
+        verify(terminalIntentService).prepare(successIntent);
+        verify(terminalIntentService, never()).abortPrepared(any());
         verifyNoInteractions(milestoneService);
     }
 

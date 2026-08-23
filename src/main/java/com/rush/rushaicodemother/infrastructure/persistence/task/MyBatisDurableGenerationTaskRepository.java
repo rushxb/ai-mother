@@ -189,6 +189,18 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
     }
 
     @Override
+    public boolean abortFinalizationIntent(GenerationFinalizationCommand command, Instant abortedAt) {
+        Objects.requireNonNull(command, "command");
+        Objects.requireNonNull(abortedAt, "abortedAt");
+        GenerationExecutionFence fence = Objects.requireNonNull(
+                command.executionFence(), "撤销终态意图必须提供执行围栏");
+        return mapper.abortFinalizationIntent(
+                command.taskId(), command.appId(), fence.leaseOwner(), fence.executionEpoch(),
+                GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION,
+                GenerationFinalizationCommandCodec.toJson(command), toLocal(abortedAt)) == 1;
+    }
+
+    @Override
     public Optional<GenerationFinalizationCommand> findFinalizationIntent(String taskId,
                                                                            long executionEpoch) {
         requireTaskId(taskId);

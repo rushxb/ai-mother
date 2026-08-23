@@ -195,6 +195,34 @@ public interface GenerationTaskRuntimeMapper {
                                   @Param("payloadJson") String payloadJson,
                                   @Param("preparedAt") LocalDateTime preparedAt);
 
+    @Update("""
+            UPDATE generation_task
+            SET terminalIntentSchemaVersion = NULL,
+                terminalIntentPayloadJson = NULL,
+                terminalIntentExecutionEpoch = NULL,
+                terminalIntentPreparedAt = NULL,
+                version = version + 1,
+                updateTime = #{abortedAt}
+            WHERE taskId = #{taskId}
+              AND appId = #{appId}
+              AND status = 'running'
+              AND leaseOwner = #{leaseOwner}
+              AND executionEpoch = #{executionEpoch}
+              AND leaseUntil >= #{abortedAt}
+              AND terminalIntentSchemaVersion = #{schemaVersion}
+              AND terminalIntentPayloadJson = #{payloadJson}
+              AND terminalIntentExecutionEpoch = #{executionEpoch}
+              AND terminalIntentFinalizedAt IS NULL
+              AND isDelete = 0
+            """)
+    int abortFinalizationIntent(@Param("taskId") String taskId,
+                                @Param("appId") Long appId,
+                                @Param("leaseOwner") String leaseOwner,
+                                @Param("executionEpoch") long executionEpoch,
+                                @Param("schemaVersion") int schemaVersion,
+                                @Param("payloadJson") String payloadJson,
+                                @Param("abortedAt") LocalDateTime abortedAt);
+
     @Select("""
             SELECT taskId, appId, userId, tenantId, idempotencyKeyHash, requestFingerprint,
                    route, status, stage, stageMessage,

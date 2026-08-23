@@ -32,6 +32,18 @@ public class GenerationTerminalIntentService {
     }
 
     /**
+     * 仅在发布文件系统已完整回滚后，撤销尚未最终化的成功意图。
+     *
+     * @return 当前执行围栏仍有效且精确命令已撤销时返回 {@code true}
+     */
+    public boolean abortPrepared(GenerationFinalizationCommand command) {
+        if (command == null || command.executionFence() == null) {
+            throw new IllegalArgumentException("撤销终态意图必须包含执行围栏");
+        }
+        return repository.abortFinalizationIntent(command, clock.instant());
+    }
+
+    /**
      * 读取发布前已经冻结的终态命令；缺失或串执行轮次时必须失败关闭。
      *
      * <p>文件系统发布与数据库终态无法组成同一事务。工作区一旦发布，后续正常收口和宕机恢复

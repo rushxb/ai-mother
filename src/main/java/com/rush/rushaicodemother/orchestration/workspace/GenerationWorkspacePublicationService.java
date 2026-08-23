@@ -295,16 +295,11 @@ public class GenerationWorkspacePublicationService {
                     publicationFailure);
             boolean rollbackComplete = publicationFailure.getSuppressed().length == suppressedBeforeRollback;
             recordRollbackState(pointer, publicationFailure, rollbackComplete);
-            if (publicationFailure instanceof IOException ioFailure) {
-                throw ioFailure;
-            }
-            if (publicationFailure instanceof RuntimeException runtimeFailure) {
-                throw runtimeFailure;
-            }
             if (publicationFailure instanceof Error errorFailure) {
                 throw errorFailure;
             }
-            throw new IOException("Unexpected checked publication failure", publicationFailure);
+            throw new GenerationWorkspacePublicationException(
+                    rollbackComplete, publicationFailure);
         }
     }
 

@@ -99,11 +99,13 @@ class GenerationWorkspacePublicationServiceTest {
         GenerationWorkspacePublicationPointer candidate = pointer(
                 fixture.fence().taskId(), fixture.fence().executionEpoch(), NOW);
 
-        BusinessException thrown = assertThrows(BusinessException.class,
+        GenerationWorkspacePublicationException thrown = assertThrows(
+                GenerationWorkspacePublicationException.class,
                 () -> fixture.service().publishWithMetadata(
                         fixture.fence(), fixture.executionWorkspace(), committer));
 
         assertSame(failure, thrown.getCause());
+        assertTrue(thrown.safelyRolledBack());
         assertEquals(previous, fixture.catalog().findCurrent(APP_ID, CODE_GEN_TYPE).orElseThrow());
         assertTrue(Files.isDirectory(fixture.source()));
         assertTrue(Files.exists(fixture.source().resolve("package.json")));
@@ -131,11 +133,13 @@ class GenerationWorkspacePublicationServiceTest {
         GenerationWorkspacePublicationPointer candidate = pointer(
                 fixture.fence().taskId(), fixture.fence().executionEpoch(), NOW);
 
-        BusinessException thrown = assertThrows(BusinessException.class,
+        GenerationWorkspacePublicationException thrown = assertThrows(
+                GenerationWorkspacePublicationException.class,
                 () -> fixture.service().publishWithMetadata(
                         fixture.fence(), fixture.executionWorkspace(), committer));
 
         assertSame(failure, thrown.getCause());
+        assertFalse(thrown.safelyRolledBack());
         assertEquals(1, failure.getSuppressed().length);
         assertEquals("pointer restore failed", failure.getSuppressed()[0].getMessage());
         assertEquals(candidate, fixture.catalog().findCurrent(APP_ID, CODE_GEN_TYPE).orElseThrow());

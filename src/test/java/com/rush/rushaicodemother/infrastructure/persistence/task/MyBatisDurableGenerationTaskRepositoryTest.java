@@ -113,6 +113,25 @@ class MyBatisDurableGenerationTaskRepositoryTest {
     }
 
     @Test
+    void abortFinalizationIntentMustCompareExactFrozenCommandAndFence() {
+        GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
+                "task-1", 1L, FENCE, GenerationTaskStatus.SUCCESS,
+                null, "冻结的成功终态", null);
+        String payload = GenerationFinalizationCommandCodec.toJson(command);
+        when(mapper.abortFinalizationIntent(
+                "task-1", 1L, "worker-a", 3L,
+                GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION,
+                payload, toLocal(NOW))).thenReturn(1);
+
+        assertTrue(repository.abortFinalizationIntent(command, NOW));
+
+        verify(mapper).abortFinalizationIntent(
+                "task-1", 1L, "worker-a", 3L,
+                GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION,
+                payload, toLocal(NOW));
+    }
+
+    @Test
     void duplicateTaskIdMustBeIdempotentOnlyForSameStableIdentity() {
         when(mapper.insertSubmittedTask(any())).thenThrow(new DuplicateKeyException("uk_taskId"));
         when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(runtimeEntity(

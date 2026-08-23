@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationDeferredException;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalIntentService;
 import com.rush.rushaicodemother.orchestration.preview.GenerationPreviewMilestoneService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
@@ -98,10 +99,44 @@ public class GenerationWorkspaceReleaseService {
             terminalIntentService.prepare(terminalIntent);
         }
         stopProvisionalPreviewSafely(session);
-        GenerationWorkspacePublicationResult result =
-                publicationService.publishWithMetadata(session, publicationMetadataService);
+        GenerationWorkspacePublicationResult result;
+        try {
+            result = publicationService.publishWithMetadata(session, publicationMetadataService);
+        } catch (RuntimeException publicationFailure) {
+            handlePublicationFailure(terminalIntent, publicationFailure);
+            throw publicationFailure;
+        }
         publishFirstPreviewSafely(session, targetType);
         return result;
+    }
+
+    /**
+     * 发布完整回滚后才能撤销 SUCCESS 意图；否则保留现场等待 journal 对账。
+     */
+    private void handlePublicationFailure(GenerationFinalizationCommand terminalIntent,
+                                          RuntimeException publicationFailure) {
+        if (terminalIntentService == null || terminalIntent == null) {
+            return;
+        }
+        if (publicationFailure instanceof GenerationWorkspacePublicationException classified
+                && !classified.safelyRolledBack()) {
+            throw deferredPublication(classified);
+        }
+        try {
+            if (!terminalIntentService.abortPrepared(terminalIntent)) {
+                throw deferredPublication(publicationFailure);
+            }
+        } catch (GenerationFinalizationDeferredException deferred) {
+            throw deferred;
+        } catch (RuntimeException abortFailure) {
+            publicationFailure.addSuppressed(abortFailure);
+            throw deferredPublication(publicationFailure);
+        }
+    }
+
+    private GenerationFinalizationDeferredException deferredPublication(Throwable cause) {
+        return new GenerationFinalizationDeferredException(
+                "发布结果待对账，保留已冻结终态意图", cause);
     }
 
     /**

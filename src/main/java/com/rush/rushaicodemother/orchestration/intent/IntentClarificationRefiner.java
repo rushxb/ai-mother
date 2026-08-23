@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationSynchronousModelCallSupervisor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -30,7 +31,8 @@ import java.util.stream.Collectors;
  *       破坏性风险与验证等级仍由确定性规则决定，模型无法下调安全边界。</li>
  * </ul>
  *
- * <p>澄清失败、超时或返回空结果时一律沿用本地画像：澄清是可选增益，不是必要环节。</p>
+ * <p>Provider 失败、单次调用超时或空结果会沿用本地画像；
+ * 任务取消或总截止时间到达则保持执行策略异常上抛，防止 preflight 越界运行。</p>
  */
 @Slf4j
 @Component
@@ -44,6 +46,7 @@ public class IntentClarificationRefiner {
     private final IntentClarificationServiceFactory clarificationServiceFactory;
     private final AiModelRuntimeProperties runtimeProperties;
     private final GenerationPerformanceMonitorService performanceMonitorService;
+    private final GenerationSynchronousModelCallSupervisor modelCallSupervisor;
 
     /**
      * 创建意图澄清精化器。
@@ -51,16 +54,20 @@ public class IntentClarificationRefiner {
      * @param clarificationServiceFactory 澄清服务工厂
      * @param runtimeProperties AI 模型运行配置
      * @param performanceMonitorService 生成性能监控服务
+     * @param modelCallSupervisor 同步模型调用监督器
      */
     public IntentClarificationRefiner(IntentClarificationServiceFactory clarificationServiceFactory,
                                       AiModelRuntimeProperties runtimeProperties,
-                                      GenerationPerformanceMonitorService performanceMonitorService) {
+                                      GenerationPerformanceMonitorService performanceMonitorService,
+                                      GenerationSynchronousModelCallSupervisor modelCallSupervisor) {
         this.clarificationServiceFactory = Objects.requireNonNull(
                 clarificationServiceFactory, "意图澄清服务工厂不能为空");
         this.runtimeProperties = Objects.requireNonNull(
                 runtimeProperties, "AI 模型运行配置不能为空");
         this.performanceMonitorService = Objects.requireNonNull(
                 performanceMonitorService, "生成性能监控服务不能为空");
+        this.modelCallSupervisor = Objects.requireNonNull(
+                modelCallSupervisor, "同步模型调用监督器不能为空");
     }
 
     /**
@@ -111,8 +118,11 @@ public class IntentClarificationRefiner {
                             timeout,
                             () -> context.consume(GenerationBudgetKind.MODEL_TURN),
                             () -> context.consume(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT));
-            IntentClarification clarification = clarificationService.clarify(
-                    userMessage, describeUnresolvedDimensions(profile));
+            IntentClarification clarification = modelCallSupervisor.execute(
+                    context,
+                    () -> clarificationService.clarify(
+                            userMessage, describeUnresolvedDimensions(profile))
+            );
             context.assertCanContinue();
             IntentProfile refined = applyClarification(profile, clarification);
             if (span != null) {

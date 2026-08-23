@@ -9,18 +9,28 @@ import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.runtime.execution.DefaultGenerationSlaPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionLimits;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaProperties;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationSynchronousModelCallSupervisor;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -41,6 +51,7 @@ class IntentClarificationRefinerTest {
     private IntentClarificationService clarificationService;
     private AiModelRuntimeProperties runtimeProperties;
     private IntentClarificationRefiner refiner;
+    private GenerationSynchronousModelCallSupervisor modelCallSupervisor;
 
     @BeforeEach
     void setUp() {
@@ -50,8 +61,15 @@ class IntentClarificationRefinerTest {
         runtimeProperties.setIntentClarificationEnabled(true);
         when(serviceFactory.createExecutionIntentClarificationService(any(), any(), any()))
                 .thenReturn(clarificationService);
+        modelCallSupervisor = new GenerationSynchronousModelCallSupervisor();
         refiner = new IntentClarificationRefiner(
-                serviceFactory, runtimeProperties, new GenerationPerformanceMonitorService());
+                serviceFactory, runtimeProperties, new GenerationPerformanceMonitorService(),
+                modelCallSupervisor);
+    }
+
+    @AfterEach
+    void closeModelCallSupervisor() {
+        modelCallSupervisor.close();
     }
 
     @Test
@@ -158,6 +176,38 @@ class IntentClarificationRefinerTest {
     }
 
     @Test
+    void clarificationMustStopAtTaskDeadlineEvenWhenProviderIgnoresInterrupt() throws Exception {
+        CountDownLatch providerEntered = new CountDownLatch(1);
+        CountDownLatch releaseProvider = new CountDownLatch(1);
+        when(clarificationService.clarify(anyString(), anyString()))
+                .thenAnswer(invocation -> {
+                    providerEntered.countDown();
+                    awaitIgnoringInterruption(releaseProvider);
+                    return new IntentClarification();
+                });
+        GenerationExecutionContext context = shortDeadlineContext();
+        ExecutorService preflightWorker = Executors.newSingleThreadExecutor();
+        try {
+            Future<Throwable> outcome = preflightWorker.submit(() -> {
+                try {
+                    refiner.refine(
+                            ambiguousProfile(), "把登录页做得好看点", "task-deadline", context);
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                }
+            });
+
+            assertTrue(providerEntered.await(1, TimeUnit.SECONDS));
+            Throwable failure = outcome.get(2, TimeUnit.SECONDS);
+            assertInstanceOf(GenerationDeadlineExceededException.class, failure);
+        } finally {
+            releaseProvider.countDown();
+            preflightWorker.shutdownNow();
+        }
+    }
+
+    @Test
     void oversizedFileCountMustBeClamped() {
         GenerationExecutionContext context = context();
         IntentClarification clarification = new IntentClarification();
@@ -209,5 +259,31 @@ class IntentClarificationRefinerTest {
                 .toLimits();
         return new GenerationExecutionContext(
                 "task-clarify-test", 1L, 2L, Instant.now(), limits, Clock.systemUTC());
+    }
+
+    private GenerationExecutionContext shortDeadlineContext() {
+        GenerationExecutionLimits baseline = context().limits();
+        GenerationExecutionLimits limits = new GenerationExecutionLimits(
+                Duration.ofMillis(400),
+                Duration.ofMillis(300),
+                Duration.ofMillis(50),
+                baseline.budgets());
+        return new GenerationExecutionContext(
+                "task-clarify-deadline", 1L, 2L, Instant.now(), limits, Clock.systemUTC());
+    }
+
+    private static void awaitIgnoringInterruption(CountDownLatch latch) {
+        boolean interrupted = false;
+        while (true) {
+            try {
+                latch.await();
+                break;
+            } catch (InterruptedException ignored) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

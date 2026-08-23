@@ -8,12 +8,20 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTe
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
+import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.context.GeneratedProjectContextService;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.junit.jupiter.api.Test;
@@ -31,7 +39,9 @@ class GenerationWorkspaceIndexSnapshotTest {
 
     @Test
     void plannerAndContextMustShareOneWorkspaceIndexSnapshot() throws Exception {
-        Path outputRoot = Files.createTempDirectory("generation-index-snapshot-");
+        Path outputRoot = Path.of("target", "test-workspaces", "generation-index-snapshot");
+        FileUtil.del(outputRoot.toFile());
+        Files.createDirectories(outputRoot);
         Path workspace = Files.createDirectories(outputRoot.resolve("vue_project_73"));
         WorkspaceFileSystemService fileSystemService = spy(WorkspaceFileSystemTestFactory.create());
         try {
@@ -74,15 +84,32 @@ class GenerationWorkspaceIndexSnapshotTest {
                 .appName("登录工作台")
                 .codeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue())
                 .build();
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+        GenerationModeDecision route = new GenerationModeDecision(
+                GenerationMode.LIGHT_EDIT,
+                0.91,
+                "test frozen scenario",
+                FallbackPolicy.NONE,
+                ExpectedValidationLevel.FAST,
+                ""
+        );
+        GenerationScenarioDecision scenarioDecision = GenerationScenarioDecision.restoreLegacy(
+                IntentProfile.unknown(),
+                CodeGenTypeEnum.VUE_PROJECT,
+                GenerationResourceRequirements.none(),
+                route,
+                10
+        );
+        GenerationOrchestrationRequest request = GenerationOrchestrationRequest.fromFrozenScenario(
                 app,
                 "优化登录 token 处理",
                 CodeGenTypeEnum.VUE_PROJECT,
                 "生成中",
                 true,
-                ignored -> CodeGenTypeEnum.VUE_PROJECT,
                 "",
-                "task-index-snapshot"
+                null,
+                "task-index-snapshot",
+                GenerationPlanningVariant.CURRENT_DAG,
+                scenarioDecision
         );
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
         task.setTaskId("task-index-snapshot");

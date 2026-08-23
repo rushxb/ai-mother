@@ -51,7 +51,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
 
 import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.codeAgentNode;
 import static com.rush.rushaicodemother.orchestration.agent.GenerationAgentTestFixture.reviewAgentNode;
@@ -87,15 +86,13 @@ class AgentGenerationOrchestratorTest {
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
 
-        Function<String, CodeGenTypeEnum> routingFunction = prompt -> CodeGenTypeEnum.VUE_PROJECT;
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+        GenerationOrchestrationRequest request = frozenRequest(
                 app,
                 "创建一个 Vue 后台管理面板",
                 CodeGenTypeEnum.HTML,
                 "update",
                 false,
-                routingFunction,
-                null,
+                CodeGenTypeEnum.VUE_PROJECT,
                 "runtime-task-heavy"
         );
 
@@ -123,17 +120,16 @@ class AgentGenerationOrchestratorTest {
             App app = new App();
             app.setId(1L);
             app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
-            GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+            GenerationOrchestrationRequest request = frozenRequest(
                     app,
                     "创建一个 Vue 管理页面",
                     CodeGenTypeEnum.HTML,
                     "create",
                     false,
-                    ignored -> CodeGenTypeEnum.VUE_PROJECT,
+                    CodeGenTypeEnum.VUE_PROJECT,
                     null,
-                    null,
-                    null,
-                    variant
+                    variant,
+                    ExpectedValidationLevel.FAST
             );
 
             GenerationOrchestrationResult result = orchestrator.prepare(request);
@@ -257,14 +253,13 @@ class AgentGenerationOrchestratorTest {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+        GenerationOrchestrationRequest request = frozenRequest(
                 app,
                 "继续生成 Vue 应用",
                 CodeGenTypeEnum.HTML,
                 "update",
                 false,
-                prompt -> CodeGenTypeEnum.VUE_PROJECT,
-                null,
+                CodeGenTypeEnum.VUE_PROJECT,
                 "runtime-task-resume"
         );
 
@@ -316,14 +311,13 @@ class AgentGenerationOrchestratorTest {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+        GenerationOrchestrationRequest request = frozenRequest(
                 app,
                 "创建一个 Vue 应用",
                 CodeGenTypeEnum.HTML,
                 "create",
                 false,
-                ignored -> CodeGenTypeEnum.VUE_PROJECT,
-                null,
+                CodeGenTypeEnum.VUE_PROJECT,
                 "runtime-task-completed-resume"
         );
 
@@ -361,14 +355,13 @@ class AgentGenerationOrchestratorTest {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+        GenerationOrchestrationRequest request = frozenRequest(
                 app,
                 "创建一个 Vue 应用",
                 CodeGenTypeEnum.HTML,
                 "create",
                 false,
-                ignored -> CodeGenTypeEnum.VUE_PROJECT,
-                null,
+                CodeGenTypeEnum.VUE_PROJECT,
                 "runtime-task-missing-quality-gate"
         );
 
@@ -399,14 +392,13 @@ class AgentGenerationOrchestratorTest {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+        GenerationOrchestrationRequest request = frozenRequest(
                 app,
                 "创建一个 Vue 应用",
                 CodeGenTypeEnum.HTML,
                 "create",
                 false,
-                ignored -> CodeGenTypeEnum.VUE_PROJECT,
-                null,
+                CodeGenTypeEnum.VUE_PROJECT,
                 "runtime-task-foreign-rollback-point"
         );
 
@@ -443,15 +435,16 @@ class AgentGenerationOrchestratorTest {
         app.setCodeGenType(CodeGenTypeEnum.MULTI_FILE.getValue());
         writeExistingProjectFile("shared", CodeGenTypeEnum.VUE_PROJECT, app.getId(), "src/App.vue", "<template>tool</template>");
 
-        Function<String, CodeGenTypeEnum> routingFunction = prompt -> CodeGenTypeEnum.VUE_PROJECT;
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+        GenerationOrchestrationRequest request = frozenRequest(
                 app,
                 "做一个工具页",
                 CodeGenTypeEnum.MULTI_FILE,
                 "update",
                 true,
-                routingFunction,
-                null
+                CodeGenTypeEnum.VUE_PROJECT,
+                null,
+                GenerationPlanningVariant.CURRENT_DAG,
+                ExpectedValidationLevel.BUILD
         );
 
         GenerationOrchestrationResult result = orchestrator.prepare(request);
@@ -476,14 +469,16 @@ class AgentGenerationOrchestratorTest {
         app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
         writeExistingProjectFile("shared", CodeGenTypeEnum.HTML, app.getId(), "index.html", "<html><body>login</body></html>");
 
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+        GenerationOrchestrationRequest request = frozenRequest(
                 app,
                 "请补充打包和构建校验",
                 CodeGenTypeEnum.HTML,
                 "update",
                 false,
+                CodeGenTypeEnum.HTML,
                 null,
-                null
+                GenerationPlanningVariant.CURRENT_DAG,
+                ExpectedValidationLevel.BUILD
         );
 
         GenerationOrchestrationResult result = orchestrator.prepare(request);
@@ -531,13 +526,13 @@ class AgentGenerationOrchestratorTest {
         writeExistingProjectFile("metrics", CodeGenTypeEnum.HTML, app.getId(),
                 "index.html", "<html><body>login</body></html>");
 
-        GenerationOrchestrationRequest request = new GenerationOrchestrationRequest(
+        GenerationOrchestrationRequest request = frozenRequest(
                 app,
                 "修改登录表单样式",
                 CodeGenTypeEnum.HTML,
                 "update",
                 true,
-                prompt -> CodeGenTypeEnum.HTML,
+                CodeGenTypeEnum.HTML,
                 null
         );
 
@@ -593,6 +588,72 @@ class AgentGenerationOrchestratorTest {
                 routingSupport,
                 metricsCollector,
                 rollbackPointService
+        );
+    }
+
+    /** 使测试请求与生产 Heavy 入口共享同一份冻结场景事实。 */
+    private GenerationOrchestrationRequest frozenRequest(
+            App app,
+            String userMessage,
+            CodeGenTypeEnum currentType,
+            String generatingStage,
+            boolean hasGeneratedCode,
+            CodeGenTypeEnum targetType,
+            String taskId
+    ) {
+        return frozenRequest(
+                app,
+                userMessage,
+                currentType,
+                generatingStage,
+                hasGeneratedCode,
+                targetType,
+                taskId,
+                GenerationPlanningVariant.CURRENT_DAG,
+                ExpectedValidationLevel.FAST
+        );
+    }
+
+    private GenerationOrchestrationRequest frozenRequest(
+            App app,
+            String userMessage,
+            CodeGenTypeEnum currentType,
+            String generatingStage,
+            boolean hasGeneratedCode,
+            CodeGenTypeEnum targetType,
+            String taskId,
+            GenerationPlanningVariant planningVariant,
+            ExpectedValidationLevel validationLevel
+    ) {
+        GenerationMode mode = validationLevel == ExpectedValidationLevel.FAST
+                ? GenerationMode.LIGHT_EDIT
+                : GenerationMode.HEAVY_EXPERT;
+        GenerationModeDecision route = new GenerationModeDecision(
+                mode,
+                0.91,
+                "test frozen scenario",
+                FallbackPolicy.NONE,
+                validationLevel,
+                ""
+        );
+        GenerationScenarioDecision scenarioDecision = GenerationScenarioDecision.restoreLegacy(
+                IntentProfile.unknown(),
+                targetType,
+                GenerationResourceRequirements.none(),
+                route,
+                10
+        );
+        return GenerationOrchestrationRequest.fromFrozenScenario(
+                app,
+                userMessage,
+                currentType,
+                generatingStage,
+                hasGeneratedCode,
+                null,
+                null,
+                taskId,
+                planningVariant,
+                scenarioDecision
         );
     }
 

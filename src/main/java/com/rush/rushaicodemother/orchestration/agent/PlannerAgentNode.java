@@ -8,9 +8,11 @@ import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact.ApiD
 import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact.ApiField;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
+import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipe;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import org.springframework.stereotype.Component;
@@ -43,7 +45,13 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
         String userMessage = StrUtil.blankToDefault(context.getRequest().userMessage(), "");
-        boolean complex = support.isComplexRequest(userMessage);
+        GenerationScenarioDecision scenarioDecision = context.getRequest().scenarioDecision();
+        if (scenarioDecision == null) {
+            throw new IllegalStateException("Planner 必须消费准入阶段冻结的场景决策");
+        }
+        // 复杂度会改变 DAG 深度与生成预算，不能在 Planner 中再次解析原始 Prompt。
+        boolean complex = scenarioDecision.intentProfile().semanticComplexity()
+                == IntentSemanticComplexity.HIGH;
         boolean patchFirst = context.getRequest().hasGeneratedCode();
         CodeGenTypeEnum routedType = routingSupport.routeTargetType(context.getRequest(), complex);
         context.setTargetType(CodeGenTypeEnum.max(context.getRequest().currentType(), routedType));

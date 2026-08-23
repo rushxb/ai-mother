@@ -12,14 +12,22 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationSynchronousModelCallSupervisor;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -33,6 +41,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class GenerationEditModelInvokerTest {
+
+    private static final GenerationSynchronousModelCallSupervisor MODEL_CALL_SUPERVISOR =
+            new GenerationSynchronousModelCallSupervisor();
+
+    @AfterAll
+    static void closeModelCallSupervisor() {
+        MODEL_CALL_SUPERVISOR.close();
+    }
 
     @AfterEach
     void clearMonitorContext() {
@@ -68,6 +84,7 @@ class GenerationEditModelInvokerTest {
         performanceMonitorService.startTask("edit-task-1", 11L, 22L, "agent_edit", "vue_project");
         GenerationEditModelInvoker invoker = new GenerationEditModelInvoker(
                 factory, contexts, performanceMonitorService,
+                MODEL_CALL_SUPERVISOR,
                 new GenerationStageAdmissionProperties());
 
         invoker.invokeManaged("edit-task-1", "initial", "change it", "file context");
@@ -94,6 +111,7 @@ class GenerationEditModelInvokerTest {
 
         GenerationEditModelInvoker invoker = new GenerationEditModelInvoker(
                 factory, contexts, new GenerationPerformanceMonitorService(),
+                MODEL_CALL_SUPERVISOR,
                 new GenerationStageAdmissionProperties());
 
         assertThrows(GenerationExecutionCancelledException.class,
@@ -103,6 +121,57 @@ class GenerationEditModelInvokerTest {
         assertEquals(0, context.used(GenerationBudgetKind.ROOT_MODEL_ATTEMPT));
         verify(factory, never()).createExecutionAiCodeEditService(
                 any(Duration.class), any(Runnable.class), any(Runnable.class));
+    }
+
+    @Test
+    void cancellationDuringProviderCallMustReleaseManagedWorkerPromptly() throws Exception {
+        GenerationRuntimeProperties properties = new GenerationRuntimeProperties();
+        properties.setModelCallTimeout(Duration.ofSeconds(20));
+        GenerationExecutionContextService contexts = new GenerationExecutionContextService(properties);
+        GenerationExecutionContext context = contexts.start("edit-task-cancel-in-flight", 11L, 22L);
+        AiCodeEditServiceFactory factory = mock(AiCodeEditServiceFactory.class);
+        AiCodeEditService model = mock(AiCodeEditService.class);
+        CountDownLatch providerEntered = new CountDownLatch(1);
+        CountDownLatch releaseProvider = new CountDownLatch(1);
+        when(factory.createExecutionAiCodeEditService(
+                any(Duration.class), any(Runnable.class), any(Runnable.class)))
+                .thenReturn(model);
+        when(model.editCode("change", "context")).thenAnswer(invocation -> {
+            providerEntered.countDown();
+            try {
+                releaseProvider.await();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("provider_interrupted", interrupted);
+            }
+            return new EditResult("done", List.of(), null);
+        });
+        GenerationEditModelInvoker invoker = new GenerationEditModelInvoker(
+                factory, contexts, new GenerationPerformanceMonitorService(),
+                MODEL_CALL_SUPERVISOR,
+                new GenerationStageAdmissionProperties());
+
+        try (ExecutorService caller = Executors.newSingleThreadExecutor()) {
+            Future<Throwable> outcome = caller.submit(() -> {
+                try {
+                    invoker.invokeManaged(
+                            "edit-task-cancel-in-flight", "initial", "change", "context");
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                }
+            });
+            assertTrue(providerEntered.await(2, TimeUnit.SECONDS));
+            context.cancel("user_requested");
+
+            Throwable failure;
+            try {
+                failure = outcome.get(1, TimeUnit.SECONDS);
+            } finally {
+                releaseProvider.countDown();
+            }
+            assertInstanceOf(GenerationExecutionCancelledException.class, failure);
+        }
     }
 
     @Test
@@ -116,6 +185,7 @@ class GenerationEditModelInvokerTest {
         AiCodeEditServiceFactory factory = mock(AiCodeEditServiceFactory.class);
         GenerationEditModelInvoker invoker = new GenerationEditModelInvoker(
                 factory, contexts, new GenerationPerformanceMonitorService(),
+                MODEL_CALL_SUPERVISOR,
                 new GenerationStageAdmissionProperties());
 
         assertThrows(GenerationDeadlineExceededException.class,
@@ -142,6 +212,7 @@ class GenerationEditModelInvokerTest {
                 .thenReturn(new EditResult("done", List.of(), null));
         GenerationEditModelInvoker invoker = new GenerationEditModelInvoker(
                 factory, contexts, new GenerationPerformanceMonitorService(),
+                MODEL_CALL_SUPERVISOR,
                 new GenerationStageAdmissionProperties());
 
         invoker.invokeManaged("edit-task-repair-budget", "initial", "change", "context");

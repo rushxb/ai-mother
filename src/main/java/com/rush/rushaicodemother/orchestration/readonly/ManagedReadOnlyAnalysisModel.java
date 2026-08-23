@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudge
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationSynchronousModelCallSupervisor;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -20,15 +21,19 @@ class ManagedReadOnlyAnalysisModel implements ReadOnlyAnalysisModel {
     private final ReadOnlyAnalysisServiceFactory serviceFactory;
     private final GenerationExecutionContextService executionContextService;
     private final GenerationPerformanceMonitorService performanceMonitorService;
+    private final GenerationSynchronousModelCallSupervisor modelCallSupervisor;
 
     ManagedReadOnlyAnalysisModel(ReadOnlyAnalysisServiceFactory serviceFactory,
                                  GenerationExecutionContextService executionContextService,
-                                 GenerationPerformanceMonitorService performanceMonitorService) {
+                                 GenerationPerformanceMonitorService performanceMonitorService,
+                                 GenerationSynchronousModelCallSupervisor modelCallSupervisor) {
         this.serviceFactory = Objects.requireNonNull(serviceFactory, "只读分析 AI 服务工厂不能为空");
         this.executionContextService = Objects.requireNonNull(
                 executionContextService, "生成执行上下文服务不能为空");
         this.performanceMonitorService = Objects.requireNonNull(
                 performanceMonitorService, "生成性能监控服务不能为空");
+        this.modelCallSupervisor = Objects.requireNonNull(
+                modelCallSupervisor, "同步模型调用监督器不能为空");
     }
 
     @Override
@@ -46,11 +51,13 @@ class ManagedReadOnlyAnalysisModel implements ReadOnlyAnalysisModel {
                     timeout,
                     () -> context.consume(GenerationBudgetKind.MODEL_TURN),
                     () -> context.consume(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT));
-            ReadOnlyAnalysisResult result = service.analyze(
-                    request.operationType().name(),
-                    request.userPrompt(),
-                    String.join("\n", request.allowedReferences()),
-                    request.projectContext());
+            ReadOnlyAnalysisResult result = modelCallSupervisor.execute(
+                    context,
+                    () -> service.analyze(
+                            request.operationType().name(),
+                            request.userPrompt(),
+                            String.join("\n", request.allowedReferences()),
+                            request.projectContext()));
             context.assertCanContinue();
             span.close("success", "operation=" + request.operationType().name());
             return result;

@@ -16,6 +16,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationStageAdmissionProperties;
+import com.rush.rushaicodemother.orchestration.runtime.model.GenerationSynchronousModelCallSupervisor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -37,6 +38,7 @@ public class GenerationEditModelInvoker {
     private final AiCodeEditServiceFactory aiCodeEditServiceFactory;
     private final GenerationExecutionContextService executionContextService;
     private final GenerationPerformanceMonitorService performanceMonitorService;
+    private final GenerationSynchronousModelCallSupervisor modelCallSupervisor;
     private final GenerationStageAdmissionProperties stageAdmissionProperties;
 
     /** 在持久任务执行策略下调用一次编辑模型尝试。 */
@@ -69,7 +71,9 @@ public class GenerationEditModelInvoker {
                     () -> context.consume(GenerationBudgetKind.MODEL_TURN),
                     () -> context.consume(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT)
             );
-            EditResult result = service.editCode(userMessage, projectContext);
+            EditResult result = modelCallSupervisor.execute(
+                    context,
+                    () -> service.editCode(userMessage, projectContext));
             context.assertCanContinue();
             Duration firstSignalLatency = Duration.between(startedAt, Instant.now());
             long firstSignalLatencyMs = Math.max(1L, firstSignalLatency.toMillis());

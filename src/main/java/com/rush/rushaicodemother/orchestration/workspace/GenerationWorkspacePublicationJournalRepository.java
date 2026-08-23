@@ -41,6 +41,12 @@ public interface GenerationWorkspacePublicationJournalRepository {
                         String reason,
                         Instant supersededAt);
 
+    /**
+     * 声明到期的对账项。
+     *
+     * <p>{@code maxAttempts} 只允许暂停仍由存活执行持有的 PREPARED 项；已激活指针、
+     * 待回滚以及所属执行已失效的项必须继续可声明，禁止把恢复关键状态变成死信。</p>
+     */
     List<GenerationWorkspacePublicationJournalEntry> claimPending(
             Instant now,
             int limit,

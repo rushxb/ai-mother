@@ -125,6 +125,34 @@ class MyBatisGenerationWorkspacePublicationJournalRepositoryTest {
     }
 
     @Test
+    void exhaustedCriticalJournalMustStillFlowThroughTheOptimisticClaim() {
+        GenerationWorkspacePublicationJournalMapper mapper =
+                mock(GenerationWorkspacePublicationJournalMapper.class);
+        MyBatisGenerationWorkspacePublicationJournalRepository repository =
+                new MyBatisGenerationWorkspacePublicationJournalRepository(mapper);
+        GenerationWorkspacePublicationPointer pointer = pointer("task-critical", 5L, NOW);
+        GenerationTask exhausted = task(
+                pointer,
+                GenerationWorkspacePublicationJournalStatus.FILESYSTEM_ACTIVATED,
+                20,
+                17L,
+                "metadata unavailable");
+        when(mapper.selectPending(local(NOW), 1, 20)).thenReturn(List.of(exhausted));
+        when(mapper.claim(
+                "task-critical", 17L, 20, local(NOW), local(NOW.plusSeconds(30))))
+                .thenReturn(1);
+
+        List<GenerationWorkspacePublicationJournalEntry> claimed = repository.claimPending(
+                NOW, 1, 20, Duration.ofSeconds(30));
+
+        assertEquals(1, claimed.size());
+        assertEquals(GenerationWorkspacePublicationJournalStatus.FILESYSTEM_ACTIVATED,
+                claimed.getFirst().status());
+        assertEquals(21, claimed.getFirst().attempts());
+        assertEquals(18L, claimed.getFirst().version());
+    }
+
+    @Test
     void zeroRowTransitionMustAcceptOnlyTheExactPersistedTerminalState() {
         GenerationWorkspacePublicationJournalMapper mapper =
                 mock(GenerationWorkspacePublicationJournalMapper.class);

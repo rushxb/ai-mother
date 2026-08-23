@@ -100,6 +100,11 @@ public class ArtifactLifecycleProperties {
     @Max(1000)
     private int publicationReconciliationBatchSize = PUBLICATION_RECONCILIATION_BATCH_SIZE;
 
+    /**
+     * 存活执行持有的 PREPARED journal 主动对账尝试阈值。
+     *
+     * <p>已激活指针、待回滚或所属执行已失效的安全关键状态不受该阈值截断。</p>
+     */
     @Min(1)
     @Max(100)
     private int publicationReconciliationMaxAttempts = PUBLICATION_RECONCILIATION_MAX_ATTEMPTS;

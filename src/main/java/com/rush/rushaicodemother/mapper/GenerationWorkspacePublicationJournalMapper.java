@@ -174,6 +174,12 @@ public interface GenerationWorkspacePublicationJournalMapper {
             @Param("reason") String reason,
             @Param("expiredAt") LocalDateTime expiredAt);
 
+    /**
+     * 选择到期的发布对账项。
+     *
+     * <p>次数上限只暂停仍由存活执行持有的 PREPARED 项。已切换文件系统指针、必须回滚，
+     * 或所属执行已经失效的 journal 都不能成为死信，否则任务恢复会永久等待。</p>
+     */
     @Select("""
             SELECT taskId, appId, executionEpoch,
                    publicationStatus, publicationCodeGenType,
@@ -181,7 +187,20 @@ public interface GenerationWorkspacePublicationJournalMapper {
                    publicationAttempts, publicationVersion, publicationError
             FROM generation_task
             WHERE publicationStatus IN ('prepared', 'filesystem_activated', 'rollback_required')
-              AND publicationAttempts < #{maxAttempts}
+              AND (
+                    publicationAttempts < #{maxAttempts}
+                    OR publicationStatus IN ('filesystem_activated', 'rollback_required')
+                    OR (
+                        publicationStatus = 'prepared'
+                        AND publicationCommittedAt IS NULL
+                        AND (
+                            status <> 'running'
+                            OR executionEpoch <> publicationExecutionEpoch
+                            OR leaseUntil IS NULL
+                            OR leaseUntil < #{now}
+                        )
+                    )
+              )
               AND (publicationReconcileAfter IS NULL OR publicationReconcileAfter <= #{now})
               AND isDelete = 0
             ORDER BY COALESCE(publicationReconcileAfter, updateTime) ASC, id ASC
@@ -201,7 +220,20 @@ public interface GenerationWorkspacePublicationJournalMapper {
             WHERE taskId = #{taskId}
               AND publicationVersion = #{expectedVersion}
               AND publicationStatus IN ('prepared', 'filesystem_activated', 'rollback_required')
-              AND publicationAttempts < #{maxAttempts}
+              AND (
+                    publicationAttempts < #{maxAttempts}
+                    OR publicationStatus IN ('filesystem_activated', 'rollback_required')
+                    OR (
+                        publicationStatus = 'prepared'
+                        AND publicationCommittedAt IS NULL
+                        AND (
+                            status <> 'running'
+                            OR executionEpoch <> publicationExecutionEpoch
+                            OR leaseUntil IS NULL
+                            OR leaseUntil < #{claimedAt}
+                        )
+                    )
+              )
               AND (publicationReconcileAfter IS NULL OR publicationReconcileAfter <= #{claimedAt})
               AND isDelete = 0
             """)

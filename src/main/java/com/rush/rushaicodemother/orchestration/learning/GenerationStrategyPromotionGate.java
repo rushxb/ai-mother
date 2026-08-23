@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.config.GenerationBenchmarkReleaseProperties;
 import com.rush.rushaicodemother.orchestration.economics.GenerationDeliveryEconomics;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -97,6 +98,16 @@ public class GenerationStrategyPromotionGate {
         }
         if (quality.firstBuildPassRate() < releaseProperties.getMinimumBuildPassRate()) {
             violations.add("candidate_first_build_pass_rate_below_minimum");
+        }
+        GenerationScenarioLatencyMetrics latency = candidate.latency();
+        // P95 即使优于基线，也不能超过更宽松的 P99 发布上限，否则慢基线会掩盖不可接受的绝对耗时。
+        if (exceedsLatencyBudget(
+                latency.p95FirstUsefulMs(), releaseProperties.getMaximumP99FirstPreviewLatency())) {
+            violations.add("candidate_first_useful_p95_above_budget");
+        }
+        if (exceedsLatencyBudget(
+                latency.p95DeliveredMs(), releaseProperties.getMaximumP99Duration())) {
+            violations.add("candidate_delivered_p95_above_budget");
         }
         GenerationDeliveryEconomics economics = candidate.deliveryEconomics();
         if (!economics.isAvailable()) {
@@ -200,6 +211,11 @@ public class GenerationStrategyPromotionGate {
 
     private boolean exceeds(Double actual, long maximum) {
         return actual != null && actual > maximum;
+    }
+
+    private boolean exceedsLatencyBudget(Long actualMs, Duration maximum) {
+        return actualMs != null
+                && (maximum == null || Duration.ofMillis(actualMs).compareTo(maximum) > 0);
     }
 
     private boolean hasP95(Long value) {

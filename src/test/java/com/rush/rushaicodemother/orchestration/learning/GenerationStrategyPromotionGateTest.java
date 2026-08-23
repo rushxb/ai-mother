@@ -30,6 +30,22 @@ class GenerationStrategyPromotionGateTest {
     }
 
     @Test
+    void relativeLatencyImprovementMustNotHideAbsoluteP95BudgetViolation() {
+        GenerationScenarioBucketSummary baseline = summary(
+                BASELINE_RELEASE, 40, 38, 36, 2, 4.4, 4,
+                360_000L, 660_000L, 400_000L, 200L);
+        GenerationScenarioBucketSummary candidate = summary(
+                CANDIDATE_RELEASE, 40, 39, 37, 1, 4.6, 2,
+                301_000L, 601_000L, 390_000L, 190L);
+
+        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+
+        assertFalse(assessment.passed());
+        assertTrue(assessment.violations().contains("candidate_first_useful_p95_above_budget"));
+        assertTrue(assessment.violations().contains("candidate_delivered_p95_above_budget"));
+    }
+
+    @Test
     void insufficientSamplesOrIncompleteObservationsMustBlockPromotion() {
         GenerationScenarioBucketSummary baseline = summary(
                 BASELINE_RELEASE, 40, 38, 36, 2, 4.4, 4,

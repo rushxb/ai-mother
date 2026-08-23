@@ -80,10 +80,8 @@ public class ReadOnlyAnalysisService {
             }
         }
         if (grounded.isEmpty() && !allowedReferenceLineCounts.isEmpty()) {
-            grounded.add(new ReadOnlyAnalysisResult.FileReference(
-                    allowedReferenceLineCounts.keySet().iterator().next(),
-                    null,
-                    "已采集的项目上下文"));
+            // 已采集文件不等于模型实际使用了该文件；不得用任意首文件伪造分析依据。
+            throw new IllegalStateException("只读分析未返回有效的项目文件依据");
         }
         return List.copyOf(grounded);
     }

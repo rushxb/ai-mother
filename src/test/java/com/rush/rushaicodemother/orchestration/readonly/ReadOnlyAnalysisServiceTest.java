@@ -75,6 +75,30 @@ class ReadOnlyAnalysisServiceTest {
     }
 
     @Test
+    void availableContextMustNotBeFabricatedAsEvidenceForUngroundedModelReferences() {
+        AgentEditContextCollector contextCollector = mock(AgentEditContextCollector.class);
+        GenerationWorkspace workspace = workspace();
+        when(contextCollector.collect(workspace, "审计鉴权链路", CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(contextResult());
+        ReadOnlyAnalysisModel model = (taskId, request) -> new ReadOnlyAnalysisResult(
+                "鉴权链路不存在风险",
+                List.of(),
+                List.of(new ReadOnlyAnalysisResult.FileReference(
+                        "../../secrets.txt", 1, "模型臆造的越界文件")),
+                "本次请求仅要求审计，因此未修改工作区"
+        );
+        ReadOnlyAnalysisService service = new ReadOnlyAnalysisService(contextCollector, model);
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> service.analyze(
+                        "read-only-ungrounded", IntentOperationType.AUDIT, "审计鉴权链路",
+                        workspace, CodeGenTypeEnum.VUE_PROJECT));
+
+        assertEquals("只读分析未返回有效的项目文件依据", failure.getMessage());
+    }
+
+    @Test
     void analysisMustNotPublishLineNumbersOutsideCollectedFileContent() {
         AgentEditContextCollector contextCollector = mock(AgentEditContextCollector.class);
         GenerationWorkspace workspace = workspace();

@@ -23,6 +23,8 @@ class RecipeRenderResultTest {
         operations.clear();
 
         assertEquals(List.of("mock_data"), result.filledSlots());
+        assertEquals(List.of("mock_data"), result.requestedSlots());
+        assertEquals(List.of(), result.unfilledSlots());
         assertEquals(1, result.patchOperations().size());
         assertEquals("content".length(), result.totalChars());
         assertThrows(UnsupportedOperationException.class, () -> result.filledSlots().add("other"));

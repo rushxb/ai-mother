@@ -46,6 +46,11 @@ final class LandingCreateRecipeRenderer implements CreateRecipeRenderer {
         }
         LandingSlotFallbackRenderer.LandingFallback result =
                 landingRenderer.renderFromSpec(userMessage, group, spec, "create_spec_recipe");
-        return RecipeRenderResult.of(result.filledSlots(), result.patchOperations(), result.summary(), manifest);
+        return RecipeRenderResult.of(
+                group.slotIds(),
+                result.filledSlots(),
+                result.patchOperations(),
+                result.summary(),
+                manifest);
     }
 }

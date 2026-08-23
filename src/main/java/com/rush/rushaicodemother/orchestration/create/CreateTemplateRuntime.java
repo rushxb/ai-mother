@@ -212,6 +212,22 @@ public class CreateTemplateRuntime {
             RecipeRenderResult recipeResult = tryRenderRecipe(
                     request, group, createSpecResult, session);
             if (recipeResult.available()) {
+                if (!recipeResult.complete()) {
+                    List<String> unfilledSlots = prefixSlotIds(
+                            bootstrapContext.prefixFor(group), recipeResult.unfilledSlots());
+                    skippedSlots.addAll(unfilledSlots);
+                    degradeReasons.add("recipe_required_slots_unfilled:"
+                            + group.templateId() + ":" + recipeResult.unfilledSlots());
+                    emitStage(session, "recipe 未完整覆盖必需变量，转交完整生成链路：" + group.templateId(), Map.of(
+                            "stage", "recipe_required_slots_unfilled",
+                            "groupId", group.groupId(),
+                            "templateId", group.templateId(),
+                            "requestedSlots", recipeResult.requestedSlots(),
+                            "filledSlots", recipeResult.filledSlots(),
+                            "unfilledSlots", recipeResult.unfilledSlots()
+                    ));
+                    continue;
+                }
                 operations.addAll(prefixOperations(bootstrapContext.prefixFor(group), recipeResult.patchOperations()));
                 filledSlots.addAll(prefixSlotIds(bootstrapContext.prefixFor(group), recipeResult.filledSlots()));
                 totalChars += recipeResult.totalChars();
@@ -265,6 +281,19 @@ public class CreateTemplateRuntime {
         } catch (RuntimeException | Error failure) {
             recipeSpan.failed(failure.getClass().getSimpleName());
             throw failure;
+        }
+        if (!skippedSlots.isEmpty()) {
+            // recipe patch 尚未落盘；此时安全交给 Heavy 完整生成，避免发布“能构建但缺功能”的项目。
+            return incompleteCoverageResult(
+                    plan,
+                    bootstrapContext,
+                    filledSlots,
+                    totalChars,
+                    skippedSlots,
+                    aiCalls,
+                    executionGroups.size(),
+                    degradeReasons
+            );
         }
         if (operations.isEmpty()) {
             return skeletonOnlyResult(plan, bootstrapContext, filledSlots, totalChars, skippedSlots, aiCalls,
@@ -664,6 +693,39 @@ public class CreateTemplateRuntime {
                 skippedSlots,
                 metadata(plan, bootstrapContext, aiCalls, null,
                         0L, executionSlotGroupCount, false, "", safeDegradeReasons)
+        );
+    }
+
+    /** 必需 slot 未完整覆盖时，在任何 recipe patch 写入前返回可安全升级的失败结果。 */
+    private SlotFillResult incompleteCoverageResult(
+            CreateGenerationPlan plan,
+            BootstrapContext bootstrapContext,
+            List<String> filledSlots,
+            int totalChars,
+            List<String> unfilledRequiredSlots,
+            int aiCalls,
+            int executionSlotGroupCount,
+            List<String> degradeReasons
+    ) {
+        String fallbackReason = "required_recipe_slots_unfilled";
+        return new SlotFillResult(
+                plan.baseTemplateId(),
+                filledSlots,
+                List.of(),
+                "CREATE recipe 未完整覆盖必需功能，已转交完整生成链路",
+                totalChars,
+                unfilledRequiredSlots,
+                metadata(
+                        plan,
+                        bootstrapContext,
+                        aiCalls,
+                        null,
+                        0L,
+                        executionSlotGroupCount,
+                        true,
+                        fallbackReason,
+                        degradeReasons
+                )
         );
     }
 

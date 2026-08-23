@@ -31,6 +31,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -54,6 +55,7 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
     private static final String CREATE_FAILURE_MESSAGE = "CREATE 模板生成失败，请稍后重试";
     private static final String CREATE_FAILURE_REASON = "create_generation_failed";
     private static final String CREATE_VALIDATION_FAILURE_REASON = "create_validation_failed";
+    private static final String CREATE_INTENT_COVERAGE_FAILURE_REASON = "create_intent_coverage_incomplete";
     private static final String CREATE_DEADLINE_REASON = "create_generation_deadline_exceeded";
     private static final String CREATE_CANCELLED_REASON = "user_requested";
 
@@ -176,6 +178,10 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                         taskId, startedAt, "create_template_runtime",
                         CREATE_FAILURE_REASON, diagnosticReason, Map.of());
             }
+            if (!result.provesIntentCoverage()) {
+                return finishIntentCoverageFailure(
+                        request, taskId, startedAt, session, result);
+            }
             log.info("CREATE recipe 路径完成，appId: {}, templateId: {}, filledScopes: {}",
                     app.getId(), result.templateId(), result.filledSlotCount());
             generationPerformanceMonitorService.recordSpan(
@@ -295,10 +301,46 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
                 GenerationTaskStatus.SUCCESS,
                 null,
                 resultSummary,
-                ObservedValidationCompletionEvidenceFactory.forMutation(
-                        validationOutcome.observation(), patchOperationCount),
+                ObservedValidationCompletionEvidenceFactory.forCompletedCreate(
+                        result, validationOutcome.observation()),
                 patchOperationCount,
                 0);
+    }
+
+    /** 部分生成结果已经不可安全重放，必须在构建验证前失败关闭。 */
+    private GenerationPipelineOutcome finishIntentCoverageFailure(
+            GenerationPipelineRequest request,
+            String taskId,
+            Instant startedAt,
+            GenerationSession session,
+            SlotFillResult result
+    ) {
+        List<String> missingSlots = result.skippedSlots().stream().limit(20).toList();
+        String diagnosticReason = missingSlots.isEmpty()
+                ? "CREATE 结果未提供完整意图覆盖证据"
+                : "未生成必需功能：" + String.join(", ", missingSlots);
+        generationPerformanceMonitorService.recordSpan(
+                taskId,
+                "create_intent_coverage",
+                GenerationSpanCategory.PIPELINE,
+                "incomplete",
+                Duration.between(startedAt, Instant.now()),
+                LogExceptionSanitizer.sanitizeValue(diagnosticReason, 1_000)
+        );
+        Map<String, Object> incompleteTelemetry = new LinkedHashMap<>(telemetry(result));
+        incompleteTelemetry.put("intentCoverageIncomplete", true);
+        incompleteTelemetry.put("unfilledRequiredSlots", missingSlots);
+        incompleteTelemetry.put("fallback", false);
+        generationPerformanceMonitorService.recordCreateTelemetry(taskId, incompleteTelemetry);
+        return finishTerminalCreateGeneration(
+                request,
+                taskId,
+                session,
+                GenerationTerminalOutcome.FAILED,
+                CREATE_INTENT_COVERAGE_FAILURE_REASON,
+                "CREATE 意图覆盖校验",
+                diagnosticReason
+        );
     }
 
     /** 构建修复预算耗尽后结束 CREATE，避免再次执行整条重型生成链路。 */
@@ -397,7 +439,9 @@ public class SlotFillGenerationPipeline implements GenerationPipeline {
         }
         return CREATE_VALIDATION_FAILURE_REASON.equals(reason)
                 ? "CREATE 项目验证失败，请稍后重试"
-                : CREATE_FAILURE_MESSAGE;
+                : CREATE_INTENT_COVERAGE_FAILURE_REASON.equals(reason)
+                        ? "CREATE 必需功能未完整生成，请稍后重试"
+                        : CREATE_FAILURE_MESSAGE;
     }
 
     private int successfulWorkspaceMutationCount(GenerationSession session) {

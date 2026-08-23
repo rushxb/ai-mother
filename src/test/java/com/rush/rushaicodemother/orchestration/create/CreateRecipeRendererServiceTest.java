@@ -21,9 +21,31 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CreateRecipeRendererServiceTest {
+
+    @Test
+    void partiallySupportedAdminRecipeMustExposeMissingRequiredSlots() {
+        CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
+
+        RecipeRenderResult result = renderer.render(
+                "做一个后台商品管理系统",
+                new SlotGroup(
+                        "admin-products",
+                        "vue-web-admin",
+                        "products",
+                        List.of("table_columns", "form_modal"),
+                        0
+                ),
+                spec()
+        );
+
+        assertTrue(result.available());
+        assertFalse(result.complete());
+        assertEquals(List.of("form_modal"), result.unfilledSlots());
+    }
 
     @Test
     void shouldRenderBasicVueRecipeFromCreateSpec() {

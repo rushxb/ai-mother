@@ -60,9 +60,11 @@ abstract class AbstractSlotRecipeRenderer<R> implements CreateRecipeRenderer {
             }
         }
         if (operations.isEmpty()) {
-            return RecipeRenderResult.empty();
+            return RecipeRenderResult.of(
+                    requestedSlots, filledSlots, operations, summary, manifest);
         }
-        return RecipeRenderResult.of(filledSlots, operations, summary, manifest);
+        return RecipeRenderResult.of(
+                requestedSlots, filledSlots, operations, summary, manifest);
     }
 
     protected abstract R createRecipe(String userMessage, CreateSpec spec);

@@ -52,6 +52,37 @@ import static org.mockito.Mockito.when;
 class SlotFillGenerationPipelineTest {
 
     @Test
+    void legacyPartialCreateResultMustFailClosedWithoutClaimingIntentCoverage() {
+        SlotFillGenerationService slotFillService = mock(SlotFillGenerationService.class);
+        CreatePostGenerationValidationService validationService =
+                mock(CreatePostGenerationValidationService.class);
+        SlotFillGenerationPipeline pipeline = new SlotFillGenerationPipeline(
+                mock(GenerationTaskLifecycleService.class),
+                mock(GenerationPerformanceMonitorService.class),
+                validationService,
+                new GenerationEventPublisher(),
+                slotFillService);
+        GenerationPipelineRequest request = request("create-partial-coverage");
+        SlotFillResult result = SlotFillResult.partial(
+                "vue-web-admin",
+                List.of("table_columns"),
+                List.of(PatchOperation.add("src/data/table.ts", "export const columns = []")),
+                "仅生成了商品表格",
+                25,
+                List.of("form_modal"));
+        when(slotFillService.tryGenerate(any(), any(), any())).thenReturn(result);
+
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
+
+        assertEquals(GenerationPipelineDisposition.COMPLETED, outcome.disposition());
+        assertEquals(GenerationTaskStatus.FAILED, outcome.terminalStatus());
+        assertEquals("create_intent_coverage_incomplete", outcome.reason());
+        assertFalse(outcome.completionEvidence().contains(
+                GenerationCompletionEvidenceType.INTENT_COVERAGE));
+        verify(validationService, never()).validate(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void successfulCreateMustUseObservedValidationInsteadOfExpectedRouteLevel() {
         SlotFillGenerationService slotFillService = mock(SlotFillGenerationService.class);
         CreatePostGenerationValidationService validationService =

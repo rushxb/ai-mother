@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.template;
 
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -13,7 +14,7 @@ import java.util.Map;
  * @param patchOperations     生成的 patch 操作列表
  * @param summary             填充摘要
  * @param totalChars          总字符数
- * @param skippedSlots        跳过的 slot 列表（用户需求未涉及）
+ * @param skippedSlots        未被生成器覆盖的必需 slot 列表
  * @param metadata            额外元数据
  */
 public record SlotFillResult(
@@ -25,6 +26,18 @@ public record SlotFillResult(
         List<String> skippedSlots,
         Map<String, Object> metadata
 ) {
+    /** 统一冻结集合，避免生成完成后调用方继续篡改覆盖事实。 */
+    public SlotFillResult {
+        filledSlots = immutableDistinctSlots(filledSlots);
+        patchOperations = List.copyOf(patchOperations == null ? List.of() : patchOperations);
+        summary = summary == null ? "" : summary.trim();
+        if (totalChars < 0) {
+            throw new IllegalArgumentException("totalChars 不能为负数");
+        }
+        skippedSlots = immutableDistinctSlots(skippedSlots);
+        metadata = Map.copyOf(metadata == null ? Map.of() : metadata);
+    }
+
     /**
      * 创建成功的填充结果。
      */
@@ -54,21 +67,31 @@ public record SlotFillResult(
      * 是否所有必需的 slot 都已填充。
      */
     public boolean allRequiredSlotsFilled() {
-        return skippedSlots == null || skippedSlots.isEmpty();
+        return skippedSlots.isEmpty();
+    }
+
+    /**
+     * 是否足以证明 CREATE 意图已完整覆盖。
+     *
+     * <p>回退结果只表示当前轻量路径不可用，不能被提升为完成证据；缺少任一必需
+     * slot 同样必须失败关闭。</p>
+     */
+    public boolean provesIntentCoverage() {
+        return !fallback() && allRequiredSlotsFilled();
     }
 
     /**
      * 获取填充的 slot 数量。
      */
     public int filledSlotCount() {
-        return filledSlots != null ? filledSlots.size() : 0;
+        return filledSlots.size();
     }
 
     /**
      * 获取 patch 操作数量。
      */
     public int patchOperationCount() {
-        return patchOperations != null ? patchOperations.size() : 0;
+        return patchOperations.size();
     }
 
     /**
@@ -104,9 +127,19 @@ public record SlotFillResult(
  * @return 插槽填充结果
  */
     public Object telemetry() {
-        if (metadata == null) {
-            return Map.of();
-        }
         return metadata.getOrDefault("telemetry", Map.of());
+    }
+
+    private static List<String> immutableDistinctSlots(List<String> slots) {
+        if (slots == null || slots.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String slot : slots) {
+            if (slot != null && !slot.isBlank()) {
+                normalized.add(slot.trim());
+            }
+        }
+        return List.copyOf(normalized);
     }
 }

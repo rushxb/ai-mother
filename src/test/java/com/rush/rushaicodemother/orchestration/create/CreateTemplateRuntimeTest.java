@@ -453,7 +453,45 @@ class CreateTemplateRuntimeTest {
     }
 
     @Test
-    void shouldKeepTemplateSkeletonWhenAnySlotGroupFails() {
+    void incompleteRecipeCoverageMustHandoffBeforeApplyingAnyPatch() {
+        Path workspaceRoot = Path.of("target/test-workspaces/create-template-runtime/incomplete-coverage")
+                .toAbsolutePath()
+                .normalize();
+        Path projectRoot = workspaceRoot.resolve("vue_project_1");
+        CreateSpecService createSpecService = mock(CreateSpecService.class);
+        GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
+        VueProjectTemplateBootstrapService vueBootstrapService = mock(VueProjectTemplateBootstrapService.class);
+        when(vueBootstrapService.bootstrapIfNecessary(anyLong(), any(CodeGenTypeEnum.class), anyString()))
+                .thenReturn(VueProjectTemplateBootstrapService.BootstrapResult.created(
+                        "vue-web-admin", projectRoot.toString(), 1));
+        when(createSpecService.generate(anyString(), any()))
+                .thenReturn(new CreateSpecService.SpecResult(true, fitnessSpec(), "ai_spec"));
+        CreateTemplateRuntime runtime = runtime(
+                mock(BackendProjectTemplateBootstrapService.class),
+                new CreatePatchMergeService(),
+                preWriteValidationService(),
+                createSpecService,
+                CreateRecipeRendererTestFactory.create(),
+                null,
+                patchApplyService,
+                mock(GenerationTaskFenceGuard.class),
+                workspaceService(projectRoot, CodeGenTypeEnum.VUE_PROJECT),
+                new LandingSlotFallbackRenderer(),
+                vueBootstrapService
+        );
+
+        SlotFillResult result = runtime.generate(
+                app(), request("做一个后台商品管理系统"), partialAdminPlan());
+
+        assertTrue(result.fallback());
+        assertTrue(result.patchOperations().isEmpty());
+        assertEquals(List.of("form_modal"), result.skippedSlots());
+        verify(patchApplyService, never()).applyWithoutChangePlan(
+                anyLong(), anyString(), any(), any(), anyString());
+    }
+
+    @Test
+    void unsupportedRequiredSlotMustHandoffWithoutApplyingPatch() {
         Path workspaceRoot = Path.of("target/test-workspaces/create-template-runtime")
                 .toAbsolutePath()
                 .normalize();
@@ -487,7 +525,7 @@ class CreateTemplateRuntimeTest {
 
         assertTrue(result.patchOperations().isEmpty());
         Map<?, ?> telemetry = (Map<?, ?>) result.metadata().get("telemetry");
-        assertEquals(false, telemetry.get("fallback"));
+        assertEquals(true, telemetry.get("fallback"));
         assertEquals(true, telemetry.get("degraded"));
         verify(patchApplyService, never()).applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString());
     }
@@ -947,6 +985,29 @@ class CreateTemplateRuntimeTest {
                         List.of("dashboard_content", "mock_data", "table_columns", "sidebar_menu", "statistics_cards"), "")),
                 List.of(new SlotGroup("admin-dashboard-slots", "vue-web-admin", "admin-dashboard",
                         List.of("dashboard_content", "mock_data", "table_columns", "sidebar_menu", "statistics_cards"), 0)),
+                0.9,
+                "test",
+                "test",
+                ""
+        );
+    }
+
+    private CreateGenerationPlan partialAdminPlan() {
+        return new CreateGenerationPlan(
+                CodeGenTypeEnum.VUE_PROJECT,
+                new CreateTemplateManifest("vue-web-admin", CodeGenTypeEnum.VUE_PROJECT, "admin"),
+                List.of(new FeatureModuleManifest(
+                        "admin-products",
+                        "商品管理",
+                        "vue-web-admin",
+                        List.of("table_columns", "form_modal"),
+                        "商品管理需要表格与编辑表单")),
+                List.of(new SlotGroup(
+                        "admin-products-slots",
+                        "vue-web-admin",
+                        "admin-products",
+                        List.of("table_columns", "form_modal"),
+                        0)),
                 0.9,
                 "test",
                 "test",

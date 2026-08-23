@@ -1,24 +1,29 @@
 package com.rush.rushaicodemother.orchestration.attempt.completion;
 
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.template.SlotFillResult;
 import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/** 将验证器的事实观测映射为完成判定证据，不读取路由期望。 */
+/** 将完整生成结果与验证器事实观测映射为完成判定证据，不读取路由期望。 */
 public final class ObservedValidationCompletionEvidenceFactory {
 
     private ObservedValidationCompletionEvidenceFactory() {
     }
 
-    public static GenerationCompletionEvidenceSet forMutation(
-            GenerationValidationObservation observation,
-            int mutationCount
+    public static GenerationCompletionEvidenceSet forCompletedCreate(
+            SlotFillResult result,
+            GenerationValidationObservation observation
     ) {
-        if (observation == null || mutationCount <= 0) {
+        if (result == null
+                || !result.provesIntentCoverage()
+                || observation == null
+                || result.patchOperationCount() <= 0) {
             return GenerationCompletionEvidenceSet.empty();
         }
+        int mutationCount = result.patchOperationCount();
         String source = observation.source();
         List<GenerationCompletionEvidence> evidence = new ArrayList<>();
         evidence.add(GenerationCompletionEvidence.of(

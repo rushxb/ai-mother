@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
  */
 final class IntentLexicalRuleSet {
 
-    static final String VERSION = "intent-lexical/1.1.0";
+    static final String VERSION = "intent-lexical/1.2.0";
 
     private static final int NEGATION_LOOKBACK_CHARACTERS = 24;
     private static final Pattern ENGLISH_NEGATION = Pattern.compile(
@@ -200,6 +200,23 @@ final class IntentLexicalRuleSet {
         ));
         vocabulary.put(IntentLexicalFeature.DOCUMENTATION, List.of(
                 "文档", "说明书", "readme", "注释", "documentation", "docs", "comment"
+        ));
+        vocabulary.put(IntentLexicalFeature.FULL_STACK_PROJECT, List.of(
+                "全栈", "前后端", "前端和后端", "前端加后端", "前端调用后端", "接口联调",
+                "前后端联调", "全栈开发", "fullstack", "full stack", "full-stack"
+        ));
+        vocabulary.put(IntentLexicalFeature.ENGINEERED_FRONTEND_PROJECT, List.of(
+                "vue", "vue3", "vue 3", "react", "angular", "svelte", "前端工程", "工程化前端",
+                "单页应用", "single page application"
+        ));
+        vocabulary.put(IntentLexicalFeature.MULTI_FILE_PROJECT, List.of(
+                "html/css/js", "html/css/javascript", "html、css、js", "html、css、javascript",
+                "html css js", "html css javascript", "三件套", "多文件静态", "静态站点三文件",
+                "css和js分离", "css与js分离"
+        ));
+        vocabulary.put(IntentLexicalFeature.SINGLE_HTML_PROJECT, List.of(
+                "单个html", "单文件html", "一个html文件", "html单文件", "纯html",
+                "内联css", "内联javascript", "内联js"
         ));
         vocabulary.put(IntentLexicalFeature.MULTI_FILE, List.of(
                 "跨文件", "多个文件", "多文件", "前后端", "全栈", "整个项目", "全项目", "所有文件",

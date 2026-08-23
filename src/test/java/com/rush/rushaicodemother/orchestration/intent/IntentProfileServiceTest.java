@@ -100,6 +100,17 @@ class IntentProfileServiceTest {
     }
 
     @Test
+    void explicitFrameworkMigrationMustExposeRequestedProjectType() {
+        IntentProfile profile = service.analyze(
+                request("将现有 HTML 页面升级为 Vue 工程", CodeGenTypeEnum.HTML),
+                CodeGenTypeEnum.HTML,
+                workspace(CodeGenTypeEnum.HTML, true)
+        );
+
+        assertEquals(CodeGenTypeEnum.VUE_PROJECT, profile.explicitProjectType());
+    }
+
+    @Test
     void workspaceStateAndRepairKeywordsShouldDetermineOperationType() {
         IntentProfile createProfile = service.analyze(
                 request("创建一个商品展示网站"),
@@ -214,7 +225,7 @@ class IntentProfileServiceTest {
 
     @Test
     void lexicalRuleVersionShouldBeStableAndRecordable() {
-        assertEquals("intent-lexical/1.1.0", service.lexicalRuleVersion());
+        assertEquals("intent-lexical/1.2.0", service.lexicalRuleVersion());
     }
 
     @Test

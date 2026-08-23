@@ -166,7 +166,8 @@ public class IntentClarificationRefiner {
                 expectedFileCount,
                 validationRisk,
                 profile.confidence(),
-                refinedSignal
+                refinedSignal,
+                profile.explicitProjectType()
         );
     }
 

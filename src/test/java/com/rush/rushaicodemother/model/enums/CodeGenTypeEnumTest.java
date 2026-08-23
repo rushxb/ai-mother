@@ -10,9 +10,17 @@ class CodeGenTypeEnumTest {
         Assertions.assertTrue(CodeGenTypeEnum.HTML.canUpgradeTo(CodeGenTypeEnum.MULTI_FILE));
         Assertions.assertTrue(CodeGenTypeEnum.HTML.canUpgradeTo(CodeGenTypeEnum.VUE_PROJECT));
         Assertions.assertTrue(CodeGenTypeEnum.MULTI_FILE.canUpgradeTo(CodeGenTypeEnum.VUE_PROJECT));
+        Assertions.assertTrue(CodeGenTypeEnum.VUE_PROJECT.canUpgradeTo(
+                CodeGenTypeEnum.FULL_STACK_PROJECT));
+        Assertions.assertTrue(CodeGenTypeEnum.BACKEND_PROJECT.canUpgradeTo(
+                CodeGenTypeEnum.FULL_STACK_PROJECT));
 
         Assertions.assertFalse(CodeGenTypeEnum.VUE_PROJECT.canUpgradeTo(CodeGenTypeEnum.HTML));
         Assertions.assertFalse(CodeGenTypeEnum.VUE_PROJECT.canUpgradeTo(CodeGenTypeEnum.MULTI_FILE));
+        Assertions.assertFalse(CodeGenTypeEnum.VUE_PROJECT.canUpgradeTo(
+                CodeGenTypeEnum.BACKEND_PROJECT));
+        Assertions.assertFalse(CodeGenTypeEnum.HTML.canUpgradeTo(
+                CodeGenTypeEnum.BACKEND_PROJECT));
         Assertions.assertFalse(CodeGenTypeEnum.HTML.canUpgradeTo(CodeGenTypeEnum.HTML));
     }
 
@@ -22,6 +30,10 @@ class CodeGenTypeEnumTest {
                 CodeGenTypeEnum.max(CodeGenTypeEnum.HTML, CodeGenTypeEnum.VUE_PROJECT));
         Assertions.assertEquals(CodeGenTypeEnum.MULTI_FILE,
                 CodeGenTypeEnum.max(CodeGenTypeEnum.MULTI_FILE, CodeGenTypeEnum.HTML));
+        Assertions.assertEquals(CodeGenTypeEnum.FULL_STACK_PROJECT,
+                CodeGenTypeEnum.max(CodeGenTypeEnum.VUE_PROJECT, CodeGenTypeEnum.BACKEND_PROJECT));
+        Assertions.assertEquals(CodeGenTypeEnum.FULL_STACK_PROJECT,
+                CodeGenTypeEnum.max(CodeGenTypeEnum.BACKEND_PROJECT, CodeGenTypeEnum.HTML));
         Assertions.assertEquals(CodeGenTypeEnum.VUE_PROJECT,
                 CodeGenTypeEnum.max(CodeGenTypeEnum.VUE_PROJECT, null));
         Assertions.assertEquals(CodeGenTypeEnum.HTML,

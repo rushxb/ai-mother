@@ -177,8 +177,9 @@ public class GenerationTaskSubmissionService {
         Instant submittedAt = clock.instant();
         GenerationScenarioPreflightResult preflight = scenarioPreflight.prepare(
                 taskId, submittedAt, taskRequest, codeGenType, workspace);
+        CodeGenTypeEnum resolvedTargetType = preflight.scenarioDecision().targetType();
         GenerationPipelineRequest request = new GenerationPipelineRequest(
-                taskRequest, codeGenType, workspace, preflight.scenarioDecision());
+                taskRequest, resolvedTargetType, workspace, preflight.scenarioDecision());
         return submitPrepared(
                 taskId, submittedAt, request, preflight.usage(), preflight.creditReserved(), idempotency);
     }

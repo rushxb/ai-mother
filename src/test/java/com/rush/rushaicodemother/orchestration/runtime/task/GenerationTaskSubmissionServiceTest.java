@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.decision.GenerationPreflightUsage;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioPreflight;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioPreflightResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
@@ -257,6 +258,43 @@ class GenerationTaskSubmissionServiceTest {
     }
 
     @Test
+    void primarySubmissionMustPersistPreflightResolvedTargetType() {
+        GenerationScenarioPreflight preflight = mock(GenerationScenarioPreflight.class);
+        GenerationPipelineRequest input = request(1L);
+        GenerationScenarioDecision resolvedDecision = withTargetType(
+                input.scenarioDecision(), CodeGenTypeEnum.FULL_STACK_PROJECT);
+        when(eventStream.stream("task-target-submit")).thenReturn(Flux.empty());
+        when(preflight.prepare(
+                eq("task-target-submit"), eq(NOW), eq(input.taskRequest()),
+                eq(input.codeGenType()), eq(input.workspace())))
+                .thenReturn(new GenerationScenarioPreflightResult(
+                        resolvedDecision, GenerationPreflightUsage.none(), false));
+        GenerationTaskSubmissionService service = new GenerationTaskSubmissionService(
+                () -> "task-target-submit",
+                preflight,
+                executionPlanner,
+                dispatcher,
+                admissionService,
+                taskFinalizer,
+                eventStream,
+                null,
+                traceContextBridge,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        service.submit(input.taskRequest(), input.codeGenType(), input.workspace(),
+                GenerationTaskIdempotency.none());
+
+        ArgumentCaptor<GenerationTaskCommand> commandCaptor =
+                ArgumentCaptor.forClass(GenerationTaskCommand.class);
+        verify(admissionService).admit(
+                commandCaptor.capture(), eq(GenerationTaskIdempotency.none()));
+        GenerationTaskCommand command = commandCaptor.getValue();
+        assertEquals(CodeGenTypeEnum.FULL_STACK_PROJECT, command.codeGenType());
+        assertEquals(CodeGenTypeEnum.FULL_STACK_PROJECT,
+                command.scenarioDecision().targetType());
+    }
+
+    @Test
     void finalAdmissionFailureMustSettleTheOrphanPreflightReservation() {
         GenerationScenarioPreflight preflight = mock(GenerationScenarioPreflight.class);
         GenerationPipelineRequest input = request(1L);
@@ -364,6 +402,20 @@ class GenerationTaskSubmissionServiceTest {
                 sla
         );
     }
+
+    private GenerationScenarioDecision withTargetType(GenerationScenarioDecision source,
+                                                      CodeGenTypeEnum targetType) {
+        return new GenerationScenarioDecision(
+                source.intentProfile(),
+                targetType,
+                source.mutability(),
+                source.requiredResources(),
+                source.routeDecision(),
+                source.toolPermissionProfile(),
+                source.ruleVersion(),
+                source.releaseFingerprint());
+    }
+
     private GenerationPipelineRequest request(Long appId) {
         App app = new App();
         app.setId(appId);

@@ -70,6 +70,10 @@ public class IntentProfileService {
                 || scopes.contains(IntentAffectedScope.AUTHENTICATION);
         IntentOperationType operationType = detectOperationType(
                 normalizedMessage, firstGeneration, recorder);
+        CodeGenTypeEnum explicitProjectType = isReadOnly(operationType)
+                ? null
+                : detectExplicitProjectType(
+                        normalizedMessage, scopes, requiresBackend, recorder.scopeFallback);
         IntentDestructiveRisk destructiveRisk = detectDestructiveRisk(normalizedMessage);
         int expectedFileCount = estimateFileCount(
                 normalizedMessage, firstGeneration, scopes, requiresBackend, requiresDatabase, recorder);
@@ -91,8 +95,37 @@ public class IntentProfileService {
                 expectedFileCount,
                 validationRisk,
                 confidence,
-                recorder.toSignal()
+                recorder.toSignal(),
+                explicitProjectType
         );
+    }
+
+    /** 从同一次词法解析中提取明确工程形态，避免场景内核再次解释原始 Prompt。 */
+    private CodeGenTypeEnum detectExplicitProjectType(String message,
+                                                      Set<IntentAffectedScope> scopes,
+                                                      boolean requiresBackend,
+                                                      boolean scopeFallback) {
+        if (scopeFallback) {
+            return null;
+        }
+        boolean frontendRequested = scopes.contains(IntentAffectedScope.FRONTEND);
+        if (matches(message, IntentLexicalFeature.FULL_STACK_PROJECT)
+                || frontendRequested && requiresBackend) {
+            return CodeGenTypeEnum.FULL_STACK_PROJECT;
+        }
+        if (requiresBackend) {
+            return CodeGenTypeEnum.BACKEND_PROJECT;
+        }
+        if (matches(message, IntentLexicalFeature.ENGINEERED_FRONTEND_PROJECT)) {
+            return CodeGenTypeEnum.VUE_PROJECT;
+        }
+        if (matches(message, IntentLexicalFeature.MULTI_FILE_PROJECT)) {
+            return CodeGenTypeEnum.MULTI_FILE;
+        }
+        if (matches(message, IntentLexicalFeature.SINGLE_HTML_PROJECT)) {
+            return CodeGenTypeEnum.HTML;
+        }
+        return null;
     }
 
     /**

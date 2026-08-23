@@ -1,12 +1,17 @@
 package com.rush.rushaicodemother.orchestration.intent;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+
 import java.util.Set;
 
 /**
  * 对用户自然语言进行一次结构化解析后得到的不可变意图画像。
  *
  * <p>画像只保存有限枚举、布尔值和数值，不保存原始提示词，便于在路由、
- * 执行计划与观测链路之间安全复用。</p>
+ * 执行计划与观测链路之间安全复用。{@code explicitProjectType} 只在提交前把明确的
+ * 工程迁移诉求交给场景内核；持久命令由场景决策保存最终目标，因此该提示不扩展
+ * 跨版本任务协议。</p>
  */
 public record IntentProfile(
         IntentOperationType operationType,
@@ -18,7 +23,9 @@ public record IntentProfile(
         int expectedFileCount,
         IntentValidationRisk validationRisk,
         double confidence,
-        IntentAmbiguitySignal ambiguitySignal
+        IntentAmbiguitySignal ambiguitySignal,
+        @JsonIgnore
+        CodeGenTypeEnum explicitProjectType
 ) {
 
     public IntentProfile {
@@ -54,7 +61,23 @@ public record IntentProfile(
                          double confidence) {
         this(operationType, affectedScopes, semanticComplexity, requiresBackend, requiresDatabase,
                 destructiveRisk, expectedFileCount, validationRisk, confidence,
-                IntentAmbiguitySignal.resolved());
+                IntentAmbiguitySignal.resolved(), null);
+    }
+
+    /** 兼容尚未携带显式工程类型的历史调用方与持久任务。 */
+    public IntentProfile(IntentOperationType operationType,
+                         Set<IntentAffectedScope> affectedScopes,
+                         IntentSemanticComplexity semanticComplexity,
+                         boolean requiresBackend,
+                         boolean requiresDatabase,
+                         IntentDestructiveRisk destructiveRisk,
+                         int expectedFileCount,
+                         IntentValidationRisk validationRisk,
+                         double confidence,
+                         IntentAmbiguitySignal ambiguitySignal) {
+        this(operationType, affectedScopes, semanticComplexity, requiresBackend, requiresDatabase,
+                destructiveRisk, expectedFileCount, validationRisk, confidence,
+                ambiguitySignal, null);
     }
 
     /** 返回兼容旧任务命令的保守画像。 */
@@ -69,7 +92,8 @@ public record IntentProfile(
                 0,
                 IntentValidationRisk.MEDIUM,
                 0.0,
-                IntentAmbiguitySignal.unresolved()
+                IntentAmbiguitySignal.unresolved(),
+                null
         );
     }
 
@@ -77,6 +101,7 @@ public record IntentProfile(
     public IntentProfile withAmbiguitySignal(IntentAmbiguitySignal signal) {
         return new IntentProfile(
                 operationType, affectedScopes, semanticComplexity, requiresBackend, requiresDatabase,
-                destructiveRisk, expectedFileCount, validationRisk, confidence, signal);
+                destructiveRisk, expectedFileCount, validationRisk, confidence, signal,
+                explicitProjectType);
     }
 }

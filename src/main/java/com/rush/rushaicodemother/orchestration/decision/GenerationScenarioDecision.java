@@ -63,6 +63,11 @@ public record GenerationScenarioDecision(
             if (!toolPermissionProfile.writeAllowed()) {
                 throw new IllegalArgumentException("写场景必须具备受控写工具权限");
             }
+            CodeGenTypeEnum explicitProjectType = intentProfile.explicitProjectType();
+            if (explicitProjectType != null
+                    && CodeGenTypeEnum.max(targetType, explicitProjectType) != targetType) {
+                throw new IllegalArgumentException("场景目标工程类型必须承载显式迁移诉求");
+            }
         }
     }
 
@@ -140,7 +145,8 @@ public record GenerationScenarioDecision(
                 profile.expectedFileCount(),
                 profile.validationRisk(),
                 profile.confidence(),
-                profile.ambiguitySignal());
+                profile.ambiguitySignal(),
+                profile.explicitProjectType());
     }
 
     private static IntentProfile alignLegacyDatabaseRequirement(
@@ -161,7 +167,8 @@ public record GenerationScenarioDecision(
                 profile.expectedFileCount(),
                 profile.validationRisk(),
                 profile.confidence(),
-                profile.ambiguitySignal());
+                profile.ambiguitySignal(),
+                profile.explicitProjectType());
     }
 
     public static boolean isReadOnlyOperation(IntentOperationType operationType) {

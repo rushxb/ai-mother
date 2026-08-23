@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.orchestration.decision.GenerationPreflightUsage
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.decision.GenerationToolPermissionProfile;
 import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
+import com.rush.rushaicodemother.orchestration.intent.IntentAmbiguitySignal;
 import com.rush.rushaicodemother.orchestration.intent.IntentDestructiveRisk;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
@@ -18,6 +19,7 @@ import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingDecisionCode;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
@@ -31,6 +33,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -101,6 +104,58 @@ class GenerationTaskCommandCodecTest {
         assertNotNull(restored.scenarioDecision());
         assertEquals("legacy-task-command-v1", restored.scenarioDecision().ruleVersion());
         assertEquals(GenerationPreflightUsage.none(), restored.preflightUsage());
+    }
+
+    @Test
+    void explicitProjectTypeHintMustPersistOnlyResolvedTarget() {
+        Instant submittedAt = Instant.parse("2026-07-17T00:00:00Z");
+        GenerationSlaEnvelope envelope = envelope();
+        IntentProfile profile = new IntentProfile(
+                IntentOperationType.CREATE,
+                Set.of(IntentAffectedScope.FRONTEND),
+                IntentSemanticComplexity.MEDIUM,
+                false,
+                false,
+                IntentDestructiveRisk.LOW,
+                6,
+                IntentValidationRisk.MEDIUM,
+                0.96,
+                IntentAmbiguitySignal.resolved(),
+                CodeGenTypeEnum.VUE_PROJECT);
+        GenerationScenarioDecision scenarioDecision = new GenerationScenarioDecision(
+                profile,
+                CodeGenTypeEnum.VUE_PROJECT,
+                GenerationMutability.WRITE,
+                GenerationResourceRequirements.none(),
+                new GenerationModeDecision(
+                        GenerationMode.CREATE,
+                        0.95,
+                        "template first",
+                        FallbackPolicy.NONE,
+                        ExpectedValidationLevel.BUILD,
+                        "",
+                        GenerationRoutingDecisionCode.CREATE_TEMPLATE_FIRST),
+                GenerationToolPermissionProfile.WRITE_FENCED,
+                "intent-lexical/test",
+                "b".repeat(64));
+        GenerationTaskCommand command = new GenerationTaskCommand(
+                GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
+                "task-explicit-target", 1L, 2L, 100L, "upgrade to Vue",
+                CodeGenTypeEnum.VUE_PROJECT,
+                GenerationMode.CREATE, 0.95, "template first", FallbackPolicy.NONE,
+                ExpectedValidationLevel.BUILD, "",
+                GenerationRoutingDecisionCode.CREATE_TEMPLATE_FIRST, envelope,
+                GenerationTraceContext.empty(), submittedAt, envelope.totalDeadline(submittedAt),
+                GenerationResourceRequirements.none(), profile, plan(envelope),
+                GenerationPlanningVariant.COMPACT_PLAN, scenarioDecision,
+                GenerationPreflightUsage.none());
+
+        String json = GenerationTaskCommandCodec.toJson(command);
+        GenerationTaskCommand restored = GenerationTaskCommandCodec.fromJson(json);
+
+        assertFalse(json.contains("explicitProjectType"));
+        assertEquals(CodeGenTypeEnum.VUE_PROJECT, restored.scenarioDecision().targetType());
+        assertNull(restored.scenarioDecision().intentProfile().explicitProjectType());
     }
 
     @Test

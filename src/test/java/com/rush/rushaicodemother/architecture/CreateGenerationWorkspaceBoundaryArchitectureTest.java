@@ -44,7 +44,7 @@ class CreateGenerationWorkspaceBoundaryArchitectureTest {
 
         assertTrue(source.contains("GenerationWorkspaceService"));
         assertTrue(source.contains("generationWorkspaceService.resolve("));
-        assertTrue(source.contains("FullStackGenerationContext.create(frontendPort, backendPort, workspace)"));
+        assertTrue(source.contains("return allocate(workspace);"));
         assertNoGeneratedPathRebuild(source, "FullStackPortAllocator");
     }
 

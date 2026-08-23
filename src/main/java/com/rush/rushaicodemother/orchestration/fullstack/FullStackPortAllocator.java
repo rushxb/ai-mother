@@ -27,7 +27,7 @@ public class FullStackPortAllocator {
 
     private final GenerationWorkspaceService generationWorkspaceService;
     private final Set<Integer> reservedPorts = ConcurrentHashMap.newKeySet();
-    private final ConcurrentMap<Long, FullStackGenerationContext> allocations = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, AllocatedPorts> portAllocations = new ConcurrentHashMap<>();
 
     /**
  * 返回{@code allocate}。
@@ -50,15 +50,19 @@ public class FullStackPortAllocator {
      */
     public FullStackGenerationContext allocate(GenerationWorkspace workspace) {
         validateFullStackWorkspace(workspace);
-        return allocations.computeIfAbsent(workspace.appId(), ignored -> allocateNewContext(workspace));
+        // 端口属于应用级稳定事实；工作区路径属于单次执行轮次，不能随端口一起缓存。
+        AllocatedPorts ports = portAllocations.computeIfAbsent(
+                workspace.appId(), ignored -> allocateNewPorts());
+        return FullStackGenerationContext.create(
+                ports.frontendPort(), ports.backendPort(), workspace);
     }
 
-    /** 返回{@code allocate}{@code New}上下文。 */
-    private FullStackGenerationContext allocateNewContext(GenerationWorkspace workspace) {
+    /** 为应用分配一组稳定端口。 */
+    private AllocatedPorts allocateNewPorts() {
         int frontendPort = allocatePort(FRONTEND_PORT_START, FRONTEND_PORT_END);
         try {
             int backendPort = allocatePort(BACKEND_PORT_START, BACKEND_PORT_END);
-            return FullStackGenerationContext.create(frontendPort, backendPort, workspace);
+            return new AllocatedPorts(frontendPort, backendPort);
         } catch (RuntimeException exception) {
             reservedPorts.remove(frontendPort);
             throw exception;
@@ -98,5 +102,8 @@ public class FullStackPortAllocator {
         } catch (IOException exception) {
             return false;
         }
+    }
+
+    private record AllocatedPorts(int frontendPort, int backendPort) {
     }
 }

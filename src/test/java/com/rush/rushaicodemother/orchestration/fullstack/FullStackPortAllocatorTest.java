@@ -41,6 +41,32 @@ class FullStackPortAllocatorTest {
     }
 
     @Test
+    void repeatedGenerationMustRebindStablePortsToCurrentExecutionWorkspace() {
+        GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
+        FullStackPortAllocator allocator = new FullStackPortAllocator(workspaceService);
+        Path firstRoot = Path.of(
+                        "target", "test-workspaces", "full-stack-port-allocator", "epoch-1")
+                .toAbsolutePath()
+                .normalize();
+        Path currentRoot = Path.of(
+                        "target", "test-workspaces", "full-stack-port-allocator", "epoch-2")
+                .toAbsolutePath()
+                .normalize();
+
+        FullStackGenerationContext first = allocator.allocate(
+                workspace(firstRoot, CodeGenTypeEnum.FULL_STACK_PROJECT));
+        FullStackGenerationContext current = allocator.allocate(
+                workspace(currentRoot, CodeGenTypeEnum.FULL_STACK_PROJECT));
+
+        // 端口是应用级稳定事实，路径则必须来自本次受围栏保护的执行工作区。
+        assertEquals(first.frontendPort(), current.frontendPort());
+        assertEquals(first.backendPort(), current.backendPort());
+        assertEquals(portable(currentRoot), current.workspaceRoot());
+        assertEquals(portable(currentRoot.resolve("frontend")), current.frontendPath());
+        assertEquals(portable(currentRoot.resolve("backend")), current.backendPath());
+    }
+
+    @Test
     void shouldRejectNonFullStackWorkspaceBeforePortAllocation() {
         GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
         FullStackPortAllocator allocator = new FullStackPortAllocator(workspaceService);

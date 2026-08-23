@@ -157,10 +157,7 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         }
         try {
             GenerationTaskCommand command = GenerationTaskCommandCodec.fromJson(entity.getRuntimePayloadJson());
-            if (!Objects.equals(command.taskId(), entity.getTaskId())
-                    || !Objects.equals(command.appId(), entity.getAppId())
-                    || !Objects.equals(command.userId(), entity.getUserId())
-                    || !Objects.equals(command.route(), entity.getRoute())) {
+            if (!matchesPersistedCommandIdentity(command, entity)) {
                 throw new IllegalStateException("generation task command identity mismatch");
             }
             return Optional.of(command);
@@ -716,6 +713,20 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 entity.getLeaseOwner(), toInstant(entity.getLeaseUntil()), toInstant(entity.getHeartbeatAt()),
                 entity.getAttempt() == null ? 0 : entity.getAttempt(), entity.getVersion() == null ? 0L : entity.getVersion(),
                 toInstant(entity.getEndTime()), entity.getErrorMessage());
+    }
+
+    /** 外层调度事实与不可变命令必须原子一致，禁止恢复时更换 schema、租户或 SLA 时间。 */
+    private boolean matchesPersistedCommandIdentity(GenerationTaskCommand command,
+                                                     GenerationTask entity) {
+        return Integer.valueOf(command.schemaVersion()).equals(entity.getRuntimeSchemaVersion())
+                && Objects.equals(command.taskId(), entity.getTaskId())
+                && Objects.equals(command.appId(), entity.getAppId())
+                && Objects.equals(command.userId(), entity.getUserId())
+                && (command.tenantId() == null
+                    || Objects.equals(command.tenantId(), entity.getTenantId()))
+                && Objects.equals(command.route(), entity.getRoute())
+                && Objects.equals(command.submittedAt(), toInstant(entity.getSubmittedAt()))
+                && Objects.equals(command.deadlineAt(), toInstant(entity.getDeadlineAt()));
     }
 
     /** 校验{@code ate}{@code Duplicate}{@code Identity}是否有效。 */

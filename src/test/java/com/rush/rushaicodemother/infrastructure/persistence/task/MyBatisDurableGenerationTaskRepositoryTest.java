@@ -126,6 +126,30 @@ class MyBatisDurableGenerationTaskRepositoryTest {
     }
 
     @Test
+    void commandRestoreMustRejectOuterAndPayloadSchemaMismatch() {
+        GenerationTask mismatched = runtimeEntity(GenerationTaskStatus.QUEUED, 2L, false);
+        mismatched.setRuntimePayloadJson(GenerationTaskCommandCodec.toJson(command(8)));
+        when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(mismatched);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class, () -> repository.findCommandByTaskId("task-1"));
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
+    }
+
+    @Test
+    void commandRestoreMustRejectOuterAndPayloadDeadlineMismatch() {
+        GenerationTask mismatched = runtimeEntity(GenerationTaskStatus.QUEUED, 2L, false);
+        mismatched.setDeadlineAt(toLocal(NOW.plusSeconds(600)));
+        when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(mismatched);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class, () -> repository.findCommandByTaskId("task-1"));
+
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
+    }
+
+    @Test
     void unexpectedIdempotencyUniqueConflictMustRollbackInsteadOfCommittingAnOrphanReservation() {
         when(mapper.insertSubmittedTask(any()))
                 .thenThrow(new DuplicateKeyException("uk_generation_task_submission_idempotency"));
@@ -321,6 +345,10 @@ class MyBatisDurableGenerationTaskRepositoryTest {
     }
 
     private GenerationTaskCommand command() {
+        return command(GenerationTaskCommand.CURRENT_SCHEMA_VERSION);
+    }
+
+    private GenerationTaskCommand command(int schemaVersion) {
         IntentProfile profile = IntentProfile.unknown();
         GenerationResourceRequirements resources = GenerationResourceRequirements.none();
         GenerationModeDecision routeDecision = new GenerationModeDecision(
@@ -343,7 +371,7 @@ class MyBatisDurableGenerationTaskRepositoryTest {
         GenerationSlaEnvelope slaEnvelope = slaEnvelope();
         GenerationExecutionPlan executionPlan = executionPlan(routeDecision, slaEnvelope);
         return new GenerationTaskCommand(
-                GenerationTaskCommand.CURRENT_SCHEMA_VERSION,
+                schemaVersion,
                 "task-1",
                 1L,
                 2L,

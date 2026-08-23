@@ -44,6 +44,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
@@ -157,7 +158,12 @@ class HeavyGenerationCoordinatorInitializationTest {
     void runtimeMustStartBeforePreparationAndPreparationFailureMustBeCompensated() {
         IllegalStateException preparationFailure = new IllegalStateException("preparation failed");
         when(executionContextService.start(TASK_ID, APP_ID, USER_ID)).thenReturn(executionContext);
-        when(preparationService.prepare(TASK_ID, taskRequest.app(), taskRequest.message()))
+        when(preparationService.prepare(
+                TASK_ID,
+                taskRequest.app(),
+                taskRequest.message(),
+                taskRequest.planningVariant(),
+                pipelineRequest.scenarioDecision()))
                 .thenThrow(preparationFailure);
 
         RuntimeException thrown = assertThrows(RuntimeException.class, () -> coordinator.start(pipelineRequest));
@@ -165,7 +171,12 @@ class HeavyGenerationCoordinatorInitializationTest {
         assertSame(preparationFailure, thrown);
         InOrder initializationOrder = inOrder(executionContextService, preparationService);
         initializationOrder.verify(executionContextService).start(TASK_ID, APP_ID, USER_ID);
-        initializationOrder.verify(preparationService).prepare(TASK_ID, taskRequest.app(), taskRequest.message());
+        initializationOrder.verify(preparationService).prepare(
+                TASK_ID,
+                taskRequest.app(),
+                taskRequest.message(),
+                taskRequest.planningVariant(),
+                pipelineRequest.scenarioDecision());
         verify(performanceMonitorService).recordSpan(
                 eq(TASK_ID), eq("heavy_prepare"), eq("failed"), any(Duration.class),
                 eq(IllegalStateException.class.getSimpleName())
@@ -186,7 +197,12 @@ class HeavyGenerationCoordinatorInitializationTest {
     void deadlineAfterPreparationMustUseTimedOutTerminalOutcomeWithoutOpeningSession() {
         GenerationDeadlineExceededException deadlineFailure = new GenerationDeadlineExceededException(TASK_ID);
         when(executionContextService.start(TASK_ID, APP_ID, USER_ID)).thenReturn(executionContext);
-        when(preparationService.prepare(TASK_ID, taskRequest.app(), taskRequest.message()))
+        when(preparationService.prepare(
+                TASK_ID,
+                taskRequest.app(),
+                taskRequest.message(),
+                taskRequest.planningVariant(),
+                pipelineRequest.scenarioDecision()))
                 .thenReturn(preparation(TASK_ID));
         org.mockito.Mockito.doThrow(deadlineFailure).when(executionContext).assertCanContinue();
 
@@ -221,7 +237,12 @@ class HeavyGenerationCoordinatorInitializationTest {
         GenerationTaskExecution execution = new GenerationTaskExecution(
                 TASK_ID, managedSession, executionContext, FENCE, Instant.now());
         GenerationPipelineRequest managedRequest = pipelineRequest.withExecution(execution);
-        when(preparationService.prepare(TASK_ID, taskRequest.app(), taskRequest.message()))
+        when(preparationService.prepare(
+                TASK_ID,
+                taskRequest.app(),
+                taskRequest.message(),
+                taskRequest.planningVariant(),
+                pipelineRequest.scenarioDecision()))
                 .thenThrow(preparationFailure);
 
         RuntimeException thrown = assertThrows(
@@ -241,6 +262,33 @@ class HeavyGenerationCoordinatorInitializationTest {
     }
 
     @Test
+    void preparationTargetMustMatchFrozenScenarioDecision() {
+        GenerationPipelineRequest fullStackRequest = new GenerationPipelineRequest(
+                taskRequest,
+                CodeGenTypeEnum.FULL_STACK_PROJECT,
+                null,
+                pipelineRequest.modeDecision()
+        );
+        when(executionContextService.start(TASK_ID, APP_ID, USER_ID)).thenReturn(executionContext);
+        when(preparationService.prepare(
+                TASK_ID,
+                taskRequest.app(),
+                taskRequest.message(),
+                taskRequest.planningVariant(),
+                fullStackRequest.scenarioDecision()))
+                .thenReturn(preparation(TASK_ID));
+
+        GenerationExecutionPolicyException thrown = assertThrows(
+                GenerationExecutionPolicyException.class,
+                () -> coordinator.start(fullStackRequest)
+        );
+
+        assertTrue(thrown.getMessage().contains("冻结场景决策"));
+        verifyNoInteractions(lifecycleService);
+        verify(sessionRegistry, never()).put(any(), any());
+    }
+
+    @Test
     void runtimeConflictMustPreservePolicyExceptionAndMustNotCleanAnotherTask() {
         GenerationExecutionPolicyException policyFailure =
                 new GenerationExecutionPolicyException("application already has an active runtime");
@@ -249,7 +297,7 @@ class HeavyGenerationCoordinatorInitializationTest {
         RuntimeException thrown = assertThrows(RuntimeException.class, () -> coordinator.start(pipelineRequest));
 
         assertSame(policyFailure, thrown);
-        verify(preparationService, never()).prepare(any(), any(), any());
+        verify(preparationService, never()).prepare(any(), any(), any(), any(), any());
         verify(performanceMonitorService, never()).startTask(
                 any(), any(), any(), any(), any(), any(), any()
         );
@@ -269,7 +317,12 @@ class HeavyGenerationCoordinatorInitializationTest {
         );
         when(executionContextService.start(TASK_ID, APP_ID, USER_ID)).thenReturn(executionContext);
         when(executionContext.executionFence()).thenReturn(FENCE);
-        when(preparationService.prepare(TASK_ID, taskRequest.app(), taskRequest.message()))
+        when(preparationService.prepare(
+                TASK_ID,
+                taskRequest.app(),
+                taskRequest.message(),
+                taskRequest.planningVariant(),
+                pipelineRequest.scenarioDecision()))
                 .thenReturn(preparation(TASK_ID));
         when(performanceMonitorService.startSpan(
                 TASK_ID, "llm_generation",

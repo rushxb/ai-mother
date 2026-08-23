@@ -7,7 +7,16 @@ import com.rush.rushaicodemother.monitor.GenerationContextPreparationMetricsColl
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationResult;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrator;
+import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
+import com.rush.rushaicodemother.orchestration.GenerationPreparation;
+import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.context.GenerationMemoryContextOverlapExecutor;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
 import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentAssembler;
 import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentDecision;
@@ -28,6 +37,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -37,6 +47,55 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class HeavyGenerationPreparationOverlapTest {
+
+    @Test
+    void frozenScenarioMustReachDagPreparationWithoutSecondaryRouting() {
+        App app = app();
+        String userMessage = "把现有项目升级为企业应用";
+        GenerationScenarioDecision scenarioDecision = frozenScenario(
+                CodeGenTypeEnum.FULL_STACK_PROJECT);
+        HeavyGenerationIntentAssembler intentAssembler = mock(HeavyGenerationIntentAssembler.class);
+        when(intentAssembler.assemble(app, userMessage, scenarioDecision))
+                .thenReturn(new HeavyGenerationIntentDecision(
+                        GenerationRoute.HEAVY_GENERATION,
+                        "frozen scenario",
+                        0.91,
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        CodeGenTypeEnum.FULL_STACK_PROJECT,
+                        userMessage,
+                        "生成中",
+                        true
+                ));
+        GenerationMemoryContextService memoryService = mock(GenerationMemoryContextService.class);
+        when(memoryService.buildGenerationMemoryContext(
+                "task-frozen-scenario", app, userMessage, CodeGenTypeEnum.FULL_STACK_PROJECT))
+                .thenReturn("memory");
+        GenerationOrchestrator orchestrator = request -> {
+            assertSame(scenarioDecision, request.scenarioDecision());
+            assertEquals(CodeGenTypeEnum.FULL_STACK_PROJECT, request.scenarioDecision().targetType());
+            assertEquals("memory", request.resolveMemoryContext());
+            return result(request.taskId(), CodeGenTypeEnum.FULL_STACK_PROJECT);
+        };
+
+        try (GenerationMemoryContextOverlapExecutor overlapExecutor = overlapExecutor(false)) {
+            GenerationPreparation preparation = new HeavyGenerationPreparationService(
+                    intentAssembler,
+                    memoryService,
+                    orchestrator,
+                    mock(GenerationToolExecutionContextService.class),
+                    mock(GenerationWorkspaceService.class),
+                    overlapExecutor
+            ).prepare(
+                    "task-frozen-scenario",
+                    app,
+                    userMessage,
+                    GenerationPlanningVariant.CURRENT_DAG,
+                    scenarioDecision
+            );
+
+            assertEquals(CodeGenTypeEnum.FULL_STACK_PROJECT, preparation.targetType());
+        }
+    }
 
     @Test
     void disabledPolicyMustKeepMemoryBuildBeforeOrchestration() {
@@ -53,8 +112,11 @@ class HeavyGenerationPreparationOverlapTest {
         };
 
         try (GenerationMemoryContextOverlapExecutor overlapExecutor = overlapExecutor(false)) {
-            service(memoryService, orchestrator, overlapExecutor)
-                    .prepare("task-sequential-memory", app(), "更新页面");
+            prepareFrozen(
+                    service(memoryService, orchestrator, overlapExecutor),
+                    "task-sequential-memory",
+                    "更新页面"
+            );
         }
     }
 
@@ -79,8 +141,11 @@ class HeavyGenerationPreparationOverlapTest {
         };
 
         try (GenerationMemoryContextOverlapExecutor overlapExecutor = overlapExecutor(true)) {
-            service(memoryService, orchestrator, overlapExecutor)
-                    .prepare("task-overlapped-memory", app(), "更新页面");
+            prepareFrozen(
+                    service(memoryService, orchestrator, overlapExecutor),
+                    "task-overlapped-memory",
+                    "更新页面"
+            );
         } finally {
             releaseMemory.countDown();
         }
@@ -109,8 +174,11 @@ class HeavyGenerationPreparationOverlapTest {
         };
 
         try (GenerationMemoryContextOverlapExecutor overlapExecutor = overlapExecutor(true)) {
-            service(memoryService, orchestrator, overlapExecutor)
-                    .prepare("task-restored-checkpoint", app(), "更新页面");
+            prepareFrozen(
+                    service(memoryService, orchestrator, overlapExecutor),
+                    "task-restored-checkpoint",
+                    "更新页面"
+            );
 
             assertTrue(memoryInterrupted.await(1, TimeUnit.SECONDS));
         } finally {
@@ -143,8 +211,11 @@ class HeavyGenerationPreparationOverlapTest {
         try (GenerationMemoryContextOverlapExecutor overlapExecutor = overlapExecutor(true)) {
             IllegalStateException failure = assertThrows(
                     IllegalStateException.class,
-                    () -> service(memoryService, orchestrator, overlapExecutor)
-                            .prepare("task-orchestration-failure", app(), "更新页面"));
+                    () -> prepareFrozen(
+                            service(memoryService, orchestrator, overlapExecutor),
+                            "task-orchestration-failure",
+                            "更新页面"
+                    ));
 
             assertEquals("编排准备失败", failure.getMessage());
             assertTrue(memoryInterrupted.await(1, TimeUnit.SECONDS));
@@ -159,8 +230,9 @@ class HeavyGenerationPreparationOverlapTest {
             GenerationMemoryContextOverlapExecutor overlapExecutor
     ) {
         App app = app();
+        GenerationScenarioDecision scenarioDecision = frozenScenario(CodeGenTypeEnum.VUE_PROJECT);
         HeavyGenerationIntentAssembler intentAssembler = mock(HeavyGenerationIntentAssembler.class);
-        when(intentAssembler.assemble(any(String.class), eq(app), any(String.class)))
+        when(intentAssembler.assemble(eq(app), any(String.class), eq(scenarioDecision)))
                 .thenReturn(new HeavyGenerationIntentDecision(
                         GenerationRoute.HEAVY_GENERATION,
                         "test",
@@ -169,7 +241,6 @@ class HeavyGenerationPreparationOverlapTest {
                         CodeGenTypeEnum.VUE_PROJECT,
                         "更新页面",
                         "生成中",
-                        true,
                         true
                 ));
         return new HeavyGenerationPreparationService(
@@ -179,6 +250,18 @@ class HeavyGenerationPreparationOverlapTest {
                 mock(GenerationToolExecutionContextService.class),
                 mock(GenerationWorkspaceService.class),
                 overlapExecutor
+        );
+    }
+
+    private GenerationPreparation prepareFrozen(HeavyGenerationPreparationService service,
+                                                 String taskId,
+                                                 String userMessage) {
+        return service.prepare(
+                taskId,
+                app(),
+                userMessage,
+                GenerationPlanningVariant.CURRENT_DAG,
+                frozenScenario(CodeGenTypeEnum.VUE_PROJECT)
         );
     }
 
@@ -206,10 +289,14 @@ class HeavyGenerationPreparationOverlapTest {
     }
 
     private GenerationOrchestrationResult result(String taskId) {
+        return result(taskId, CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    private GenerationOrchestrationResult result(String taskId, CodeGenTypeEnum targetType) {
         return new GenerationOrchestrationResult(
                 CodeGenTypeEnum.VUE_PROJECT,
-                CodeGenTypeEnum.VUE_PROJECT,
-                false,
+                targetType,
+                CodeGenTypeEnum.VUE_PROJECT.canUpgradeTo(targetType),
                 "生成中",
                 "更新页面",
                 List.of(),
@@ -217,6 +304,23 @@ class HeavyGenerationPreparationOverlapTest {
                 null,
                 Map.of(),
                 taskId
+        );
+    }
+
+    private GenerationScenarioDecision frozenScenario(CodeGenTypeEnum targetType) {
+        return GenerationScenarioDecision.restoreLegacy(
+                IntentProfile.unknown(),
+                targetType,
+                GenerationResourceRequirements.none(),
+                new GenerationModeDecision(
+                        GenerationMode.HEAVY_EXPERT,
+                        0.91,
+                        "frozen scenario",
+                        FallbackPolicy.NONE,
+                        ExpectedValidationLevel.EXPERT,
+                        ""
+                ),
+                10
         );
     }
 

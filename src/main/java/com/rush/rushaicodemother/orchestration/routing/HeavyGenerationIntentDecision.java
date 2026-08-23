@@ -13,8 +13,7 @@ public record HeavyGenerationIntentDecision(
         CodeGenTypeEnum targetType,
         String generationMessage,
         String generatingStage,
-        boolean hasGeneratedCode,
-        boolean requiresBuild
+        boolean hasGeneratedCode
 ) {
 
     public boolean lightweightEdit() {

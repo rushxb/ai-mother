@@ -5,7 +5,13 @@ import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.orchestration.edit.GenerationEditRouteService;
+import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
 import org.junit.jupiter.api.Test;
@@ -14,96 +20,136 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class HeavyGenerationIntentAssemblerTest {
 
     @Test
-    void smallExistingProjectEditMustBypassTargetTypeRouting() throws Exception {
-        App app = app(99L, CodeGenTypeEnum.VUE_PROJECT);
-        Path workspace = Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR, "vue_project_99");
+    void frozenScenarioMustSupplyTargetValidationAndDatabaseInstruction() {
+        String userMessage = "把现有项目升级为企业应用";
+        String generationMessage = userMessage + "\n平台数据库接入说明";
+        App app = app(912_347L, CodeGenTypeEnum.VUE_PROJECT);
+        AppDatabaseResourceService databaseResourceService = mock(AppDatabaseResourceService.class);
+        when(databaseResourceService.appendGenerationInstructionIfEnabled(app, userMessage))
+                .thenReturn(generationMessage);
+        HeavyGenerationIntentAssembler assembler = new HeavyGenerationIntentAssembler(
+                databaseResourceService,
+                workspaceService()
+        );
+
+        HeavyGenerationIntentDecision decision = assembler.assemble(
+                app,
+                userMessage,
+                frozenScenario(
+                        CodeGenTypeEnum.FULL_STACK_PROJECT,
+                        GenerationMode.HEAVY_EXPERT,
+                        ExpectedValidationLevel.EXPERT)
+        );
+
+        assertEquals(GenerationRoute.HEAVY_GENERATION, decision.route());
+        assertEquals(CodeGenTypeEnum.FULL_STACK_PROJECT, decision.targetType());
+        assertEquals(generationMessage, decision.generationMessage());
+        verify(databaseResourceService).appendGenerationInstructionIfEnabled(app, userMessage);
+    }
+
+    @Test
+    void existingWorkspaceMustOnlyEnrichExecutionState() throws Exception {
+        App app = app(912_348L, CodeGenTypeEnum.VUE_PROJECT);
+        Path workspace = Path.of(AppConstant.CODE_OUTPUT_ROOT_DIR, "vue_project_" + app.getId());
         try {
             Files.createDirectories(workspace);
             AppDatabaseResourceService databaseResourceService = mock(AppDatabaseResourceService.class);
-            when(databaseResourceService.appendGenerationInstructionIfEnabled(app, "把标题改成仪表盘"))
-                    .thenReturn("把标题改成仪表盘");
-            HeavyGenerationTargetTypeRouter targetTypeRouter = mock(HeavyGenerationTargetTypeRouter.class);
-            GenerationWorkspaceService workspaceService = workspaceService();
+            when(databaseResourceService.appendGenerationInstructionIfEnabled(app, "更新页面"))
+                    .thenReturn("更新页面");
             HeavyGenerationIntentAssembler assembler = new HeavyGenerationIntentAssembler(
-                    targetTypeRouter,
                     databaseResourceService,
-                    new GenerationEditRouteService(workspaceService),
-                    workspaceService
+                    workspaceService()
             );
 
-            HeavyGenerationIntentDecision decision = assembler.assemble(app, "把标题改成仪表盘");
+            HeavyGenerationIntentDecision decision = assembler.assemble(
+                    app,
+                    "更新页面",
+                    frozenScenario(
+                            CodeGenTypeEnum.VUE_PROJECT,
+                            GenerationMode.HEAVY_EXPERT,
+                            ExpectedValidationLevel.FAST)
+            );
 
-            assertEquals(GenerationRoute.LIGHTWEIGHT_EDIT, decision.route());
             assertTrue(decision.hasGeneratedCode());
+            assertEquals(AppConstant.GENERATING_STAGE_UPDATE, decision.generatingStage());
             assertEquals(CodeGenTypeEnum.VUE_PROJECT, decision.targetType());
-            verifyNoInteractions(targetTypeRouter);
         } finally {
             FileUtil.del(workspace);
         }
     }
 
     @Test
-    void heavyRouteMustResolveTypeFromRawUserIntentBeforeDatabaseInstructionIsAppended() {
-        String taskId = "heavy-routing-task";
-        String userMessage = "升级为 Vue 项目并重构工程";
-        String generationMessage = userMessage + "\n平台数据库接入说明";
-        App app = app(912345L, CodeGenTypeEnum.HTML);
-        AppDatabaseResourceService databaseResourceService = mock(AppDatabaseResourceService.class);
-        when(databaseResourceService.appendGenerationInstructionIfEnabled(app, userMessage))
-                .thenReturn(generationMessage);
-        HeavyGenerationTargetTypeRouter targetTypeRouter = mock(HeavyGenerationTargetTypeRouter.class);
-        when(targetTypeRouter.resolve(
-                taskId, app.getId(), userMessage, CodeGenTypeEnum.HTML, false))
-                .thenReturn(CodeGenTypeEnum.VUE_PROJECT);
-        GenerationWorkspaceService workspaceService = workspaceService();
+    void nonHeavyScenarioMustFailClosed() {
+        App app = app(912_349L, CodeGenTypeEnum.VUE_PROJECT);
         HeavyGenerationIntentAssembler assembler = new HeavyGenerationIntentAssembler(
-                targetTypeRouter,
-                databaseResourceService,
-                new GenerationEditRouteService(workspaceService),
-                workspaceService
+                mock(AppDatabaseResourceService.class),
+                workspaceService()
         );
 
-        HeavyGenerationIntentDecision decision = assembler.assemble(taskId, app, userMessage);
+        IllegalArgumentException failure = assertThrows(
+                IllegalArgumentException.class,
+                () -> assembler.assemble(
+                        app,
+                        "更新页面",
+                        frozenScenario(
+                                CodeGenTypeEnum.VUE_PROJECT,
+                                GenerationMode.LIGHT_EDIT,
+                                ExpectedValidationLevel.FAST)
+                )
+        );
 
-        assertEquals(GenerationRoute.HEAVY_GENERATION, decision.route());
-        assertEquals(CodeGenTypeEnum.VUE_PROJECT, decision.targetType());
-        assertEquals(generationMessage, decision.generationMessage());
-        verify(targetTypeRouter).resolve(
-                taskId, app.getId(), userMessage, CodeGenTypeEnum.HTML, false);
+        assertEquals("Heavy 准备阶段只能消费 HEAVY_EXPERT 场景决策", failure.getMessage());
     }
 
     @Test
-    void heavyBackendGenerationMustRequireBuildValidation() {
-        String userMessage = "创建一个简单的 Go 后端 API";
-        App app = app(912346L, CodeGenTypeEnum.HTML);
-        AppDatabaseResourceService databaseResourceService = mock(AppDatabaseResourceService.class);
-        when(databaseResourceService.appendGenerationInstructionIfEnabled(app, userMessage))
-                .thenReturn(userMessage);
-        HeavyGenerationTargetTypeRouter targetTypeRouter = mock(HeavyGenerationTargetTypeRouter.class);
-        when(targetTypeRouter.resolve(
-                null, app.getId(), userMessage, CodeGenTypeEnum.HTML, false))
-                .thenReturn(CodeGenTypeEnum.BACKEND_PROJECT);
-        GenerationWorkspaceService workspaceService = workspaceService();
+    void frozenTargetMustNotDowngradeExistingProject() {
+        App app = app(912_350L, CodeGenTypeEnum.FULL_STACK_PROJECT);
         HeavyGenerationIntentAssembler assembler = new HeavyGenerationIntentAssembler(
-                targetTypeRouter,
-                databaseResourceService,
-                new GenerationEditRouteService(workspaceService),
-                workspaceService
+                mock(AppDatabaseResourceService.class),
+                workspaceService()
         );
 
-        HeavyGenerationIntentDecision decision = assembler.assemble(app, userMessage);
+        IllegalArgumentException failure = assertThrows(
+                IllegalArgumentException.class,
+                () -> assembler.assemble(
+                        app,
+                        "更新页面",
+                        frozenScenario(
+                                CodeGenTypeEnum.VUE_PROJECT,
+                                GenerationMode.HEAVY_EXPERT,
+                                ExpectedValidationLevel.EXPERT)
+                )
+        );
 
-        assertEquals(CodeGenTypeEnum.BACKEND_PROJECT, decision.targetType());
-        assertTrue(decision.requiresBuild());
+        assertEquals("冻结场景决策不得降低应用工程类型", failure.getMessage());
+    }
+
+    private GenerationScenarioDecision frozenScenario(CodeGenTypeEnum targetType,
+                                                       GenerationMode mode,
+                                                       ExpectedValidationLevel validationLevel) {
+        return GenerationScenarioDecision.restoreLegacy(
+                IntentProfile.unknown(),
+                targetType,
+                GenerationResourceRequirements.none(),
+                new GenerationModeDecision(
+                        mode,
+                        0.91,
+                        "frozen scenario",
+                        FallbackPolicy.NONE,
+                        validationLevel,
+                        ""
+                ),
+                10
+        );
     }
 
     private App app(Long appId, CodeGenTypeEnum codeGenType) {

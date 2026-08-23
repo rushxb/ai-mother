@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration;
 
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -19,7 +20,8 @@ public record GenerationOrchestrationRequest(
         String memoryContext,
         Supplier<String> deferredMemoryContextSupplier,
         String taskId,
-        GenerationPlanningVariant planningVariant
+        GenerationPlanningVariant planningVariant,
+        GenerationScenarioDecision scenarioDecision
 ) {
 
     public GenerationOrchestrationRequest {
@@ -39,6 +41,24 @@ public record GenerationOrchestrationRequest(
                 : deferredMemoryContextSupplier.get();
     }
 
+    /** 兼容尚未携带冻结场景决策的规划实验与历史调用方。 */
+    public GenerationOrchestrationRequest(
+            App app,
+            String userMessage,
+            CodeGenTypeEnum currentType,
+            String generatingStage,
+            boolean hasGeneratedCode,
+            Function<String, CodeGenTypeEnum> routingFunction,
+            String memoryContext,
+            Supplier<String> deferredMemoryContextSupplier,
+            String taskId,
+            GenerationPlanningVariant planningVariant
+    ) {
+        this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
+                routingFunction, memoryContext, deferredMemoryContextSupplier, taskId,
+                planningVariant, null);
+    }
+
     public GenerationOrchestrationRequest(
             App app,
             String userMessage,
@@ -50,7 +70,7 @@ public record GenerationOrchestrationRequest(
             String taskId
     ) {
         this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
-                routingFunction, memoryContext, null, taskId, GenerationPlanningVariant.CURRENT_DAG);
+                routingFunction, memoryContext, null, taskId, GenerationPlanningVariant.CURRENT_DAG, null);
     }
 
     public GenerationOrchestrationRequest(
@@ -66,7 +86,7 @@ public record GenerationOrchestrationRequest(
     ) {
         this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
                 routingFunction, memoryContext, deferredMemoryContextSupplier, taskId,
-                GenerationPlanningVariant.CURRENT_DAG);
+                GenerationPlanningVariant.CURRENT_DAG, null);
     }
 
     /** 仍然将身份创建委托给任务存储的调用者的兼容性构造函数。 */
@@ -80,6 +100,42 @@ public record GenerationOrchestrationRequest(
             String memoryContext
     ) {
         this(app, userMessage, currentType, generatingStage, hasGeneratedCode,
-                routingFunction, memoryContext, null, null, GenerationPlanningVariant.CURRENT_DAG);
+                routingFunction, memoryContext, null, null, GenerationPlanningVariant.CURRENT_DAG, null);
+    }
+
+    /**
+     * 使用准入阶段已经冻结的场景事实创建编排请求。
+     *
+     * <p>生产 Heavy 链路禁止在这里重新解析 Prompt 或再次调用类型路由器；
+     * 目标工程类型、路由和验证下限都必须来自同一份不可变场景决策。</p>
+     */
+    public static GenerationOrchestrationRequest fromFrozenScenario(
+            App app,
+            String userMessage,
+            CodeGenTypeEnum currentType,
+            String generatingStage,
+            boolean hasGeneratedCode,
+            String memoryContext,
+            Supplier<String> deferredMemoryContextSupplier,
+            String taskId,
+            GenerationPlanningVariant planningVariant,
+            GenerationScenarioDecision scenarioDecision
+    ) {
+        if (scenarioDecision == null) {
+            throw new IllegalArgumentException("冻结场景决策不能为空");
+        }
+        return new GenerationOrchestrationRequest(
+                app,
+                userMessage,
+                currentType,
+                generatingStage,
+                hasGeneratedCode,
+                null,
+                memoryContext,
+                deferredMemoryContextSupplier,
+                taskId,
+                planningVariant,
+                scenarioDecision
+        );
     }
 }

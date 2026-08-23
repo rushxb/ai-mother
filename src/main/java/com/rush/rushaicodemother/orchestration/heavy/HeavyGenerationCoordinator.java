@@ -14,7 +14,6 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.monitor.MonitorContext;
 import com.rush.rushaicodemother.monitor.MonitorContextHolder;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
-import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
@@ -175,12 +174,16 @@ public class HeavyGenerationCoordinator {
                     pipelineRequest.modeDecision()
             );
             performanceStarted = true;
-            preparation = request.planningVariant() == GenerationPlanningVariant.CURRENT_DAG
-                    ? heavyGenerationPreparationService.prepare(taskId, app, request.message())
-                    : heavyGenerationPreparationService.prepare(
-                            taskId, app, request.message(), request.planningVariant());
+            preparation = heavyGenerationPreparationService.prepare(
+                    taskId,
+                    app,
+                    request.message(),
+                    request.planningVariant(),
+                    pipelineRequest.scenarioDecision()
+            );
             executionContext.assertCanContinue();
             assertConsistentTaskIdentity(taskId, preparation);
+            assertConsistentScenarioDecision(pipelineRequest, preparation);
             GenerationVerificationPolicy verificationPolicy = GenerationVerificationPolicy.resolve(
                     pipelineRequest.executionPlan(),
                     pipelineRequest.modeDecision().expectedValidationLevel()
@@ -442,6 +445,17 @@ public class HeavyGenerationCoordinator {
     private void assertConsistentTaskIdentity(String taskId, GenerationPreparation preparation) {
         if (preparation == null || !taskId.equals(preparation.taskId())) {
             throw new GenerationExecutionPolicyException("生成准备阶段返回了不一致的任务标识");
+        }
+    }
+
+    /**
+     * 防止旧检查点或二次路由结果覆盖准入阶段冻结的目标工程类型。
+     */
+    private void assertConsistentScenarioDecision(GenerationPipelineRequest pipelineRequest,
+                                                  GenerationPreparation preparation) {
+        if (preparation.targetType() != pipelineRequest.scenarioDecision().targetType()) {
+            throw new GenerationExecutionPolicyException(
+                    "生成准备阶段返回的目标工程类型与冻结场景决策不一致");
         }
     }
 

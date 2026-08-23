@@ -1,20 +1,18 @@
 package com.rush.rushaicodemother.orchestration.routing;
 
-import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.exception.ThrowUtils;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
-import com.rush.rushaicodemother.orchestration.edit.GenerationEditRouteResult;
-import com.rush.rushaicodemother.orchestration.edit.GenerationEditRouteService;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.service.AppDatabaseResourceService;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.Locale;
+import java.util.Objects;
 
 /**
  * 在 GenerationModeRouter 选中 HEAVY_EXPERT 后组装重型生成意图。
@@ -22,98 +20,56 @@ import java.util.Locale;
 @Service
 public class HeavyGenerationIntentAssembler {
 
-    private static final List<String> BUILD_KEYWORDS = List.of(
-            "build", "构建", "打包", "编译", "测试", "lint", "校验", "发布", "npm", "vite",
-            "工程化", "vue工程", "路由", "依赖", "配置", "api", "接口"
-    );
-
-    private final HeavyGenerationTargetTypeRouter targetTypeRouter;
     private final AppDatabaseResourceService appDatabaseResourceService;
-    private final GenerationEditRouteService generationEditRouteService;
     private final GenerationWorkspaceService generationWorkspaceService;
 
     public HeavyGenerationIntentAssembler(
-            HeavyGenerationTargetTypeRouter targetTypeRouter,
             AppDatabaseResourceService appDatabaseResourceService,
-            GenerationEditRouteService generationEditRouteService,
             GenerationWorkspaceService generationWorkspaceService) {
-        this.targetTypeRouter = targetTypeRouter;
-        this.appDatabaseResourceService = appDatabaseResourceService;
-        this.generationEditRouteService = generationEditRouteService;
-        this.generationWorkspaceService = generationWorkspaceService;
-    }
-
-    public HeavyGenerationIntentDecision assemble(App app, String userMessage) {
-        return assemble(null, app, userMessage);
+        this.appDatabaseResourceService = Objects.requireNonNull(
+                appDatabaseResourceService, "应用数据库资源服务不能为空");
+        this.generationWorkspaceService = Objects.requireNonNull(
+                generationWorkspaceService, "生成工作区服务不能为空");
     }
 
     /**
- * 汇总相关数据并组装重型生成{@code Intent}{@code Assembler}。
- *
- * @param taskId 任务编号
- * @param app 应用
- * @param userMessage 用户消息
- * @return 重型生成{@code Intent}{@code Assembler}
- */
-    public HeavyGenerationIntentDecision assemble(String taskId, App app, String userMessage) {
+     * 从准入阶段已经冻结的场景事实组装 Heavy 执行输入。
+     *
+     * <p>这里只补充工作区状态和平台数据库指令，不再执行编辑分流、关键词判定或模型类型路由，
+     * 避免同一任务在排队后产生第二份场景结论。</p>
+     */
+    public HeavyGenerationIntentDecision assemble(App app,
+                                                   String userMessage,
+                                                   GenerationScenarioDecision scenarioDecision) {
         ThrowUtils.throwIf(app == null || app.getId() == null, ErrorCode.PARAMS_ERROR, "应用参数错误");
+        GenerationScenarioDecision frozenDecision = Objects.requireNonNull(
+                scenarioDecision, "冻结场景决策不能为空");
+        if (frozenDecision.routeDecision().mode() != GenerationMode.HEAVY_EXPERT) {
+            throw new IllegalArgumentException("Heavy 准备阶段只能消费 HEAVY_EXPERT 场景决策");
+        }
         CodeGenTypeEnum currentType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         ThrowUtils.throwIf(currentType == null, ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
+        if (CodeGenTypeEnum.max(currentType, frozenDecision.targetType()) != frozenDecision.targetType()) {
+            throw new IllegalArgumentException("冻结场景决策不得降低应用工程类型");
+        }
 
         GenerationWorkspace workspace = generationWorkspaceService.resolve(app, currentType);
         boolean hasGeneratedCode = workspace.exists();
-        String generationMessage = appDatabaseResourceService.appendGenerationInstructionIfEnabled(app, userMessage);
+        String generationMessage = appDatabaseResourceService
+                .appendGenerationInstructionIfEnabled(app, userMessage);
         String generatingStage = hasGeneratedCode
                 ? AppConstant.GENERATING_STAGE_UPDATE
                 : AppConstant.GENERATING_STAGE_CREATE;
-
-        GenerationEditRouteResult editRoute = generationEditRouteService.route(app, userMessage);
-        if (editRoute.isLightweightEdit()) {
-            return new HeavyGenerationIntentDecision(
-                    GenerationRoute.LIGHTWEIGHT_EDIT,
-                    editRoute.reason(),
-                    editRoute.confidence(),
-                    currentType,
-                    currentType,
-                    generationMessage,
-                    generatingStage,
-                    hasGeneratedCode,
-                    editRoute.requiresBuild()
-            );
-        }
-
-        CodeGenTypeEnum routedType = targetTypeRouter.resolve(
-                taskId, app.getId(), userMessage, currentType, hasGeneratedCode);
-        CodeGenTypeEnum targetType = CodeGenTypeEnum.max(currentType, routedType);
-        boolean requiresBuild = requiresBuildValidation(generationMessage, currentType, targetType, hasGeneratedCode);
         return new HeavyGenerationIntentDecision(
-                GenerationRoute.HEAVY_GENERATION,
-                editRoute.reason(),
-                editRoute.confidence(),
+                frozenDecision.routeDecision().route(),
+                frozenDecision.routeDecision().reason(),
+                frozenDecision.routeDecision().confidence(),
                 currentType,
-                targetType,
+                frozenDecision.targetType(),
                 generationMessage,
                 generatingStage,
-                hasGeneratedCode,
-                requiresBuild
+                hasGeneratedCode
         );
     }
 
-    /** 校验并返回有效的{@code s}构建校验。 */
-    private boolean requiresBuildValidation(String message,
-                                            CodeGenTypeEnum currentType,
-                                            CodeGenTypeEnum targetType,
-                                            boolean hasGeneratedCode) {
-        if (targetType == CodeGenTypeEnum.BACKEND_PROJECT) {
-            return true;
-        }
-        if (targetType != CodeGenTypeEnum.VUE_PROJECT && targetType != CodeGenTypeEnum.FULL_STACK_PROJECT) {
-            return false;
-        }
-        String normalized = StrUtil.blankToDefault(message, "").toLowerCase(Locale.ROOT);
-        if (BUILD_KEYWORDS.stream().anyMatch(normalized::contains)) {
-            return true;
-        }
-        return hasGeneratedCode && currentType != null && currentType.canUpgradeTo(targetType);
-    }
 }

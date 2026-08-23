@@ -12,6 +12,7 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
 import com.rush.rushaicodemother.orchestration.context.GenerationMemoryContextOverlapExecutor;
 import com.rush.rushaicodemother.orchestration.context.GenerationMemoryContextOverlapExecutor.MemoryContextHandle;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentAssembler;
 import com.rush.rushaicodemother.orchestration.routing.HeavyGenerationIntentDecision;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
@@ -24,7 +25,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.function.Function;
 
 @Service
 @RequiredArgsConstructor(onConstructor_ = @Autowired)
@@ -37,74 +37,63 @@ public class HeavyGenerationPreparationService {
     private final GenerationWorkspaceService generationWorkspaceService;
     private final GenerationMemoryContextOverlapExecutor memoryContextOverlapExecutor;
 
-    public GenerationPreparation prepare(App app, String userMessage) {
-        return prepare(null, app, userMessage);
-    }
-
     /**
-     * 使用执行运行时已保留的标识准备生成任务。
+     * 使用任务准入阶段冻结的场景事实准备 Heavy 生成。
+     *
+     * <p>生产调用必须走此入口，确保排队、恢复和 DAG 规划不会再次选择目标工程类型。</p>
      */
-    public GenerationPreparation prepare(String taskId, App app, String userMessage) {
-        return prepare(taskId, app, userMessage, GenerationPlanningVariant.CURRENT_DAG);
-    }
-
     public GenerationPreparation prepare(String taskId,
                                          App app,
                                          String userMessage,
-                                         GenerationPlanningVariant planningVariant) {
-        GenerationIntent intent = recognizeGenerationIntent(taskId, app, userMessage);
-        GenerationRoutingPlan routingPlan = routeGeneration(intent);
-        return buildGenerationPreparation(taskId, intent, routingPlan, planningVariant);
+                                         GenerationPlanningVariant planningVariant,
+                                         GenerationScenarioDecision scenarioDecision) {
+        HeavyGenerationIntentDecision decision = heavyGenerationIntentAssembler
+                .assemble(app, userMessage, scenarioDecision);
+        GenerationIntent intent = toGenerationIntent(app, decision);
+        return buildGenerationPreparation(
+                taskId,
+                intent,
+                planningVariant,
+                scenarioDecision
+        );
     }
 
-    /** 返回{@code recognize}生成{@code Intent}。 */
-    private GenerationIntent recognizeGenerationIntent(String taskId, App app, String userMessage) {
-        HeavyGenerationIntentDecision decision = taskId == null || taskId.isBlank()
-                ? heavyGenerationIntentAssembler.assemble(app, userMessage)
-                : heavyGenerationIntentAssembler.assemble(taskId, app, userMessage);
+    private GenerationIntent toGenerationIntent(App app, HeavyGenerationIntentDecision decision) {
         return new GenerationIntent(
                 app,
                 decision.currentType(),
                 decision.targetType(),
                 decision.generationMessage(),
                 decision.generatingStage(),
-                decision.hasGeneratedCode(),
-                decision.requiresBuild()
+                decision.hasGeneratedCode()
         );
-    }
-
-    private GenerationRoutingPlan routeGeneration(GenerationIntent intent) {
-        return new GenerationRoutingPlan(
-                routingPrompt -> CodeGenTypeEnum.max(intent.currentType(), intent.targetType()));
     }
 
     /** 构建并返回生成{@code Preparation}。 */
     private GenerationPreparation buildGenerationPreparation(String taskId,
                                                              GenerationIntent intent,
-                                                             GenerationRoutingPlan routingPlan,
-                                                             GenerationPlanningVariant planningVariant) {
-        CodeGenTypeEnum targetType = intent.targetType() == null
-                ? routingPlan.routingFunction().apply(intent.generationMessage())
-                : intent.targetType();
+                                                             GenerationPlanningVariant planningVariant,
+                                                             GenerationScenarioDecision scenarioDecision) {
+        CodeGenTypeEnum targetType = intent.targetType();
         GenerationOrchestrationResult orchestrationResult;
         try (MemoryContextHandle memoryContext = memoryContextOverlapExecutor.start(
                 taskId,
                 () -> generationMemoryContextService.buildGenerationMemoryContext(
                         taskId, intent.app(), intent.generationMessage(), targetType))) {
-            orchestrationResult = generationOrchestrator.prepare(
-                    new GenerationOrchestrationRequest(
+            GenerationOrchestrationRequest orchestrationRequest =
+                    GenerationOrchestrationRequest.fromFrozenScenario(
                             intent.app(),
                             intent.generationMessage(),
                             intent.currentType(),
                             intent.generatingStage(),
                             intent.hasGeneratedCode(),
-                            routingPlan.routingFunction(),
                             null,
                             memoryContext::resolve,
                             taskId,
-                            planningVariant
-                    )
-            );
+                            planningVariant,
+                            scenarioDecision
+                    );
+            orchestrationResult = generationOrchestrator.prepare(orchestrationRequest);
         }
         GenerationPreparation preparation = new GenerationPreparation(
                 orchestrationResult.originalType(),
@@ -191,10 +180,7 @@ public class HeavyGenerationPreparationService {
                                     CodeGenTypeEnum targetType,
                                     String generationMessage,
                                     String generatingStage,
-                                    boolean hasGeneratedCode,
-                                    boolean requiresBuild) {
+                                    boolean hasGeneratedCode) {
     }
 
-    private record GenerationRoutingPlan(Function<String, CodeGenTypeEnum> routingFunction) {
-    }
 }

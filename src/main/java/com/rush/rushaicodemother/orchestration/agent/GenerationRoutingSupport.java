@@ -3,6 +3,8 @@ package com.rush.rushaicodemother.orchestration.agent;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -60,6 +62,9 @@ public class GenerationRoutingSupport {
         if (request == null) {
             return CodeGenTypeEnum.HTML;
         }
+        if (request.scenarioDecision() != null) {
+            return request.scenarioDecision().targetType();
+        }
         String normalized = StrUtil.blankToDefault(request.userMessage(), "").toLowerCase(Locale.ROOT);
         if (request.currentType() == CodeGenTypeEnum.FULL_STACK_PROJECT) {
             return CodeGenTypeEnum.FULL_STACK_PROJECT;
@@ -108,6 +113,12 @@ public class GenerationRoutingSupport {
         if (request == null || targetType == null) {
             return false;
         }
+        if (request.scenarioDecision() != null) {
+            if (targetType != request.scenarioDecision().targetType()) {
+                throw new IllegalArgumentException("规划目标工程类型与冻结场景决策不一致");
+            }
+            return request.scenarioDecision().validationFloor() != ExpectedValidationLevel.FAST;
+        }
         if (targetType == CodeGenTypeEnum.BACKEND_PROJECT) {
             return true;
         }
@@ -131,6 +142,9 @@ public class GenerationRoutingSupport {
  * @return 满足条件时返回 {@code true}，否则返回 {@code false}
  */
     public boolean shouldUseHeavyPath(GenerationOrchestrationRequest request) {
+        if (request != null && request.scenarioDecision() != null) {
+            return request.scenarioDecision().routeDecision().mode() == GenerationMode.HEAVY_EXPERT;
+        }
         CodeGenTypeEnum targetType = routeTargetType(request);
         return requiresBuildValidation(request, targetType);
     }

@@ -43,20 +43,32 @@ class GenerationCreditReservationPolicyTest {
     }
 
     @Test
-    void preflightUpperBoundMustCoverEveryPossibleRoute() {
+    void preflightUpperBoundMustCoverEveryReachableRouteAndProjectUpgrade() {
         GenerationCreditReservationPolicy policy = policy();
 
-        GenerationCreditReservationQuote upperBound =
-                policy.quoteUpperBound(CodeGenTypeEnum.FULL_STACK_PROJECT);
-
-        for (GenerationMode mode : GenerationMode.values()) {
-            GenerationCreditReservationQuote routeQuote = policy.quote(command(
-                    "task-" + mode.name().toLowerCase(), mode,
-                    CodeGenTypeEnum.FULL_STACK_PROJECT));
-            assertTrue(upperBound.estimatedTokens() >= routeQuote.estimatedTokens());
-            assertTrue(upperBound.reservedCredit() >= routeQuote.reservedCredit());
+        for (CodeGenTypeEnum currentType : CodeGenTypeEnum.values()) {
+            GenerationCreditReservationQuote upperBound =
+                    policy.quoteUpperBound(currentType);
+            for (CodeGenTypeEnum requestedType : CodeGenTypeEnum.values()) {
+                CodeGenTypeEnum finalType = CodeGenTypeEnum.max(currentType, requestedType);
+                for (GenerationMode mode : GenerationMode.values()) {
+                    GenerationCreditReservationQuote finalQuote = policy.quote(command(
+                            "task-" + currentType.name().toLowerCase()
+                                    + "-" + requestedType.name().toLowerCase()
+                                    + "-" + mode.name().toLowerCase(),
+                            mode,
+                            finalType));
+                    assertTrue(upperBound.estimatedTokens() >= finalQuote.estimatedTokens(),
+                            () -> "preflight token 上限未覆盖 " + currentType
+                                    + " -> " + finalType + " / " + mode);
+                    assertTrue(upperBound.reservedCredit() >= finalQuote.reservedCredit(),
+                            () -> "preflight 积分上限未覆盖 " + currentType
+                                    + " -> " + finalType + " / " + mode);
+                }
+            }
+            assertTrue(upperBound.pricingReference().contains(
+                    ":PREFLIGHT_MAX:" + currentType.name() + ":"));
         }
-        assertTrue(upperBound.pricingReference().contains(":PREFLIGHT_MAX:"));
     }
 
     private GenerationCreditReservationPolicy policy() {

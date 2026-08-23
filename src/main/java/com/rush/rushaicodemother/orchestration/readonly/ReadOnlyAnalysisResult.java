@@ -19,7 +19,10 @@ public record ReadOnlyAnalysisResult(
         summary = textOrDefault(summary, EMPTY_ANALYSIS_SUMMARY);
         findings = findings == null
                 ? List.of()
-                : findings.stream().filter(java.util.Objects::nonNull).toList();
+                : findings.stream()
+                        .filter(java.util.Objects::nonNull)
+                        .filter(Finding::substantive)
+                        .toList();
         references = references == null
                 ? List.of()
                 : references.stream().filter(java.util.Objects::nonNull).toList();
@@ -98,9 +101,14 @@ public record ReadOnlyAnalysisResult(
     public record Finding(String title, String severity, String description) {
 
         public Finding {
-            title = textOrDefault(title, "未命名发现");
+            // 空字段不用占位文案伪造分析事实，由外层结果统一剔除无效 finding。
+            title = textOrEmpty(title);
             severity = normalizeSeverity(severity);
-            description = textOrDefault(description, "未提供详情");
+            description = textOrEmpty(description);
+        }
+
+        private boolean substantive() {
+            return !title.isBlank() && !description.isBlank();
         }
 
         private Map<String, Object> toPayload() {
@@ -138,5 +146,9 @@ public record ReadOnlyAnalysisResult(
 
     private static String textOrDefault(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private static String textOrEmpty(String value) {
+        return value == null ? "" : value.trim();
     }
 }

@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.orchestration.agent.ArchitectAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.BuildFixAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.CodeAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.ContextAgentNode;
+import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.agent.PlannerAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.ReviewAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.TemplateAgentNode;
@@ -62,7 +63,8 @@ class GenerationPlanningGraphAdapterTest {
     void noPlanMustExposeOnlyTheMinimalSingleCheckpoint() {
         NoPlanningGraphAdapter adapter = new NoPlanningGraphAdapter(
                 mock(TemplateAgentNode.class),
-                mock(ContextAgentNode.class)
+                mock(ContextAgentNode.class),
+                mock(GenerationRoutingSupport.class)
         );
 
         List<GenerationAgentNode> nodes = adapter.nodes(true);

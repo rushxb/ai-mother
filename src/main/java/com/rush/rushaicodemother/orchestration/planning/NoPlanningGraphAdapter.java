@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.planning;
 
 import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.agent.ContextAgentNode;
+import com.rush.rushaicodemother.orchestration.agent.GenerationRoutingSupport;
 import com.rush.rushaicodemother.orchestration.agent.NoPlanningAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.TemplateAgentNode;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentNode;
@@ -16,11 +17,14 @@ public final class NoPlanningGraphAdapter implements GenerationPlanningGraphAdap
 
     private final TemplateAgentNode template;
     private final ContextAgentNode context;
+    private final GenerationRoutingSupport routingSupport;
 
     public NoPlanningGraphAdapter(TemplateAgentNode template,
-                                  ContextAgentNode context) {
+                                  ContextAgentNode context,
+                                  GenerationRoutingSupport routingSupport) {
         this.template = Objects.requireNonNull(template, "模板节点不能为空");
         this.context = Objects.requireNonNull(context, "上下文节点不能为空");
+        this.routingSupport = Objects.requireNonNull(routingSupport, "生成路由支持不能为空");
     }
 
     @Override
@@ -30,6 +34,6 @@ public final class NoPlanningGraphAdapter implements GenerationPlanningGraphAdap
 
     @Override
     public List<GenerationAgentNode> nodes(boolean heavyPath) {
-        return List.of(new NoPlanningAgentNode(template, context));
+        return List.of(new NoPlanningAgentNode(template, context, routingSupport));
     }
 }

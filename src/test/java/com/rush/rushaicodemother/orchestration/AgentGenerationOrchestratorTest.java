@@ -7,6 +7,8 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateArtifact;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.agent.ArchitectAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.BuildFixAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.CodeAgentNode;
@@ -25,6 +27,10 @@ import com.rush.rushaicodemother.orchestration.planning.CompactPlanningGraphAdap
 import com.rush.rushaicodemother.orchestration.planning.CurrentDagPlanningGraphAdapter;
 import com.rush.rushaicodemother.orchestration.planning.GenerationPlanningGraphRegistry;
 import com.rush.rushaicodemother.orchestration.planning.NoPlanningGraphAdapter;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackPointService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
@@ -141,6 +147,52 @@ class AgentGenerationOrchestratorTest {
     }
 
     @Test
+    void noPlanningVariantMustConsumeFrozenScenarioTarget() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-no-plan-frozen-scenario");
+        when(taskStore.create(anyLong(), anyString())).thenReturn(task);
+        GenerationAgentSupport support = support(codeOutputRoot("no-plan-frozen-scenario"));
+        GenerationRoutingSupport routingSupport = new GenerationRoutingSupport(support);
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support, routingSupport);
+
+        App app = new App();
+        app.setId(1L);
+        app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
+        GenerationModeDecision route = new GenerationModeDecision(
+                GenerationMode.HEAVY_EXPERT,
+                0.91,
+                "frozen scenario",
+                FallbackPolicy.NONE,
+                ExpectedValidationLevel.EXPERT,
+                ""
+        );
+        GenerationScenarioDecision scenarioDecision = GenerationScenarioDecision.restoreLegacy(
+                IntentProfile.unknown(),
+                CodeGenTypeEnum.FULL_STACK_PROJECT,
+                GenerationResourceRequirements.none(),
+                route,
+                10
+        );
+        GenerationOrchestrationRequest request = GenerationOrchestrationRequest.fromFrozenScenario(
+                app,
+                "把现有 Vue 项目升级为企业全栈应用",
+                CodeGenTypeEnum.VUE_PROJECT,
+                "update",
+                true,
+                null,
+                null,
+                null,
+                GenerationPlanningVariant.NO_PLAN,
+                scenarioDecision
+        );
+
+        GenerationOrchestrationResult result = orchestrator.prepare(request);
+
+        assertEquals(CodeGenTypeEnum.FULL_STACK_PROJECT, result.targetType());
+    }
+
+    @Test
     void shouldResumeCheckpointAndSkipCompletedPlannerNode() {
         GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
         GenerationOrchestrationTask restoredTask = new GenerationOrchestrationTask();
@@ -196,7 +248,7 @@ class AgentGenerationOrchestratorTest {
                 taskStore,
                 planningGraphRegistry(
                         plannerNode, templateNode, contextNode, architectNode,
-                        codeNode, reviewNode, new BuildFixAgentNode()),
+                        codeNode, reviewNode, new BuildFixAgentNode(), routingSupport),
                 routingSupport,
                 metricsCollector,
                 testRollbackPointService("resume")
@@ -256,7 +308,7 @@ class AgentGenerationOrchestratorTest {
                 taskStore,
                 planningGraphRegistry(
                         plannerNode, templateNode, contextNode, architectNode,
-                        codeNode, reviewNode, new BuildFixAgentNode()),
+                        codeNode, reviewNode, new BuildFixAgentNode(), routingSupport),
                 routingSupport,
                 metricsCollector,
                 rollbackPointService
@@ -466,7 +518,8 @@ class AgentGenerationOrchestratorTest {
                         new ArchitectAgentNode(support),
                         codeAgentNode(),
                         reviewAgentNode(),
-                        new BuildFixAgentNode()),
+                        new BuildFixAgentNode(),
+                        routingSupport),
                 routingSupport,
                 metricsCollector,
                 rollbackPointService
@@ -535,7 +588,8 @@ class AgentGenerationOrchestratorTest {
                         new ArchitectAgentNode(support),
                         codeAgentNode(),
                         reviewAgentNode(),
-                        new BuildFixAgentNode()),
+                        new BuildFixAgentNode(),
+                        routingSupport),
                 routingSupport,
                 metricsCollector,
                 rollbackPointService
@@ -549,14 +603,15 @@ class AgentGenerationOrchestratorTest {
             ArchitectAgentNode architect,
             CodeAgentNode code,
             ReviewAgentNode review,
-            BuildFixAgentNode buildFix
+            BuildFixAgentNode buildFix,
+            GenerationRoutingSupport routingSupport
     ) {
         CurrentDagPlanningGraphAdapter currentDag = new CurrentDagPlanningGraphAdapter(
                 planner, template, context, architect, code, review, buildFix);
         return new GenerationPlanningGraphRegistry(List.of(
                 currentDag,
                 new CompactPlanningGraphAdapter(currentDag),
-                new NoPlanningGraphAdapter(template, context)
+                new NoPlanningGraphAdapter(template, context, routingSupport)
         ));
     }
 

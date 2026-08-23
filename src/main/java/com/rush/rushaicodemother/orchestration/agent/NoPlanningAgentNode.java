@@ -13,25 +13,29 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** 仅准备模板、项目上下文和运行时必需生成规范的无规划基线。 */
 public class NoPlanningAgentNode extends BaseGenerationAgentNode {
 
     private final TemplateAgentNode templateNode;
     private final ContextAgentNode contextNode;
+    private final GenerationRoutingSupport routingSupport;
 
-    public NoPlanningAgentNode(TemplateAgentNode templateNode, ContextAgentNode contextNode) {
+    public NoPlanningAgentNode(TemplateAgentNode templateNode,
+                               ContextAgentNode contextNode,
+                               GenerationRoutingSupport routingSupport) {
         super("no_plan", "NoPlan", "planning", List.of(),
                 GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT);
-        this.templateNode = templateNode;
-        this.contextNode = contextNode;
+        this.templateNode = Objects.requireNonNull(templateNode, "模板节点不能为空");
+        this.contextNode = Objects.requireNonNull(contextNode, "上下文节点不能为空");
+        this.routingSupport = Objects.requireNonNull(routingSupport, "生成路由支持不能为空");
     }
 
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
-        CodeGenTypeEnum routedType = context.getRequest().routingFunction() == null
-                ? context.getRequest().currentType()
-                : context.getRequest().routingFunction().apply(context.getRequest().userMessage());
+        // 消融变体只能减少规划深度，不能绕过准入阶段已经冻结的场景事实。
+        CodeGenTypeEnum routedType = routingSupport.routeTargetType(context.getRequest());
         context.setTargetType(CodeGenTypeEnum.max(context.getRequest().currentType(), routedType));
         context.setUpgradeRequired(context.getRequest().currentType().canUpgradeTo(context.getTargetType()));
 

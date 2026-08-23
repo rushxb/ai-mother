@@ -5,6 +5,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalInt;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -18,7 +19,7 @@ import java.util.stream.Collectors;
  */
 final class IntentLexicalRuleSet {
 
-    static final String VERSION = "intent-lexical/1.2.0";
+    static final String VERSION = "intent-lexical/1.3.0";
 
     private static final int NEGATION_LOOKBACK_CHARACTERS = 24;
     private static final Pattern ENGLISH_NEGATION = Pattern.compile(
@@ -68,6 +69,20 @@ final class IntentLexicalRuleSet {
             }
         }
         return false;
+    }
+
+    /** 返回首个未被否定的命中位置，用于按用户叙述顺序选择主业务领域。 */
+    OptionalInt firstMatchStart(String normalizedMessage, IntentLexicalFeature feature) {
+        if (normalizedMessage == null || normalizedMessage.isBlank() || feature == null) {
+            return OptionalInt.empty();
+        }
+        Matcher matcher = rules.get(feature).matcher(normalizedMessage);
+        while (matcher.find()) {
+            if (!isNegated(normalizedMessage, matcher.start())) {
+                return OptionalInt.of(matcher.start());
+            }
+        }
+        return OptionalInt.empty();
     }
 
     private static Pattern compileFeaturePattern(List<String> keywords) {
@@ -224,6 +239,15 @@ final class IntentLexicalRuleSet {
         ));
         vocabulary.put(IntentLexicalFeature.SINGLE_FILE, List.of(
                 "单文件", "一个文件", "当前文件", "这个文件", "single file", "one file", "this file"
+        ));
+        vocabulary.put(IntentLexicalFeature.BUSINESS_PRODUCT, List.of(
+                "商品", "产品", "product"
+        ));
+        vocabulary.put(IntentLexicalFeature.BUSINESS_ORDER, List.of(
+                "订单", "order"
+        ));
+        vocabulary.put(IntentLexicalFeature.BUSINESS_TASK, List.of(
+                "任务", "待办", "task", "todo"
         ));
         vocabulary.put(IntentLexicalFeature.HIGH_COMPLEXITY, List.of(
                 "完整重构", "彻底重构", "全部重写", "从头重写", "推倒重来", "更换技术栈", "换框架",

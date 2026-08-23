@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.artifact;
 
+import com.rush.rushaicodemother.orchestration.intent.IntentBusinessDomain;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -59,6 +61,15 @@ public final class ApiContractArtifact {
     public static ApiContractArtifact create(
             boolean frontendFirstUpgrade,
             String userMessage,
+            IntentBusinessDomain businessDomain
+    ) {
+        return create(frontendFirstUpgrade, userMessage, domainFor(businessDomain));
+    }
+
+    /** 根据已经确定的领域结构创建规范化 API 契约。 */
+    public static ApiContractArtifact create(
+            boolean frontendFirstUpgrade,
+            String userMessage,
             ApiDomain domain
     ) {
         return new ApiContractArtifact(
@@ -67,6 +78,75 @@ public final class ApiContractArtifact {
                 domain,
                 DEFAULT_NOTES
         );
+    }
+
+    /** 将冻结的意图领域映射为 API 技术契约；Agent 节点不再持有字段模板。 */
+    private static ApiDomain domainFor(IntentBusinessDomain businessDomain) {
+        IntentBusinessDomain safeDomain = businessDomain == null
+                ? IntentBusinessDomain.GENERAL
+                : businessDomain;
+        return switch (safeDomain) {
+            case PRODUCT -> new ApiDomain(
+                    "product",
+                    "Product",
+                    "products",
+                    List.of(
+                            field("id", "int64", "integer", "主键"),
+                            field("name", "string", "text", "名称"),
+                            field("price", "float64", "real", "价格"),
+                            field("description", "string", "text", "描述"),
+                            field("createdAt", "time.Time", "timestamp", "创建时间"),
+                            field("updatedAt", "time.Time", "timestamp", "更新时间")
+                    )
+            );
+            case ORDER -> new ApiDomain(
+                    "order",
+                    "Order",
+                    "orders",
+                    List.of(
+                            field("id", "int64", "integer", "主键"),
+                            field("orderNo", "string", "text", "订单号"),
+                            field("status", "string", "text", "状态"),
+                            field("amount", "float64", "real", "金额"),
+                            field("createdAt", "time.Time", "timestamp", "创建时间"),
+                            field("updatedAt", "time.Time", "timestamp", "更新时间")
+                    )
+            );
+            case TASK -> new ApiDomain(
+                    "task",
+                    "Task",
+                    "tasks",
+                    List.of(
+                            field("id", "int64", "integer", "主键"),
+                            field("title", "string", "text", "标题"),
+                            field("status", "string", "text", "状态"),
+                            field("priority", "string", "text", "优先级"),
+                            field("createdAt", "time.Time", "timestamp", "创建时间"),
+                            field("updatedAt", "time.Time", "timestamp", "更新时间")
+                    )
+            );
+            case GENERAL -> new ApiDomain(
+                    "app",
+                    "AppItem",
+                    "app_items",
+                    List.of(
+                            field("id", "int64", "integer", "主键"),
+                            field("name", "string", "text", "名称"),
+                            field("status", "string", "text", "状态"),
+                            field("createdAt", "time.Time", "timestamp", "创建时间"),
+                            field("updatedAt", "time.Time", "timestamp", "更新时间")
+                    )
+            );
+        };
+    }
+
+    private static ApiField field(
+            String jsonName,
+            String goType,
+            String sqliteType,
+            String description
+    ) {
+        return new ApiField(jsonName, goType, sqliteType, description);
     }
 
     /** 从持久制品恢复并重新验证全部嵌套事实。 */

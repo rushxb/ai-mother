@@ -146,6 +146,7 @@ public record GenerationScenarioDecision(
                 profile.validationRisk(),
                 profile.confidence(),
                 profile.ambiguitySignal(),
+                profile.primaryBusinessDomain(),
                 profile.explicitProjectType());
     }
 
@@ -168,6 +169,7 @@ public record GenerationScenarioDecision(
                 profile.validationRisk(),
                 profile.confidence(),
                 profile.ambiguitySignal(),
+                profile.primaryBusinessDomain(),
                 profile.explicitProjectType());
     }
 

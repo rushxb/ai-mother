@@ -20,6 +20,8 @@ class ApiContractArtifactArchitectureTest {
 
         assertThat(source)
                 .contains("ApiContractArtifact.create(", "apiContract.toArtifact()")
+                .contains("scenarioDecision.intentProfile().primaryBusinessDomain()")
+                .doesNotContain("inferContractDomain", "containsAny(normalized")
                 .doesNotContain("GenerationArtifact.of(\n                \"api_contract\"");
     }
 

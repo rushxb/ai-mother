@@ -225,7 +225,24 @@ class IntentProfileServiceTest {
 
     @Test
     void lexicalRuleVersionShouldBeStableAndRecordable() {
-        assertEquals("intent-lexical/1.2.0", service.lexicalRuleVersion());
+        assertEquals("intent-lexical/1.3.0", service.lexicalRuleVersion());
+    }
+
+    @Test
+    void firstMentionedBusinessDomainMustBeFrozenInIntentProfile() {
+        IntentProfile orderFirst = service.analyze(
+                request("创建订单商品管理系统"),
+                CodeGenTypeEnum.FULL_STACK_PROJECT,
+                workspace(CodeGenTypeEnum.FULL_STACK_PROJECT, false)
+        );
+        IntentProfile productFirst = service.analyze(
+                request("创建商品订单管理系统"),
+                CodeGenTypeEnum.FULL_STACK_PROJECT,
+                workspace(CodeGenTypeEnum.FULL_STACK_PROJECT, false)
+        );
+
+        assertEquals(IntentBusinessDomain.ORDER, orderFirst.primaryBusinessDomain());
+        assertEquals(IntentBusinessDomain.PRODUCT, productFirst.primaryBusinessDomain());
     }
 
     @Test

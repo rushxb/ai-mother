@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 
 /**
@@ -84,6 +85,7 @@ public class IntentProfileService {
                 operationType, scopes, complexity, destructiveRisk, requiresBackend, requiresDatabase);
         double confidence = calculateConfidence(
                 normalizedMessage, firstGeneration, scopes, operationType, complexity);
+        IntentBusinessDomain primaryBusinessDomain = detectPrimaryBusinessDomain(normalizedMessage);
 
         return new IntentProfile(
                 operationType,
@@ -96,8 +98,40 @@ public class IntentProfileService {
                 validationRisk,
                 confidence,
                 recorder.toSignal(),
+                primaryBusinessDomain,
                 explicitProjectType
         );
+    }
+
+    /**
+     * 按用户首次提及顺序冻结主业务领域，而不是让下游 Agent 用固定 if 顺序抢占。
+     */
+    private IntentBusinessDomain detectPrimaryBusinessDomain(String message) {
+        IntentBusinessDomain selected = IntentBusinessDomain.GENERAL;
+        int firstPosition = Integer.MAX_VALUE;
+        for (BusinessDomainRule rule : BusinessDomainRule.values()) {
+            OptionalInt position = LEXICAL_RULES.firstMatchStart(message, rule.feature);
+            if (position.isPresent() && position.getAsInt() < firstPosition) {
+                selected = rule.domain;
+                firstPosition = position.getAsInt();
+            }
+        }
+        return selected;
+    }
+
+    /** 领域与词法特征的封闭映射；新增领域时由编译器迫使显式扩展。 */
+    private enum BusinessDomainRule {
+        PRODUCT(IntentLexicalFeature.BUSINESS_PRODUCT, IntentBusinessDomain.PRODUCT),
+        ORDER(IntentLexicalFeature.BUSINESS_ORDER, IntentBusinessDomain.ORDER),
+        TASK(IntentLexicalFeature.BUSINESS_TASK, IntentBusinessDomain.TASK);
+
+        private final IntentLexicalFeature feature;
+        private final IntentBusinessDomain domain;
+
+        BusinessDomainRule(IntentLexicalFeature feature, IntentBusinessDomain domain) {
+            this.feature = feature;
+            this.domain = domain;
+        }
     }
 
     /** 从同一次词法解析中提取明确工程形态，避免场景内核再次解释原始 Prompt。 */

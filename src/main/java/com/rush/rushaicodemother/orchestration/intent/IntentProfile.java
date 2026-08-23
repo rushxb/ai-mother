@@ -24,6 +24,7 @@ public record IntentProfile(
         IntentValidationRisk validationRisk,
         double confidence,
         IntentAmbiguitySignal ambiguitySignal,
+        IntentBusinessDomain primaryBusinessDomain,
         @JsonIgnore
         CodeGenTypeEnum explicitProjectType
 ) {
@@ -42,6 +43,9 @@ public record IntentProfile(
         expectedFileCount = Math.max(0, expectedFileCount);
         validationRisk = validationRisk == null ? IntentValidationRisk.MEDIUM : validationRisk;
         confidence = Math.max(0.0, Math.min(1.0, confidence));
+        primaryBusinessDomain = primaryBusinessDomain == null
+                ? IntentBusinessDomain.GENERAL
+                : primaryBusinessDomain;
     }
 
     /**
@@ -61,7 +65,7 @@ public record IntentProfile(
                          double confidence) {
         this(operationType, affectedScopes, semanticComplexity, requiresBackend, requiresDatabase,
                 destructiveRisk, expectedFileCount, validationRisk, confidence,
-                IntentAmbiguitySignal.resolved(), null);
+                IntentAmbiguitySignal.resolved(), IntentBusinessDomain.GENERAL, null);
     }
 
     /** 兼容尚未携带显式工程类型的历史调用方与持久任务。 */
@@ -77,7 +81,24 @@ public record IntentProfile(
                          IntentAmbiguitySignal ambiguitySignal) {
         this(operationType, affectedScopes, semanticComplexity, requiresBackend, requiresDatabase,
                 destructiveRisk, expectedFileCount, validationRisk, confidence,
-                ambiguitySignal, null);
+                ambiguitySignal, IntentBusinessDomain.GENERAL, null);
+    }
+
+    /** 兼容尚未冻结主业务领域的既有调用方。 */
+    public IntentProfile(IntentOperationType operationType,
+                         Set<IntentAffectedScope> affectedScopes,
+                         IntentSemanticComplexity semanticComplexity,
+                         boolean requiresBackend,
+                         boolean requiresDatabase,
+                         IntentDestructiveRisk destructiveRisk,
+                         int expectedFileCount,
+                         IntentValidationRisk validationRisk,
+                         double confidence,
+                         IntentAmbiguitySignal ambiguitySignal,
+                         CodeGenTypeEnum explicitProjectType) {
+        this(operationType, affectedScopes, semanticComplexity, requiresBackend, requiresDatabase,
+                destructiveRisk, expectedFileCount, validationRisk, confidence,
+                ambiguitySignal, IntentBusinessDomain.GENERAL, explicitProjectType);
     }
 
     /** 返回兼容旧任务命令的保守画像。 */
@@ -93,6 +114,7 @@ public record IntentProfile(
                 IntentValidationRisk.MEDIUM,
                 0.0,
                 IntentAmbiguitySignal.unresolved(),
+                IntentBusinessDomain.GENERAL,
                 null
         );
     }
@@ -102,6 +124,6 @@ public record IntentProfile(
         return new IntentProfile(
                 operationType, affectedScopes, semanticComplexity, requiresBackend, requiresDatabase,
                 destructiveRisk, expectedFileCount, validationRisk, confidence, signal,
-                explicitProjectType);
+                primaryBusinessDomain, explicitProjectType);
     }
 }

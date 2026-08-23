@@ -4,8 +4,6 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
-import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact.ApiDomain;
-import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact.ApiField;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
@@ -19,7 +17,6 @@ import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -101,7 +98,7 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         ApiContractArtifact apiContract = ApiContractArtifact.create(
                 isFrontendFirstUpgrade(context),
                 userMessage,
-                inferContractDomain(userMessage)
+                scenarioDecision.intentProfile().primaryBusinessDomain()
         );
         return AgentNodeResult.of(
                 complex ? "需求已拆解为复杂任务，准备进入模块级 DAG 生成" : "需求已拆解为标准任务，采用轻量 DAG 生成",
@@ -127,87 +124,4 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
                 && context.getTargetType() == CodeGenTypeEnum.FULL_STACK_PROJECT;
     }
 
-    /** 返回{@code infer}{@code Contract}{@code Domain}。 */
-    private ApiDomain inferContractDomain(String userMessage) {
-        String normalized = StrUtil.blankToDefault(userMessage, "").toLowerCase(Locale.ROOT);
-        if (containsAny(normalized, "商品", "产品", "product")) {
-            return domainPayload(
-                    "product",
-                    "Product",
-                    "products",
-                    List.of(
-                            field("id", "int64", "integer", "主键"),
-                            field("name", "string", "text", "名称"),
-                            field("price", "float64", "real", "价格"),
-                            field("description", "string", "text", "描述"),
-                            field("createdAt", "time.Time", "timestamp", "创建时间"),
-                            field("updatedAt", "time.Time", "timestamp", "更新时间")
-                    )
-            );
-        }
-        if (containsAny(normalized, "订单", "order")) {
-            return domainPayload(
-                    "order",
-                    "Order",
-                    "orders",
-                    List.of(
-                            field("id", "int64", "integer", "主键"),
-                            field("orderNo", "string", "text", "订单号"),
-                            field("status", "string", "text", "状态"),
-                            field("amount", "float64", "real", "金额"),
-                            field("createdAt", "time.Time", "timestamp", "创建时间"),
-                            field("updatedAt", "time.Time", "timestamp", "更新时间")
-                    )
-            );
-        }
-        if (containsAny(normalized, "任务", "task", "todo")) {
-            return domainPayload(
-                    "task",
-                    "Task",
-                    "tasks",
-                    List.of(
-                            field("id", "int64", "integer", "主键"),
-                            field("title", "string", "text", "标题"),
-                            field("status", "string", "text", "状态"),
-                            field("priority", "string", "text", "优先级"),
-                            field("createdAt", "time.Time", "timestamp", "创建时间"),
-                            field("updatedAt", "time.Time", "timestamp", "更新时间")
-                    )
-            );
-        }
-        return domainPayload(
-                "app",
-                "AppItem",
-                "app_items",
-                List.of(
-                        field("id", "int64", "integer", "主键"),
-                        field("name", "string", "text", "名称"),
-                        field("status", "string", "text", "状态"),
-                        field("createdAt", "time.Time", "timestamp", "创建时间"),
-                        field("updatedAt", "time.Time", "timestamp", "更新时间")
-                )
-        );
-    }
-
-    /** 返回{@code domain}载荷。 */
-    private ApiDomain domainPayload(String moduleName,
-                                    String entityName,
-                                    String tableName,
-                                    List<ApiField> fields) {
-        return new ApiDomain(moduleName, entityName, tableName, fields);
-    }
-
-    private ApiField field(String jsonName, String goType, String sqliteType, String description) {
-        return new ApiField(jsonName, goType, sqliteType, description);
-    }
-
-    /** 返回{@code contains}{@code Any}。 */
-    private boolean containsAny(String value, String... keywords) {
-        for (String keyword : keywords) {
-            if (value.contains(keyword)) {
-                return true;
-            }
-        }
-        return false;
-    }
 }

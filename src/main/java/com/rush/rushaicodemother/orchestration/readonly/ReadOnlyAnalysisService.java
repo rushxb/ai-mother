@@ -110,12 +110,16 @@ public class ReadOnlyAnalysisService {
                 : context.selectedFiles();
         for (String selectedFile : selectedFiles) {
             String normalizedPath = normalizePath(selectedFile);
-            if (isSafeRelativePath(normalizedPath)) {
-                String content = normalizedContents.get(normalizedPath);
-                lineCounts.putIfAbsent(normalizedPath, content == null
-                        ? 0
-                        : Math.toIntExact(content.lines().count()));
+            if (!isSafeRelativePath(normalizedPath)
+                    || !normalizedContents.containsKey(normalizedPath)) {
+                // 候选文件名只用于发现，未实际采集并发送给模型的内容不能升级为分析依据。
+                continue;
             }
+            String content = normalizedContents.get(normalizedPath);
+            if (content == null) {
+                continue;
+            }
+            lineCounts.putIfAbsent(normalizedPath, Math.toIntExact(content.lines().count()));
         }
         return java.util.Collections.unmodifiableMap(lineCounts);
     }

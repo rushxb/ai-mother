@@ -53,6 +53,35 @@ class ReadOnlyAnalysisServiceTest {
     }
 
     @Test
+    void selectedFileWithoutCollectedContentMustFailBeforeModelCall() {
+        AgentEditContextCollector contextCollector = mock(AgentEditContextCollector.class);
+        GenerationWorkspace workspace = workspace();
+        when(contextCollector.collect(workspace, "审计鉴权链路", CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(contextResultWithoutCollectedContent());
+        AtomicBoolean modelCalled = new AtomicBoolean(false);
+        ReadOnlyAnalysisModel model = (taskId, request) -> {
+            modelCalled.set(true);
+            return new ReadOnlyAnalysisResult(
+                    "鉴权链路存在边界风险",
+                    List.of(new ReadOnlyAnalysisResult.Finding(
+                            "缺少所有权校验", "HIGH", "详情接口未校验资源所有者")),
+                    List.of(new ReadOnlyAnalysisResult.FileReference(
+                            "src/auth.ts", null, "鉴权入口")),
+                    "本次请求仅要求审计，因此未修改工作区");
+        };
+        ReadOnlyAnalysisService service = new ReadOnlyAnalysisService(contextCollector, model);
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> service.analyze(
+                        "read-only-missing-content", IntentOperationType.AUDIT, "审计鉴权链路",
+                        workspace, CodeGenTypeEnum.VUE_PROJECT));
+
+        assertEquals("只读分析未采集到可引用的项目文件", failure.getMessage());
+        assertFalse(modelCalled.get());
+    }
+
+    @Test
     void emptyModelOutputMustNotBecomeACompletedAnalysis() {
         AgentEditContextCollector contextCollector = mock(AgentEditContextCollector.class);
         GenerationWorkspace workspace = workspace();
@@ -208,6 +237,22 @@ class ReadOnlyAnalysisServiceTest {
                 List.of(),
                 List.of(),
                 "low"
+        );
+    }
+
+    private AgentEditReadResult contextResultWithoutCollectedContent() {
+        EditFileCandidate candidate = new EditFileCandidate(
+                "src/auth.ts", "auth.ts", "keyword", 100, "鉴权关键词命中", List.of("鉴权"));
+        return new AgentEditReadResult(
+                "audit",
+                List.of(candidate),
+                new EditContextPackage(List.of(candidate), Map.of(), 0, "src/auth.ts"),
+                Map.of(),
+                List.of(),
+                List.of("getApp"),
+                List.of(),
+                List.of(),
+                "medium"
         );
     }
 

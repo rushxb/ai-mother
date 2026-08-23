@@ -6,6 +6,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.listener.ChatModelErrorContext;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.chat.listener.ChatModelRequestContext;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -17,11 +18,13 @@ import dev.langchain4j.model.chat.response.StreamingHandle;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -191,6 +194,64 @@ class CapacityControlledModelTest {
         forwardedHandle.get().cancel();
 
         assertEquals(1, providerCancellations.get());
+        assertEquals(1, guard.released.get());
+    }
+
+    @Test
+    void cancellingForwardedStreamingHandleMustClosePhysicalInvocationLedger() {
+        CountingGuard guard = new CountingGuard();
+        AtomicReference<StreamingHandle> forwardedHandle = new AtomicReference<>();
+        AtomicReference<Throwable> ledgerFailure = new AtomicReference<>();
+        StreamingHandle providerHandle = new StreamingHandle() {
+            private final AtomicBoolean cancelled = new AtomicBoolean();
+
+            @Override
+            public void cancel() {
+                cancelled.set(true);
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return cancelled.get();
+            }
+        };
+        StreamingChatModel delegate = new StreamingChatModel() {
+            @Override
+            public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
+                handler.onPartialResponse(
+                        new PartialResponse("partial"),
+                        new PartialResponseContext(providerHandle));
+            }
+        };
+        ChatModelListener invocationLedger = new ChatModelListener() {
+            @Override
+            public void onError(ChatModelErrorContext errorContext) {
+                ledgerFailure.set(errorContext.error());
+            }
+        };
+        CapacityControlledStreamingChatModel model = new CapacityControlledStreamingChatModel(
+                "openai", "gpt-stream", 4096, delegate, guard,
+                Duration.ofSeconds(30), null, null, null, null, invocationLedger);
+
+        model.chat(request(), new StreamingChatResponseHandler() {
+            @Override
+            public void onPartialResponse(PartialResponse partialResponse,
+                                          PartialResponseContext context) {
+                forwardedHandle.set(context.streamingHandle());
+            }
+
+            @Override
+            public void onCompleteResponse(ChatResponse completeResponse) {
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                throw new AssertionError(error);
+            }
+        });
+        forwardedHandle.get().cancel();
+
+        assertInstanceOf(CancellationException.class, ledgerFailure.get());
         assertEquals(1, guard.released.get());
     }
 

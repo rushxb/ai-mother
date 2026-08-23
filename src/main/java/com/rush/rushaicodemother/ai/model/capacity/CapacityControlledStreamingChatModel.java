@@ -433,8 +433,7 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
 
         @Override
         public void cancel() {
-            terminate(() -> invocation.fail(new CancellationException(
-                    "physical model invocation cancelled")), true);
+            terminate(this::failCancelledInvocation, true);
         }
 
         private boolean isTerminal() {
@@ -572,7 +571,8 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                         try {
                             handle.cancel();
                         } finally {
-                            terminate(() -> { }, false);
+                            // 对外暴露的 StreamingHandle 同样是物理调用终态，不能只释放容量而遗留 STARTED 账本。
+                            terminate(LeaseBoundHandler.this::failCancelledInvocation, false);
                         }
                     }
 
@@ -582,6 +582,10 @@ public final class CapacityControlledStreamingChatModel implements StreamingChat
                     }
                 });
             }
+        }
+
+        private void failCancelledInvocation() {
+            invocation.fail(new CancellationException("physical model invocation cancelled"));
         }
 
         /** 取消提供方{@code Handles}。 */

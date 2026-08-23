@@ -1,6 +1,5 @@
 package com.rush.rushaicodemother.service.aimodel;
 
-import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.testsupport.AiModelSecretTestFixtures;
 import org.junit.jupiter.api.Test;
 
@@ -58,10 +57,14 @@ class DefaultAiModelRuntimeServiceTest {
     }
 
     @Test
-    void missingRunnableModelMustFailWithBusinessException() {
+    void missingRunnableModelMustExposePoolUnavailableContract() {
         when(configurationSource.findEnabled("chat")).thenReturn(List.of());
 
-        assertThrows(BusinessException.class, () -> service.requireRunnableModelByType("chat"));
+        AiModelPoolUnavailableException failure = assertThrows(
+                AiModelPoolUnavailableException.class,
+                () -> service.requireRunnableModelByType("chat"));
+
+        assertEquals("chat", failure.modelType());
     }
 
     @Test
@@ -76,6 +79,22 @@ class DefaultAiModelRuntimeServiceTest {
         AiModelRuntimeConfiguration result = service.requireRunnableModelByType("chat");
 
         assertEquals("fallback", result.modelId());
+    }
+
+    @Test
+    void allOpenCircuitsMustExposePoolUnavailableContract() {
+        when(configurationSource.findEnabled("routing")).thenReturn(List.of(
+                configuration("secret", "routing-model").toBuilder()
+                        .modelType("routing")
+                        .build()
+        ));
+        when(circuitBreaker.isAvailable("custom", "routing-model")).thenReturn(false);
+
+        AiModelPoolUnavailableException failure = assertThrows(
+                AiModelPoolUnavailableException.class,
+                () -> service.listRunnableModelsByType("routing"));
+
+        assertEquals("routing", failure.modelType());
     }
 
     @Test

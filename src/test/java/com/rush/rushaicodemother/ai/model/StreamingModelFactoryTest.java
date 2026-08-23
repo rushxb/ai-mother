@@ -17,6 +17,7 @@ import com.rush.rushaicodemother.monitor.AiModelTimeoutMonitor;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelInvocationCancellationBridge;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelTimeoutPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.model.GenerationModelTimeoutScheduler;
+import com.rush.rushaicodemother.service.aimodel.AiModelPoolUnavailableException;
 import com.rush.rushaicodemother.service.aimodel.AiModelProtectedSecret;
 import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeConfiguration;
 import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
@@ -34,6 +35,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
@@ -72,6 +74,70 @@ class StreamingModelFactoryTest {
         factory.createRoutingChatModel();
 
         verify(runtimeService).listRunnableModelsByType("routing");
+        verify(runtimeService, never()).listRunnableModelsByType("chat");
+    }
+
+    @Test
+    void routingInfrastructureFailureMustNotFallbackToChat() {
+        AiModelRuntimeService runtimeService = mock(AiModelRuntimeService.class);
+        when(runtimeService.listRunnableModelsByType("routing"))
+                .thenThrow(new BusinessException(
+                        ErrorCode.SYSTEM_ERROR, "模型配置存储暂时不可用"));
+        when(runtimeService.listRunnableModelsByType("chat"))
+                .thenReturn(List.of(model("chat")));
+        StreamingModelFactory factory = factory(runtimeService);
+
+        BusinessException failure = assertThrows(
+                BusinessException.class, factory::createRoutingChatModel);
+
+        assertEquals(ErrorCode.SYSTEM_ERROR.getCode(), failure.getCode());
+        verify(runtimeService, never()).listRunnableModelsByType("chat");
+    }
+
+    @Test
+    void unexpectedRoutingLookupFailureMustRemainSystemFailure() {
+        AiModelRuntimeService runtimeService = mock(AiModelRuntimeService.class);
+        when(runtimeService.listRunnableModelsByType("routing"))
+                .thenThrow(new IllegalStateException("database offline"));
+        when(runtimeService.listRunnableModelsByType("chat"))
+                .thenReturn(List.of(model("chat")));
+        StreamingModelFactory factory = factory(runtimeService);
+
+        BusinessException failure = assertThrows(
+                BusinessException.class, factory::createRoutingChatModel);
+
+        assertEquals(ErrorCode.SYSTEM_ERROR.getCode(), failure.getCode());
+        verify(runtimeService, never()).listRunnableModelsByType("chat");
+    }
+
+    @Test
+    void routingPoolUnavailableMustFallbackToChat() {
+        AiModelRuntimeService runtimeService = mock(AiModelRuntimeService.class);
+        when(runtimeService.listRunnableModelsByType("routing"))
+                .thenThrow(new AiModelPoolUnavailableException(
+                        "routing", "没有可运行的 routing 模型"));
+        when(runtimeService.listRunnableModelsByType("chat"))
+                .thenReturn(List.of(model("chat")));
+        StreamingModelFactory factory = factory(runtimeService);
+
+        ChatModel result = factory.createRoutingChatModel();
+
+        assertNotNull(result);
+        verify(runtimeService).listRunnableModelsByType("chat");
+    }
+
+    @Test
+    void mismatchedPoolUnavailableFailureMustNotTriggerRoutingFallback() {
+        AiModelRuntimeService runtimeService = mock(AiModelRuntimeService.class);
+        when(runtimeService.listRunnableModelsByType("routing"))
+                .thenThrow(new AiModelPoolUnavailableException(
+                        "chat", "chat 模型池不可用"));
+        when(runtimeService.listRunnableModelsByType("chat"))
+                .thenReturn(List.of(model("chat")));
+        StreamingModelFactory factory = factory(runtimeService);
+
+        assertThrows(AiModelPoolUnavailableException.class, factory::createRoutingChatModel);
+
         verify(runtimeService, never()).listRunnableModelsByType("chat");
     }
 

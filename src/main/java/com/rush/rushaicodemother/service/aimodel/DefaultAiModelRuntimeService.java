@@ -48,8 +48,8 @@ public class DefaultAiModelRuntimeService implements AiModelRuntimeService {
                         .stream())
                 .toList();
         if (candidates.isEmpty()) {
-            throw new BusinessException(
-                    ErrorCode.OPERATION_ERROR,
+            throw new AiModelPoolUnavailableException(
+                    modelType,
                     "No runnable " + modelType + " model is configured"
             );
         }
@@ -57,8 +57,8 @@ public class DefaultAiModelRuntimeService implements AiModelRuntimeService {
                 .filter(candidate -> circuitBreaker.isAvailable(candidate.provider(), candidate.modelId()))
                 .toList();
         if (available.isEmpty()) {
-            throw new BusinessException(
-                        ErrorCode.OPERATION_ERROR,
+            throw new AiModelPoolUnavailableException(
+                        modelType,
                         "All configured " + modelType + " models are temporarily unavailable"
                 );
         }

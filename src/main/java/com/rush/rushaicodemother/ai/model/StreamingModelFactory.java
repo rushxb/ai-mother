@@ -1,18 +1,19 @@
 package com.rush.rushaicodemother.ai.model;
 
-import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.ai.model.capacity.AiModelCapacityGuard;
+import com.rush.rushaicodemother.ai.model.capacity.CapacityControlledChatModel;
 import com.rush.rushaicodemother.ai.model.failover.AiModelCandidate;
 import com.rush.rushaicodemother.ai.model.failover.FailoverChatModel;
 import com.rush.rushaicodemother.ai.model.failover.FailoverStreamingChatModel;
 import com.rush.rushaicodemother.ai.model.failover.FirstTokenHedgePolicy;
 import com.rush.rushaicodemother.ai.model.failover.FirstTokenHedgeScheduler;
-import com.rush.rushaicodemother.ai.model.capacity.AiModelCapacityGuard;
-import com.rush.rushaicodemother.ai.model.capacity.CapacityControlledChatModel;
 import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.monitor.AiModelMonitorListener;
 import com.rush.rushaicodemother.monitor.AiModelMetricsCollector;
+import com.rush.rushaicodemother.service.aimodel.AiModelPoolUnavailableException;
 import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeConfiguration;
 import com.rush.rushaicodemother.service.aimodel.AiModelRuntimeService;
 import com.rush.rushaicodemother.service.aimodel.AiModelSecretService;
@@ -320,8 +321,8 @@ public class StreamingModelFactory {
             List<AiModelRuntimeConfiguration> available =
                     aiModelRuntimeService.listRunnableModelsByType(modelType);
             if (available == null || available.isEmpty()) {
-                throw new BusinessException(
-                        ErrorCode.OPERATION_ERROR,
+                throw new AiModelPoolUnavailableException(
+                        modelType,
                         "没有可运行的 " + modelType + " 模型"
                 );
             }
@@ -344,8 +345,13 @@ public class StreamingModelFactory {
     private List<AiModelRuntimeConfiguration> getRoutingModels(String usage) {
         try {
             return getRequiredEnabledModelsByType(MODEL_TYPE_ROUTING, usage);
-        } catch (BusinessException unavailable) {
-            log.info("未配置可运行的 routing 模型，回退到 chat 模型，usage={}", usage);
+        } catch (AiModelPoolUnavailableException unavailable) {
+            // 只允许当前请求的 routing 池触发兼容降级，防止错误归类污染模型选择。
+            if (!MODEL_TYPE_ROUTING.equals(unavailable.modelType())) {
+                throw unavailable;
+            }
+            log.info("routing 模型池不可用，回退到 chat 模型，usage={}, reason={}",
+                    usage, LogExceptionSanitizer.sanitizeMessage(unavailable));
             return getRequiredEnabledModelsByType(MODEL_TYPE_CHAT, usage);
         }
     }

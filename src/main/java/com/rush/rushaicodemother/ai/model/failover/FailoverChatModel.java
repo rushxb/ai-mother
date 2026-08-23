@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.ai.model.failover;
 
 import com.rush.rushaicodemother.monitor.AiModelMetricsCollector;
+import com.rush.rushaicodemother.monitor.MonitorContext;
+import com.rush.rushaicodemother.monitor.MonitorContextHolder;
 import dev.langchain4j.exception.TimeoutException;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.chat.Capability;
@@ -15,13 +17,21 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.IntConsumer;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /** 跨有限的、健康的模型池进行同步请求级故障转移。 */
 public final class FailoverChatModel implements ChatModel {
+
+    private static final ThreadFactory PROVIDER_CALL_THREAD_FACTORY =
+            Thread.ofVirtual().name("ai-chat-failover-", 0).factory();
 
     private final List<AiModelCandidate<ChatModel>> candidates;
     private final AiModelMetricsCollector metrics;
@@ -157,11 +167,12 @@ public final class FailoverChatModel implements ChatModel {
             }
             int candidateIndex = candidateOrder.get(attemptIndex);
             AiModelCandidate<ChatModel> candidate = candidates.get(candidateIndex);
+            ChatResponse response;
             try {
                 beforeProviderAttempt.accept(attemptIndex);
-                ChatResponse response = invocation.apply(candidate.model());
-                promote(candidateIndex);
-                return response;
+                response = invokeWithinDeadline(invocation, candidate.model(), deadlineNanos);
+            } catch (InFlightTimeoutException ignored) {
+                throw timeout(failures);
             } catch (RuntimeException failure) {
                 failures.add(failure);
                 AiModelFailoverPolicy.Decision decision = AiModelFailoverPolicy.classify(failure);
@@ -174,9 +185,83 @@ public final class FailoverChatModel implements ChatModel {
                 recordFailover(candidate,
                         candidates.get(candidateOrder.get(attemptIndex + 1)),
                         decision.category());
+                continue;
             }
+            // Provider 即便恰好在等待边界返回，也不能突破整个候选池的挂钟预算。
+            if (deadlineReached(deadlineNanos)) {
+                throw timeout(failures);
+            }
+            promote(candidateIndex);
+            return response;
         }
         throw new IllegalStateException("chat model failover pool completed without a result");
+    }
+
+    /**
+     * 在独立虚拟线程中监督单个 Provider 调用，确保第三方传输忽略中断或自身超时配置时，
+     * 调用方仍能在模型池总预算内返回。无总超时的兼容路径继续在当前线程执行。
+     */
+    private ChatResponse invokeWithinDeadline(Function<ChatModel, ChatResponse> invocation,
+                                              ChatModel model,
+                                              long deadlineNanos) {
+        if (deadlineNanos == Long.MAX_VALUE) {
+            return invocation.apply(model);
+        }
+        long remainingNanos = remainingNanos(deadlineNanos);
+        if (remainingNanos <= 0L) {
+            throw new InFlightTimeoutException();
+        }
+        MonitorContext capturedContext = MonitorContextHolder.getContext();
+        FutureTask<ChatResponse> providerCall = new FutureTask<>(
+                () -> invokeWithMonitorContext(capturedContext, () -> invocation.apply(model)));
+        Thread providerThread = PROVIDER_CALL_THREAD_FACTORY.newThread(providerCall);
+        providerThread.start();
+        try {
+            return providerCall.get(remainingNanos, TimeUnit.NANOSECONDS);
+        } catch (java.util.concurrent.TimeoutException waitingForProvider) {
+            providerCall.cancel(true);
+            throw new InFlightTimeoutException();
+        } catch (InterruptedException interrupted) {
+            providerCall.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("chat model failover was interrupted", interrupted);
+        } catch (ExecutionException providerFailure) {
+            throw propagate(providerFailure.getCause());
+        } finally {
+            if (!providerCall.isDone()) {
+                providerCall.cancel(true);
+            }
+        }
+    }
+
+    /** 将调用方监控上下文传递到 Provider 虚拟线程，保证用量账本和链路指标不丢失。 */
+    private ChatResponse invokeWithMonitorContext(MonitorContext capturedContext,
+                                                  Supplier<ChatResponse> invocation) {
+        MonitorContext previousContext = MonitorContextHolder.getContext();
+        try {
+            if (capturedContext == null) {
+                MonitorContextHolder.clearContext();
+            } else {
+                MonitorContextHolder.setContext(capturedContext);
+            }
+            return invocation.get();
+        } finally {
+            if (previousContext == null) {
+                MonitorContextHolder.clearContext();
+            } else {
+                MonitorContextHolder.setContext(previousContext);
+            }
+        }
+    }
+
+    private RuntimeException propagate(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            return runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        return new IllegalStateException("chat model provider call terminated unexpectedly", failure);
     }
 
     private List<Integer> candidateOrder() {
@@ -218,6 +303,11 @@ public final class FailoverChatModel implements ChatModel {
         return deadlineNanos != Long.MAX_VALUE && nanoTime.getAsLong() >= deadlineNanos;
     }
 
+    private long remainingNanos(long deadlineNanos) {
+        long remaining = deadlineNanos - nanoTime.getAsLong();
+        return remaining > 0L ? remaining : 0L;
+    }
+
     private TimeoutException timeout(List<RuntimeException> failures) {
         TimeoutException timeout = new TimeoutException("chat model failover wall-clock timeout exceeded");
         for (RuntimeException failure : failures) {
@@ -234,5 +324,9 @@ public final class FailoverChatModel implements ChatModel {
                     from.provider(), from.modelId(), to.provider(), to.modelId(),
                     errorCategory);
         }
+    }
+
+    /** 区分本模块强制结束的总预算超时与 Provider 自身抛出的可故障转移超时。 */
+    private static final class InFlightTimeoutException extends RuntimeException {
     }
 }

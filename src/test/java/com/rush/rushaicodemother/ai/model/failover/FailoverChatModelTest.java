@@ -2,6 +2,8 @@ package com.rush.rushaicodemother.ai.model.failover;
 
 import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.monitor.AiModelMetricsCollector;
+import com.rush.rushaicodemother.monitor.MonitorContext;
+import com.rush.rushaicodemother.monitor.MonitorContextHolder;
 import dev.langchain4j.model.chat.Capability;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -11,13 +13,21 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -140,6 +150,70 @@ class FailoverChatModelTest {
     }
 
     @Test
+    void totalTimeoutMustReleaseCallerWhenCurrentCandidateIsBlocked() throws Exception {
+        ChatModel primary = mock(ChatModel.class);
+        ChatModel fallback = mock(ChatModel.class);
+        CountDownLatch providerEntered = new CountDownLatch(1);
+        CountDownLatch releaseProvider = new CountDownLatch(1);
+        when(primary.chat(request)).thenAnswer(invocation -> {
+            providerEntered.countDown();
+            awaitIgnoringInterruption(releaseProvider);
+            return mock(ChatResponse.class);
+        });
+        FailoverChatModel model = new FailoverChatModel(List.of(
+                new AiModelCandidate<>("provider-a", "primary", primary),
+                new AiModelCandidate<>("provider-b", "fallback", fallback)
+        ), metrics, Duration.ofMillis(100));
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            Future<Throwable> outcome = caller.submit(() -> {
+                try {
+                    model.chat(request);
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                }
+            });
+
+            assertTrue(providerEntered.await(1, TimeUnit.SECONDS));
+            Throwable failure = outcome.get(1, TimeUnit.SECONDS);
+            assertInstanceOf(dev.langchain4j.exception.TimeoutException.class, failure);
+            verifyNoInteractions(fallback);
+        } finally {
+            releaseProvider.countDown();
+            caller.shutdownNow();
+        }
+    }
+
+    @Test
+    void supervisedProviderCallMustRetainMonitorContext() {
+        ChatModel primary = mock(ChatModel.class);
+        ChatResponse expected = mock(ChatResponse.class);
+        AtomicReference<MonitorContext> observedContext = new AtomicReference<>();
+        when(primary.chat(request)).thenAnswer(invocation -> {
+            observedContext.set(MonitorContextHolder.getContext());
+            return expected;
+        });
+        MonitorContext callerContext = MonitorContext.builder()
+                .userId("user-21")
+                .appId("app-11")
+                .taskId("task-31")
+                .build();
+        MonitorContextHolder.setContext(callerContext);
+        try {
+            FailoverChatModel model = new FailoverChatModel(List.of(
+                    new AiModelCandidate<>("provider-a", "primary", primary)
+            ), metrics, Duration.ofSeconds(1));
+
+            assertSame(expected, model.chat(request));
+            assertSame(callerContext, observedContext.get());
+            assertSame(callerContext, MonitorContextHolder.getContext());
+        } finally {
+            MonitorContextHolder.clearContext();
+        }
+    }
+
+    @Test
     void modelTurnAndProviderFailoverMustUseSeparateAdmissions() {
         ChatModel primary = mock(ChatModel.class);
         ChatModel fallback = mock(ChatModel.class);
@@ -220,5 +294,20 @@ class FailoverChatModelTest {
                 new AiModelCandidate<>("provider-a", "primary", primary),
                 new AiModelCandidate<>("provider-b", "fallback", fallback)
         ), metrics);
+    }
+
+    private static void awaitIgnoringInterruption(CountDownLatch latch) {
+        boolean interrupted = false;
+        while (true) {
+            try {
+                latch.await();
+                break;
+            } catch (InterruptedException ignored) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

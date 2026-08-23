@@ -173,6 +173,13 @@ public class GenerationWorkspacePublicationService {
                         pointer, "publication pointer is no longer active", clock.instant());
                 return ReconciliationOutcome.ROLLED_BACK;
             }
+            if (entry.status() == GenerationWorkspacePublicationJournalStatus.PREPARED
+                    && journalRepository.rollbackPreparedIfOwningExecutionExpired(
+                            pointer,
+                            "publication owner lease expired before pointer activation",
+                            clock.instant())) {
+                return ReconciliationOutcome.ROLLED_BACK;
+            }
             return ReconciliationOutcome.PENDING_TASK_RETRY;
         } catch (BusinessException exception) {
             throw exception;

@@ -22,6 +22,17 @@ public interface GenerationWorkspacePublicationJournalRepository {
                         String error,
                         Instant rolledBackAt);
 
+    /**
+     * 仅当 PREPARED journal 的所属执行轮次已经失去有效租约时执行回滚。
+     *
+     * <p>实现必须把 journal 身份、任务执行轮次和租约过期判断放在同一个原子 CAS 中，
+     * 防止对账扫描与 worker 心跳续租互相覆盖。</p>
+     */
+    boolean rollbackPreparedIfOwningExecutionExpired(
+            GenerationWorkspacePublicationPointer pointer,
+            String reason,
+            Instant expiredAt);
+
     void markRollbackRequired(GenerationWorkspacePublicationPointer pointer,
                               String error,
                               Instant failedAt);

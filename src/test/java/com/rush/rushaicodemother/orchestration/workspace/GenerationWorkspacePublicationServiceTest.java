@@ -197,6 +197,42 @@ class GenerationWorkspacePublicationServiceTest {
     }
 
     @Test
+    void preparedJournalWhoseOwningLeaseExpiredMustBeRolledBackForTaskRetry() throws Exception {
+        Fixture fixture = fixture("task-expired-before-activation", 5L);
+        GenerationWorkspacePublicationPointer prepared = pointer(
+                fixture.fence().taskId(), fixture.fence().executionEpoch(), NOW.minusSeconds(10));
+        when(fixture.journal().rollbackPreparedIfOwningExecutionExpired(
+                eq(prepared), anyString(), eq(NOW))).thenReturn(true);
+
+        GenerationWorkspacePublicationService.ReconciliationOutcome outcome =
+                fixture.service().reconcile(
+                        entry(prepared, GenerationWorkspacePublicationJournalStatus.PREPARED),
+                        mock(GenerationWorkspacePublicationCommitter.class));
+
+        assertEquals(
+                GenerationWorkspacePublicationService.ReconciliationOutcome.ROLLED_BACK,
+                outcome);
+    }
+
+    @Test
+    void preparedJournalWhoseOwningLeaseIsStillLiveMustRemainPending() throws Exception {
+        Fixture fixture = fixture("task-live-before-activation", 5L);
+        GenerationWorkspacePublicationPointer prepared = pointer(
+                fixture.fence().taskId(), fixture.fence().executionEpoch(), NOW.minusSeconds(10));
+        when(fixture.journal().rollbackPreparedIfOwningExecutionExpired(
+                eq(prepared), anyString(), eq(NOW))).thenReturn(false);
+
+        GenerationWorkspacePublicationService.ReconciliationOutcome outcome =
+                fixture.service().reconcile(
+                        entry(prepared, GenerationWorkspacePublicationJournalStatus.PREPARED),
+                        mock(GenerationWorkspacePublicationCommitter.class));
+
+        assertEquals(
+                GenerationWorkspacePublicationService.ReconciliationOutcome.PENDING_TASK_RETRY,
+                outcome);
+    }
+
+    @Test
     void failedPreflightAfterPrepareMustCloseTheJournalIntent() throws Exception {
         Fixture fixture = fixture("task-preflight-failure", 5L);
         deleteExecutionWorkspace(fixture.source());

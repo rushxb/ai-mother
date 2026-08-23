@@ -143,6 +143,37 @@ public interface GenerationWorkspacePublicationJournalMapper {
                      @Param("error") String error,
                      @Param("changedAt") LocalDateTime changedAt);
 
+    @Update("""
+            UPDATE generation_task
+            SET publicationStatus = 'rolled_back',
+                publicationVersion = publicationVersion + 1,
+                publicationError = #{reason},
+                publicationReconcileAfter = NULL,
+                updateTime = #{expiredAt}
+            WHERE taskId = #{taskId}
+              AND appId = #{appId}
+              AND publicationCodeGenType = #{codeGenType}
+              AND publicationExecutionEpoch = #{publicationExecutionEpoch}
+              AND publicationPublishedAt = #{publishedAt}
+              AND publicationStatus = 'prepared'
+              AND publicationCommittedAt IS NULL
+              AND (
+                    status <> 'running'
+                    OR executionEpoch <> publicationExecutionEpoch
+                    OR leaseUntil IS NULL
+                    OR leaseUntil < #{expiredAt}
+              )
+              AND isDelete = 0
+            """)
+    int rollbackPreparedIfOwningExecutionExpired(
+            @Param("taskId") String taskId,
+            @Param("appId") Long appId,
+            @Param("codeGenType") String codeGenType,
+            @Param("publicationExecutionEpoch") long publicationExecutionEpoch,
+            @Param("publishedAt") LocalDateTime publishedAt,
+            @Param("reason") String reason,
+            @Param("expiredAt") LocalDateTime expiredAt);
+
     @Select("""
             SELECT taskId, appId, executionEpoch,
                    publicationStatus, publicationCodeGenType,

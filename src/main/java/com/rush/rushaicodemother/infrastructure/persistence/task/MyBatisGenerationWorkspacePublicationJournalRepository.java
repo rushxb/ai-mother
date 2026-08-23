@@ -125,6 +125,21 @@ public class MyBatisGenerationWorkspacePublicationJournalRepository
     }
 
     @Override
+    public boolean rollbackPreparedIfOwningExecutionExpired(
+            GenerationWorkspacePublicationPointer pointer,
+            String reason,
+            Instant expiredAt) {
+        requirePointer(pointer);
+        if (expiredAt == null) {
+            throw new IllegalArgumentException("publication expiry timestamp is required");
+        }
+        return mapper.rollbackPreparedIfOwningExecutionExpired(
+                pointer.taskId(), pointer.appId(), pointer.codeGenType().getValue(),
+                pointer.executionEpoch(), toLocal(pointer.publishedAt()),
+                normalizeError(reason), toLocal(expiredAt)) == 1;
+    }
+
+    @Override
     public void markRollbackRequired(GenerationWorkspacePublicationPointer pointer,
                                      String error,
                                      Instant failedAt) {

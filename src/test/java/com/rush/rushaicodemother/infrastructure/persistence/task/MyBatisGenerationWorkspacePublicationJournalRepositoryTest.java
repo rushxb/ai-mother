@@ -202,6 +202,26 @@ class MyBatisGenerationWorkspacePublicationJournalRepositoryTest {
     }
 
     @Test
+    void preparedRollbackMustUseTheAtomicOwningExecutionExpiryTransition() {
+        GenerationWorkspacePublicationJournalMapper mapper =
+                mock(GenerationWorkspacePublicationJournalMapper.class);
+        MyBatisGenerationWorkspacePublicationJournalRepository repository =
+                new MyBatisGenerationWorkspacePublicationJournalRepository(mapper);
+        GenerationWorkspacePublicationPointer pointer = pointer("task-expired", 5L, NOW);
+        when(mapper.rollbackPreparedIfOwningExecutionExpired(
+                "task-expired", APP_ID, CODE_GEN_TYPE.getValue(), 5L,
+                local(NOW), "owner expired", local(NOW.plusSeconds(1))))
+                .thenReturn(1);
+
+        assertTrue(repository.rollbackPreparedIfOwningExecutionExpired(
+                pointer, "owner expired", NOW.plusSeconds(1)));
+
+        verify(mapper).rollbackPreparedIfOwningExecutionExpired(
+                "task-expired", APP_ID, CODE_GEN_TYPE.getValue(), 5L,
+                local(NOW), "owner expired", local(NOW.plusSeconds(1)));
+    }
+
+    @Test
     void transitionValidationMustRejectNullPointerBeforeMapperDereference() {
         GenerationWorkspacePublicationJournalMapper mapper =
                 mock(GenerationWorkspacePublicationJournalMapper.class);

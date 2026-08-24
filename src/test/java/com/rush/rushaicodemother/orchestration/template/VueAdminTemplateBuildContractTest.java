@@ -23,6 +23,7 @@ class VueAdminTemplateBuildContractTest {
     void adminTemplateMustNotKeepAmbiguousJavascriptEntryPoints() throws IOException {
         String index = read("index.html");
         assertTrue(index.contains("/src/main.ts"));
+        assertTrue(read("tsconfig.node.json").contains("vite.config.ts"));
 
         List<String> removedLegacyEntries = List.of(
                 "vite.config.js",

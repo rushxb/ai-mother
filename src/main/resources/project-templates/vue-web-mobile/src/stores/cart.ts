@@ -62,6 +62,6 @@ export const useCartStore = defineStore('cart', () => {
   persist: {
     key: 'cart-store',
     storage: safeLocalStorage,
-    paths: ['items']
+    pick: ['items']
   }
 })

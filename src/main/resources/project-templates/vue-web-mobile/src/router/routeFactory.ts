@@ -1,24 +1,48 @@
+import type { Component } from 'vue'
 import type { RouteRecordRaw } from 'vue-router'
-import type { RouteManifest } from '@/types'
 import routeManifest from './routeManifest.json'
 
-// Dynamic import for view components
-const viewModules = import.meta.glob('@/views/*.vue')
-const pageModules = import.meta.glob('@/pages/*.vue')
+interface RouteManifestItem {
+  path: string
+  name: string
+  component: string
+  title?: string
+  layout?: string
+  requiresAuth?: boolean
+  meta?: Record<string, unknown>
+}
+
+const viewModules = import.meta.glob<{ default: Component }>('../views/**/*.vue')
+const pageModules = import.meta.glob<{ default: Component }>('../pages/**/*.vue')
+
+function resolveView(component: string) {
+  const normalized = component.endsWith('.vue') ? component : `${component}.vue`
+  const modules = { ...viewModules, ...pageModules }
+  const candidates = [
+    `../views/${normalized}`,
+    `../views/${component}/index.vue`,
+    `../pages/${normalized}`,
+    `../pages/${component}/index.vue`
+  ]
+  const matchedPath = candidates.find(candidate => modules[candidate])
+  if (!matchedPath) {
+    throw new Error(`Route component not found in src/views or src/pages: ${component}`)
+  }
+  return modules[matchedPath]
+}
 
 export function createRoutes(): RouteRecordRaw[] {
-  return (routeManifest as RouteManifest[]).map((item) => {
-    const route: RouteRecordRaw = {
-      path: item.path,
-      name: item.name,
-      component: viewModules[`/src/views/${item.component}.vue`] || pageModules[`/src/pages/${item.component}.vue`],
-      meta: {
-        title: item.title,
-        ...item.meta
-      }
+  return (routeManifest as RouteManifestItem[]).map(item => ({
+    path: item.path,
+    name: item.name,
+    component: resolveView(item.component),
+    meta: {
+      title: item.title,
+      layout: item.layout,
+      requiresAuth: Boolean(item.requiresAuth),
+      ...item.meta
     }
-    return route
-  })
+  }))
 }
 
 // @AI_INJECT_ROUTE_FACTORY

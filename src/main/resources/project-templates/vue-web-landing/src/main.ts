@@ -1,11 +1,16 @@
 import { createApp } from 'vue'
 import router from './router'
 import App from './App.vue'
-import { setupMock } from './mocks'
 import './styles/landing.css'
 
-// Setup mock in development
-setupMock()
+// Mock 仅在显式启用的开发环境按需加载，避免进入生产包。
+async function setupDevelopmentMock(): Promise<void> {
+  if (!import.meta.env.DEV || import.meta.env.VITE_USE_MOCK !== 'true') return
+  const { setupMock } = await import('./mocks')
+  setupMock()
+}
+
+void setupDevelopmentMock()
 
 const app = createApp(App)
 

@@ -19,7 +19,7 @@
   ],
   "protectedFiles": [
     "package.json",
-    "vite.config.js",
+    "vite.config.ts",
     "tsconfig.json",
     "index.html",
     "src/main.ts",

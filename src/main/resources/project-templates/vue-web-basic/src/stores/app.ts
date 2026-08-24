@@ -47,6 +47,6 @@ export const useAppStore = defineStore('app', () => {
   persist: {
     key: 'app-store',
     storage: safeLocalStorage,
-    paths: ['theme', 'locale', 'sidebarCollapsed']
+    pick: ['theme', 'locale', 'sidebarCollapsed']
   }
 })

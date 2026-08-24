@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.artifact.TemplateBootstrapArtifac
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
+import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationContext;
 import com.rush.rushaicodemother.service.GenerationContextCompressionService;
 import org.springframework.stereotype.Component;
 
@@ -200,16 +201,38 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
 
     /** 追加全栈上下文。 */
     private void appendFullStackContext(List<String> lines, GenerationAgentContext context) {
+        GenerationArtifact artifact = context
+                .getArtifact(FullStackGenerationContext.KEY)
+                .orElse(null);
+        if (artifact == null) {
+            appendExistingFullStackConventions(lines);
+            return;
+        }
+        Long appId = context.getRequest().app() == null
+                ? null
+                : context.getRequest().app().getId();
+        FullStackGenerationContext fullStackContext =
+                FullStackGenerationContext.fromArtifact(artifact, appId);
         lines.add("");
         lines.add("【全栈共享上下文】");
-        lines.add("workspaceRoot=" + artifactStringValue(context, "full_stack_context", "workspaceRoot", ""));
-        lines.add("frontendPath=" + artifactStringValue(context, "full_stack_context", "frontendPath", "frontend"));
-        lines.add("backendPath=" + artifactStringValue(context, "full_stack_context", "backendPath", "backend"));
-        lines.add("backendBaseUrl=" + artifactStringValue(context, "full_stack_context", "backendBaseUrl", ""));
-        lines.add("apiPrefix=" + artifactStringValue(context, "full_stack_context", "apiPrefix", "/api"));
-        lines.add("frontendEnv=" + artifactStringValue(context, "full_stack_context", "frontendApiEnvName", "VITE_API_BASE_URL")
-                + "=" + artifactStringValue(context, "full_stack_context", "frontendApiEnvValue", ""));
-        lines.add("backendServerAddr=" + artifactStringValue(context, "full_stack_context", "backendServerAddr", ""));
+        lines.add("workspaceRoot=" + fullStackContext.workspaceRoot());
+        lines.add("frontendPath=" + fullStackContext.frontendPath());
+        lines.add("backendPath=" + fullStackContext.backendPath());
+        lines.add("backendBaseUrl=" + fullStackContext.backendBaseUrl());
+        lines.add("apiPrefix=" + fullStackContext.apiPrefix());
+        lines.add("frontendEnv=" + fullStackContext.frontendApiEnvName()
+                + "=" + fullStackContext.frontendApiEnvValue());
+        lines.add("backendServerAddr=" + fullStackContext.backendServerAddr());
+        lines.add("要求：前端文件路径必须以 frontend/ 开头，后端文件路径必须以 backend/ 开头。");
+        lines.add("要求：前端 API baseURL 只能读取 VITE_API_BASE_URL；后端端口只能读取 SERVER_ADDR。");
+    }
+
+    /** 已有全栈项目没有模板初始化制品时，仅追加稳定工程约定，不伪造动态端口。 */
+    private void appendExistingFullStackConventions(List<String> lines) {
+        lines.add("");
+        lines.add("【全栈工程约定】");
+        lines.add("frontendPath=frontend");
+        lines.add("backendPath=backend");
         lines.add("要求：前端文件路径必须以 frontend/ 开头，后端文件路径必须以 backend/ 开头。");
         lines.add("要求：前端 API baseURL 只能读取 VITE_API_BASE_URL；后端端口只能读取 SERVER_ADDR。");
     }

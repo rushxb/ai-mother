@@ -231,12 +231,59 @@ class CodeAgentNodeTest {
         assertTrue(exception.getMessage().contains("API 字段契约"));
     }
 
+    @Test
+    void recoveredFullStackContextForAnotherAppMustFailClosed() {
+        GenerationAgentContext context = newContext(false, CodeGenTypeEnum.FULL_STACK_PROJECT);
+        context.putArtifacts(List.of(
+                GenerationArtifact.of("requirements", "Planner", "需求与目标", Map.of(
+                        "patchFirst", false,
+                        "requiresBuild", true,
+                        "validationMode", "build_validation",
+                        "generationMode", "full_generation",
+                        "goals", List.of("生成前后端联调工程")
+                )),
+                GenerationArtifact.of("architecture_plan", "Architect", "架构规划", Map.of(
+                        "modules", List.of("frontend", "backend")
+                )),
+                contextSummary(List.of(), List.of(), List.of()),
+                GenerationArtifact.of("full_stack_context", "Template", "全栈上下文", Map.ofEntries(
+                        Map.entry("appId", 99L),
+                        Map.entry("workspaceRoot", "target/workspaces/99"),
+                        Map.entry("frontendPath", "target/workspaces/99/frontend"),
+                        Map.entry("backendPath", "target/workspaces/99/backend"),
+                        Map.entry("frontendPort", 18080),
+                        Map.entry("backendPort", 18081),
+                        Map.entry("frontendBaseUrl", "http://127.0.0.1:18080"),
+                        Map.entry("backendBaseUrl", "http://127.0.0.1:18081"),
+                        Map.entry("apiPrefix", "/api"),
+                        Map.entry("frontendApiEnvName", "VITE_API_BASE_URL"),
+                        Map.entry("frontendApiEnvValue", "http://127.0.0.1:18081/api"),
+                        Map.entry("backendServerAddr", ":18081"),
+                        Map.entry("containerizationStatus", "reserved")
+                ))
+        ));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> node.execute(context)
+        );
+
+        assertTrue(exception.getMessage().contains("应用标识"));
+    }
+
     private GenerationAgentContext newContext(boolean hasGeneratedCode) {
+        return newContext(hasGeneratedCode, CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    private GenerationAgentContext newContext(
+            boolean hasGeneratedCode,
+            CodeGenTypeEnum codeGenType
+    ) {
         App app = new App();
         app.setId(1L);
-        app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue());
+        app.setCodeGenType(codeGenType.getValue());
         GenerationOrchestrationRequest request = frozenRequest(
-                app, "优化登录页与表单交互", CodeGenTypeEnum.VUE_PROJECT, "update", hasGeneratedCode);
+                app, "优化登录页与表单交互", codeGenType, "update", hasGeneratedCode);
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
         task.setTaskId("task-1");
         return new GenerationAgentContext(request, task, true);

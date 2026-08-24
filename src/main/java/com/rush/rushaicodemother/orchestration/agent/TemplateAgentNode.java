@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.TemplateBootstrapArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
+import com.rush.rushaicodemother.orchestration.fullstack.FullStackGenerationContext;
 import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapRegistry;
 import com.rush.rushaicodemother.orchestration.template.bootstrap.GenerationTemplateBootstrapResult;
 import org.springframework.stereotype.Component;
@@ -51,12 +52,9 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
                 .toArtifact(result.artifactName());
         artifacts.add(templateArtifact);
         if (!result.contextPayload().isEmpty()) {
-            artifacts.add(GenerationArtifact.of(
-                    "full_stack_context",
-                    "Template",
-                    "全栈上下文",
-                    result.contextPayload()
-            ));
+            artifacts.add(FullStackGenerationContext
+                    .fromPayload(result.contextPayload(), app.getId())
+                    .toArtifact());
         }
         return AgentNodeResult.of(result.summary(), artifacts, templateArtifact.payload());
     }

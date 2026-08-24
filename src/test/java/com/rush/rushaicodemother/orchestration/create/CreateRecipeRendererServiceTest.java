@@ -149,14 +149,68 @@ class CreateRecipeRendererServiceTest {
                 spec()
         );
 
-        assertTrue(result.available());
-        assertEquals(5, result.patchOperations().size());
+        assertTrue(result.complete(), result.unfilledSlots().toString());
+        assertEquals(3, result.patchOperations().size());
         assertTrue(result.patchOperations().stream().anyMatch(operation ->
-                operation.relativePath().equals("src/data/mock.ts")
+                operation.relativePath().equals("src/data/mobileData.ts")
                         && operation.content().contains("课程")));
         assertTrue(result.patchOperations().stream().anyMatch(operation ->
                 operation.relativePath().equals("src/styles/mobile.css")
                         && operation.content().contains("#2563eb")));
+    }
+
+    @Test
+    void defaultMobileCreatePlanMustRenderIntoTheBrowserRuntimeDataSource() {
+        String userMessage = "做一个移动端 H5 应用";
+        CreateGenerationPlan plan = createPlanner().plan(CodeGenTypeEnum.VUE_PROJECT, userMessage);
+        assertEquals("vue-web-mobile", plan.baseTemplateId());
+        assertEquals(1, plan.slotGroups().size());
+
+        RecipeRenderResult result = CreateRecipeRendererTestFactory.create().render(
+                userMessage,
+                plan.slotGroups().getFirst(),
+                spec()
+        );
+
+        assertTrue(result.complete(), () -> "默认移动端计划存在未覆盖能力: " + result.unfilledSlots());
+        String runtimeData = content(result, "src/data/mobileData.ts");
+        assertTrue(runtimeData.contains("FitPilot"), runtimeData);
+        assertTrue(runtimeData.contains("课程"), runtimeData);
+    }
+
+    @Test
+    void defaultMobileCreatePlanMustApplyToTheBootstrappedBrowserWorkspace() throws Exception {
+        Path testWorkspaces = Files.createDirectories(
+                Path.of("target", "test-workspaces").toAbsolutePath().normalize());
+        Path outputRoot = Files.createTempDirectory(testWorkspaces, "create-mobile-recipe-build-");
+        TemplateServiceTestFixture fixture = new TemplateServiceTestFixture(outputRoot);
+        var bootstrap = fixture.vueBootstrapService().bootstrapIfNecessary(
+                14L,
+                CodeGenTypeEnum.VUE_PROJECT,
+                "做一个移动端 H5 应用"
+        );
+        Path projectRoot = outputRoot.resolve("vue_project_14");
+        assertTrue(bootstrap.bootstrapped());
+
+        String userMessage = "做一个移动端 H5 应用";
+        CreateGenerationPlan plan = createPlanner().plan(CodeGenTypeEnum.VUE_PROJECT, userMessage);
+        RecipeRenderResult recipe = CreateRecipeRendererTestFactory.create().render(
+                userMessage,
+                plan.slotGroups().getFirst(),
+                spec()
+        );
+        var applyResult = PatchApplyServiceTestFactory.create().applyWithoutChangePlan(
+                14L,
+                "mobile-recipe-build",
+                projectRoot,
+                recipe.patchOperations(),
+                "mobile_recipe_build_contract"
+        );
+
+        assertEquals("applied", applyResult.status(), applyResult.reason());
+        assertTrue(Files.isRegularFile(projectRoot.resolve("src/data/mobileData.ts")));
+        assertFalse(Files.exists(projectRoot.resolve("src/data/mobileData.js")));
+        assertTrue(Files.readString(projectRoot.resolve("src/data/mobileData.ts")).contains("FitPilot"));
     }
 
     @Test
@@ -413,6 +467,17 @@ class CreateRecipeRendererServiceTest {
                 base.content(),
                 base.constraints()
         );
+    }
+
+    private CreateTemplatePlanner createPlanner() {
+        CreateGenerationPlanAssembler assembler = new CreateGenerationPlanAssembler();
+        VueTemplateFeaturePlanner frontendPlanner = new VueTemplateFeaturePlanner();
+        BackendTemplateFeaturePlanner backendPlanner = new BackendTemplateFeaturePlanner();
+        return new CreateTemplatePlanner(List.of(
+                new VueCreateTemplatePlanningAdapter(frontendPlanner, assembler),
+                new BackendCreateTemplatePlanningAdapter(backendPlanner, assembler),
+                new FullStackCreateTemplatePlanningAdapter(frontendPlanner, backendPlanner, assembler)
+        ));
     }
 
     private CreateSpec multiEntityBackendSpec() {

@@ -53,6 +53,7 @@ class VueTemplateCanonicalSourceContractTest {
     @ParameterizedTest(name = "{0} 的 recipe 数据只存在一个运行时实现")
     @CsvSource({
             "vue-web-basic,src/data/siteData",
+            "vue-web-mobile,src/data/mobileData",
             "vue-web-landing,src/data/landingData"
     })
     void recipeDataMustNotBeShadowedByJavascriptTwin(String templateId, String relativeStem) {
@@ -62,6 +63,20 @@ class VueTemplateCanonicalSourceContractTest {
                 () -> templateId + " 缺少 recipe 声明的 TypeScript 数据文件");
         assertFalse(Files.exists(root.resolve(relativeStem + ".js")),
                 () -> templateId + " 的 JavaScript 数据文件会遮蔽 recipe 写入结果");
+    }
+
+    @ParameterizedTest(name = "移动端旧数据文件 {0} 不得与 mobileData 并存")
+    @ValueSource(strings = {
+            "src/data/mobileData.js",
+            "src/data/tabbar.ts",
+            "src/data/campaigns.ts",
+            "src/data/products.ts"
+    })
+    void mobileTemplateMustNotRetainDisconnectedRecipeData(String staleRelativePath) {
+        Path mobileRoot = templateRoot.resolve("vue-web-mobile");
+
+        assertFalse(Files.exists(mobileRoot.resolve(staleRelativePath)),
+                () -> "移动端存在页面不会消费的旧 recipe 数据文件: " + staleRelativePath);
     }
 
     @ParameterizedTest(name = "{0} 的 Mock 只进入显式开发运行时")

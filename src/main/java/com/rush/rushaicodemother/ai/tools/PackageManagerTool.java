@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -85,7 +86,7 @@ public class PackageManagerTool extends BaseTool {
             ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile =
                     resolvePackageJsonFile(projectDirectory);
             if (!workspaceFileService.isRegularFile(packageJsonFile)) {
-                return "错误：package.json 不存在";
+                throw toolFailure("错误：package.json 不存在");
             }
             JSONObject packageJson = JSONUtil.parseObj(workspaceFileService.readUtf8(packageJsonFile));
             String normalizedAction = StrUtil.blankToDefault(action, "getPackageJson");
@@ -101,16 +102,18 @@ public class PackageManagerTool extends BaseTool {
                 case "removeScript" ->
                         handleRemoveScript(appId, packageJsonFile, packageJson, scriptName, runInstall);
                 case "installDependencies" -> deferredInstallMessage();
-                default -> "错误：不支持的操作类型 - " + normalizedAction;
+                default -> throw toolFailure("错误：不支持的操作类型 - " + normalizedAction);
             };
+        } catch (ToolPublicFailureException publicFailure) {
+            throw publicFailure;
         } catch (ToolInputException e) {
-            return renderInputError(e);
+            throw toolInputFailure("错误：", e);
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {
             // 取消、截止时间与租约丢失属于任务控制信号，不能伪装成可重试的工具反馈。
             throw executionPolicyFailure;
         } catch (Exception e) {
             log.error("管理 package.json 失败，action: {}", action, LogExceptionSanitizer.sanitize(e));
-            return "管理 package.json 失败，请稍后重试";
+            throw toolFailure("管理 package.json 失败，请稍后重试");
         }
     }
 
@@ -136,7 +139,7 @@ public class PackageManagerTool extends BaseTool {
                 packageName, version, dependencyType, reason
         );
         if (!decision.allowed()) {
-            return "错误：依赖策略拒绝 - " + decision.reason();
+            throw toolFailure("错误：依赖策略拒绝 - " + decision.reason());
         }
         String sectionName = dependencyPolicyService.normalizeDependencyType(dependencyType);
         JSONObject section = packageJson.getJSONObject(sectionName);
@@ -146,10 +149,7 @@ public class PackageManagerTool extends BaseTool {
         }
         String oldVersion = section.getStr(packageName);
         section.set(packageName, version);
-        String writeError = writePackageJson(appId, packageJsonFile, packageJson, action);
-        if (writeError != null) {
-            return writeError;
-        }
+        writePackageJson(appId, packageJsonFile, packageJson, action);
         StringBuilder builder = new StringBuilder();
         builder.append(action.equals("addDependency") ? "已添加依赖" : "已更新依赖")
                 .append(": ")
@@ -181,7 +181,7 @@ public class PackageManagerTool extends BaseTool {
                                           String dependencyType, Boolean runInstall) {
         DependencyPolicyService.PolicyDecision decision = dependencyPolicyService.validateRemove(packageName, dependencyType);
         if (!decision.allowed()) {
-            return "错误：依赖策略拒绝 - " + decision.reason();
+            throw toolFailure("错误：依赖策略拒绝 - " + decision.reason());
         }
         String sectionName = dependencyPolicyService.normalizeDependencyType(dependencyType);
         JSONObject section = packageJson.getJSONObject(sectionName);
@@ -189,10 +189,7 @@ public class PackageManagerTool extends BaseTool {
             return "提示：在 " + sectionName + " 中未找到依赖 - " + packageName;
         }
         section.remove(packageName);
-        String writeError = writePackageJson(appId, packageJsonFile, packageJson, "removeDependency");
-        if (writeError != null) {
-            return writeError;
-        }
+        writePackageJson(appId, packageJsonFile, packageJson, "removeDependency");
         StringBuilder builder = new StringBuilder("已删除依赖: " + packageName + "（" + sectionName + "）");
         appendDeferredInstallIfRequested(builder, runInstall);
         return builder.toString();
@@ -207,7 +204,7 @@ public class PackageManagerTool extends BaseTool {
                                    Boolean runInstall) {
         DependencyPolicyService.PolicyDecision decision = dependencyPolicyService.validateScript(scriptName, scriptCommand);
         if (!decision.allowed()) {
-            return "错误：依赖策略拒绝 - " + decision.reason();
+            throw toolFailure("错误：依赖策略拒绝 - " + decision.reason());
         }
         JSONObject scripts = packageJson.getJSONObject(SCRIPTS);
         if (scripts == null) {
@@ -216,10 +213,7 @@ public class PackageManagerTool extends BaseTool {
         }
         String oldCommand = scripts.getStr(scriptName);
         scripts.set(scriptName, scriptCommand);
-        String writeError = writePackageJson(appId, packageJsonFile, packageJson, "setScript");
-        if (writeError != null) {
-            return writeError;
-        }
+        writePackageJson(appId, packageJsonFile, packageJson, "setScript");
         StringBuilder builder = new StringBuilder();
         builder.append("已设置脚本: ").append(scriptName).append(" -> ").append(scriptCommand);
         if (StrUtil.isNotBlank(oldCommand)) {
@@ -236,17 +230,14 @@ public class PackageManagerTool extends BaseTool {
                                       String scriptName,
                                       Boolean runInstall) {
         if (StrUtil.isBlank(scriptName)) {
-            return "错误：脚本名称不能为空";
+            throw toolFailure("错误：脚本名称不能为空");
         }
         JSONObject scripts = packageJson.getJSONObject(SCRIPTS);
         if (scripts == null || !scripts.containsKey(scriptName)) {
             return "提示：未找到脚本 - " + scriptName;
         }
         scripts.remove(scriptName);
-        String writeError = writePackageJson(appId, packageJsonFile, packageJson, "removeScript");
-        if (writeError != null) {
-            return writeError;
-        }
+        writePackageJson(appId, packageJsonFile, packageJson, "removeScript");
         StringBuilder builder = new StringBuilder("已删除脚本: " + scriptName);
         appendDeferredInstallIfRequested(builder, runInstall);
         return builder.toString();
@@ -264,10 +255,10 @@ public class PackageManagerTool extends BaseTool {
     }
 
     /** 写入依赖包{@code Json}。 */
-    private String writePackageJson(Long appId,
-                                    ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
-                                    JSONObject packageJson,
-                                    String reason) {
+    private void writePackageJson(Long appId,
+                                  ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
+                                  JSONObject packageJson,
+                                  String reason) {
         PatchApplyResult result = toolExecutionGateway.applyPatch(
                 appId,
                 packageJsonFile.projectRoot(),
@@ -277,9 +268,9 @@ public class PackageManagerTool extends BaseTool {
                 reason
         );
         if ("applied".equals(result.status())) {
-            return null;
+            return;
         }
-        return "错误：package.json 写入被拒绝 - " + result.reason();
+        throw toolFailure("错误：package.json 写入被拒绝 - " + result.reason());
     }
 
     @Override

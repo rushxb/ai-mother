@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -36,22 +37,28 @@ class PackageManagerToolTest {
     void managePackageJsonShouldRejectDangerousScript() throws Exception {
         PackageManagerTool tool = createTool(1L);
 
-        String result = tool.managePackageJson(
-                "setScript", null, null, null, "clean", "rm -rf /", false, null, 1L
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.managePackageJson(
+                        "setScript", null, null, null,
+                        "clean", "rm -rf /", false, null, 1L)
         );
 
-        assertTrue(result.contains("依赖策略拒绝"));
+        assertTrue(failure.publicMessage().contains("依赖策略拒绝"));
     }
 
     @Test
     void managePackageJsonShouldRejectDependencyWithoutReason() throws Exception {
         PackageManagerTool tool = createTool(2L);
 
-        String result = tool.managePackageJson(
-                "addDependency", "marked", "^12.0.0", "dependencies", null, null, false, "", 2L
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.managePackageJson(
+                        "addDependency", "marked", "^12.0.0", "dependencies",
+                        null, null, false, "", 2L)
         );
 
-        assertTrue(result.contains("reason"));
+        assertTrue(failure.publicMessage().contains("reason"));
     }
 
     @Test
@@ -96,6 +103,137 @@ class PackageManagerToolTest {
                 eq(5L), any(Path.class), any(PatchOperation.class),
                 eq("tool-package-json"), eq("addDependency")
         );
+    }
+
+    @Test
+    void rejectedPackagePatchMustBeReportedAsProtocolFailure() throws Exception {
+        PackageToolFixture fixture = createFixture(8L);
+        when(fixture.gateway().applyPatch(
+                anyLong(), any(Path.class), any(PatchOperation.class), anyString(), anyString()))
+                .thenReturn(PatchApplyResult.rejected(
+                        8L,
+                        "task-8",
+                        fixture.projectRoot().toString(),
+                        1,
+                        java.util.List.of("modify:package.json"),
+                        "补丁超出冻结计划"
+                ));
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> fixture.tool().managePackageJson(
+                        "addDependency", "marked", "^12.0.0", "dependencies",
+                        null, null, false, "渲染 markdown", 8L)
+        );
+
+        assertTrue(failure.publicMessage().contains("package.json 写入被拒绝"));
+        assertTrue(failure.publicMessage().contains("补丁超出冻结计划"));
+    }
+
+    @Test
+    void missingPackageJsonMustBeReportedAsProtocolFailure() throws Exception {
+        PackageToolFixture fixture = createFixture(9L);
+        Files.delete(fixture.projectRoot().resolve("package.json"));
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> fixture.tool().managePackageJson(
+                        "getPackageJson", null, null, null,
+                        null, null, false, null, 9L)
+        );
+
+        assertEquals("错误：package.json 不存在", failure.publicMessage());
+        verifyNoInteractions(fixture.gateway());
+    }
+
+    @Test
+    void malformedPackageJsonMustReturnSanitizedProtocolFailure() throws Exception {
+        PackageToolFixture fixture = createFixture(10L);
+        Files.writeString(fixture.projectRoot().resolve("package.json"), "{not-json");
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> fixture.tool().managePackageJson(
+                        "getPackageJson", null, null, null,
+                        null, null, false, null, 10L)
+        );
+
+        assertEquals("管理 package.json 失败，请稍后重试", failure.publicMessage());
+        assertTrue(failure.getCause() == null, "协议失败不得携带可能含源码或路径的解析异常");
+        verifyNoInteractions(fixture.gateway());
+    }
+
+    @Test
+    void invalidWorkspaceInputMustBeReportedAsProtocolFailure() throws Exception {
+        PackageToolFixture fixture = createFixture(11L);
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> fixture.tool().managePackageJson(
+                        "getPackageJson", null, null, null,
+                        null, null, false, null, null)
+        );
+
+        assertEquals("错误：应用 ID 无效，无法定位项目工作区", failure.publicMessage());
+        verifyNoInteractions(fixture.gateway());
+    }
+
+    @Test
+    void unsupportedPackageActionMustBeReportedAsProtocolFailure() throws Exception {
+        PackageToolFixture fixture = createFixture(12L);
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> fixture.tool().managePackageJson(
+                        "executeShell", null, null, null,
+                        null, null, false, null, 12L)
+        );
+
+        assertEquals("错误：不支持的操作类型 - executeShell", failure.publicMessage());
+        verifyNoInteractions(fixture.gateway());
+    }
+
+    @Test
+    void rejectedDependencyRemovalMustBeReportedAsProtocolFailure() throws Exception {
+        PackageToolFixture fixture = createFixture(13L);
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> fixture.tool().managePackageJson(
+                        "removeDependency", "https://evil.example/package", null, "dependencies",
+                        null, null, false, null, 13L)
+        );
+
+        assertTrue(failure.publicMessage().contains("依赖策略拒绝"));
+        verifyNoInteractions(fixture.gateway());
+    }
+
+    @Test
+    void blankScriptRemovalMustBeReportedAsProtocolFailure() throws Exception {
+        PackageToolFixture fixture = createFixture(14L);
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> fixture.tool().managePackageJson(
+                        "removeScript", null, null, null,
+                        " ", null, false, null, 14L)
+        );
+
+        assertEquals("错误：脚本名称不能为空", failure.publicMessage());
+        verifyNoInteractions(fixture.gateway());
+    }
+
+    @Test
+    void removingMissingDependencyMustRemainAnIdempotentNoOp() throws Exception {
+        PackageToolFixture fixture = createFixture(15L);
+
+        String result = fixture.tool().managePackageJson(
+                "removeDependency", "marked", null, "dependencies",
+                null, null, false, null, 15L
+        );
+
+        assertTrue(result.contains("未找到依赖"));
+        verifyNoInteractions(fixture.gateway());
     }
 
     @Test

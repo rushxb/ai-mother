@@ -156,8 +156,17 @@ class DevServerProxyServiceTest {
         assertFalse(policy.contains("default-src *"), "上游宽松策略必须被覆盖");
         assertTrue(policy.contains("sandbox "), "预览产物必须启用 sandbox");
         assertFalse(policy.contains("allow-same-origin"), "预览产物不得获得同源权限");
-        // 预览需要保留 Vite HMR，因此按 scheme 放通 WebSocket，但仍不允许 HTTP 外发。
-        assertTrue(policy.contains("connect-src ws: wss:"), "预览必须保留 HMR WebSocket 通道");
+        String connectSource = List.of(policy.split(";"))
+                .stream()
+                .map(String::trim)
+                .filter(directive -> directive.startsWith("connect-src "))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(
+                "connect-src 'self'",
+                connectSource,
+                "预览只能连接公开响应同源的 HMR，不得按 scheme 放开任意 WebSocket"
+        );
         assertEquals("SAMEORIGIN", response.getHeader("X-Frame-Options"));
     }
 

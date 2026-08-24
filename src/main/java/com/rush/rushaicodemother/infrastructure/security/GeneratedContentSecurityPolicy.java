@@ -13,7 +13,7 @@ import java.util.Map;
  * <p>因此对预览与部署产物统一施加：</p>
  * <ul>
  *   <li>{@code sandbox}（不含 allow-same-origin）：产物获得唯一不透明源，读不到平台 Cookie 与同源接口；</li>
- *   <li>{@code connect-src 'none'}：切断 fetch / XHR / WebSocket / EventSource 外发通道；</li>
+ *   <li>部署产物用 {@code connect-src 'none'} 完全切断外发，dev-server 预览仅保留同源 HMR；</li>
  *   <li>{@code frame-ancestors 'self'}：只允许平台自身控制台内嵌，防止第三方站点套壳；</li>
  *   <li>{@code form-action 'none'}：阻断以表单提交方式绕过 connect-src 的外发。</li>
  * </ul>
@@ -22,7 +22,8 @@ import java.util.Map;
  * {@code safeLocalStorage} 适配器（沙箱内退化为内存存储），避免模块顶层访问抛异常导致白屏。</p>
  *
  * <p>区分两条产物通路：已部署产物用 {@link #CONTENT_SECURITY_POLICY} 完全切断外发；
- * dev-server 预览用 {@link #PREVIEW_CONTENT_SECURITY_POLICY} 放通 WebSocket 以保留 Vite HMR。
+ * dev-server 预览用 {@link #PREVIEW_CONTENT_SECURITY_POLICY} 只放通公开响应同源连接，
+ * 以保留经平台代理的 Vite HMR。
  * 本类是这两套响应头的唯一来源，避免策略随时间在两条通路上漂移。</p>
  */
 public final class GeneratedContentSecurityPolicy {
@@ -51,18 +52,15 @@ public final class GeneratedContentSecurityPolicy {
             SANDBOX, COMMON_DIRECTIVES, "connect-src 'none'");
 
     /**
-     * dev-server 预览的策略：放通 WebSocket 以保留 Vite HMR。
+     * dev-server 预览策略：只允许连接公开响应自身的来源。
      *
-     * <p>不透明源下 {@code 'self'} 不匹配任何来源，若沿用 {@code connect-src 'none'}，
-     * Vite 的 {@code vite-hmr} WebSocket 会被拦截，预览失去热更新 —— 这恰好损害我们要改善的预览体验。
-     * 因此按 scheme 放通 ws/wss。</p>
-     *
-     * <p>安全权衡：真正要防的是「生成脚本以受害者身份调用平台接口」，而该攻击已由 sandbox 的不透明源
-     * 阻断（Cookie 不再随行），{@code connect-src} 在此只是纵深防御。被沙箱隔离的页面本身不持有平台凭据，
-     * 放通 WebSocket 的额外暴露面很小，换回热更新是值得的。HTTP 外发（fetch/XHR）仍被阻断。</p>
+     * <p>CSP 的 {@code 'self'} 按策略响应 URL 的来源匹配，不使用 sandbox 后页面的 opaque origin。
+     * 因此 Vite 仍可连接平台同源的 HMR WebSocket，同时生成脚本无法再通过任意
+     * {@code ws:}/{@code wss:} 主机外发数据。反向代理必须把 HMR 保持在公开同源路径；
+     * 直连内部 Dev Server 端口会被浏览器明确拦截。</p>
      */
     public static final String PREVIEW_CONTENT_SECURITY_POLICY = String.join("; ",
-            SANDBOX, COMMON_DIRECTIVES, "connect-src ws: wss:");
+            SANDBOX, COMMON_DIRECTIVES, "connect-src 'self'");
 
     /** 与 CSP 同时下发的补充响应头，覆盖不支持 CSP frame-ancestors 的旧浏览器。 */
     public static final Map<String, String> ADDITIONAL_HEADERS = Map.of(

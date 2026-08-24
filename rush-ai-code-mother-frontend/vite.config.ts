@@ -48,6 +48,8 @@ export default defineConfig({
         target: 'http://localhost:8123',
         changeOrigin: true,
         secure: false,
+        // Preview 的 Vite HMR 与 HTTP 资源共用 /api 公开代理路径。
+        ws: true,
       },
     },
   },

@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.model.chat.request.json.JsonArraySchema;
@@ -27,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -64,12 +66,14 @@ class FileBatchWriteToolTest {
                 List.of(), List.of(), "review_only", "manual_retry_without_snapshot"
         ), false, new AiToolWorkspaceProperties());
 
-        String result = tool.writeFiles(List.of(
-                new FileBatchWriteTool.FileWrite("src/App.vue", "allowed"),
-                new FileBatchWriteTool.FileWrite("src/Other.vue", "not-allowed")
-        ), appId);
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.writeFiles(List.of(
+                        new FileBatchWriteTool.FileWrite("src/App.vue", "allowed"),
+                        new FileBatchWriteTool.FileWrite("src/Other.vue", "not-allowed")
+                ), appId));
 
-        assertTrue(result.contains("批量文件写入失败"));
+        assertTrue(failure.publicMessage().contains("批量文件写入失败"));
         assertFalse(Files.exists(projectDir(appId).resolve("src/App.vue")));
         assertFalse(Files.exists(projectDir(appId).resolve("src/Other.vue")));
     }
@@ -80,12 +84,14 @@ class FileBatchWriteToolTest {
         FileBatchWriteTool tool = createTool(
                 appId, null, true, new AiToolWorkspaceProperties());
 
-        String result = tool.writeFiles(List.of(
-                new FileBatchWriteTool.FileWrite("src/App.vue", "first"),
-                new FileBatchWriteTool.FileWrite("src/./App.vue", "second")
-        ), appId);
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.writeFiles(List.of(
+                        new FileBatchWriteTool.FileWrite("src/App.vue", "first"),
+                        new FileBatchWriteTool.FileWrite("src/./App.vue", "second")
+                ), appId));
 
-        assertTrue(result.contains("重复文件路径"));
+        assertTrue(failure.publicMessage().contains("重复文件路径"));
         assertFalse(Files.exists(projectDir(appId).resolve("src/App.vue")));
     }
 
@@ -96,12 +102,14 @@ class FileBatchWriteToolTest {
         properties.setMaxBatchWriteFiles(1);
         FileBatchWriteTool tool = createTool(appId, null, true, properties);
 
-        String result = tool.writeFiles(List.of(
-                new FileBatchWriteTool.FileWrite("src/App.vue", "app"),
-                new FileBatchWriteTool.FileWrite("src/main.js", "main")
-        ), appId);
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.writeFiles(List.of(
+                        new FileBatchWriteTool.FileWrite("src/App.vue", "app"),
+                        new FileBatchWriteTool.FileWrite("src/main.js", "main")
+                ), appId));
 
-        assertTrue(result.contains("单次最多写入 1 个文件"));
+        assertTrue(failure.publicMessage().contains("单次最多写入 1 个文件"));
         assertFalse(Files.exists(projectDir(appId).resolve("src/App.vue")));
         assertFalse(Files.exists(projectDir(appId).resolve("src/main.js")));
     }
@@ -122,12 +130,14 @@ class FileBatchWriteToolTest {
                         ToolPathSupportTestFixture.from(contextService, storageProperties()), properties),
                 properties);
 
-        String result = tool.writeFiles(List.of(
-                new FileBatchWriteTool.FileWrite("src/App.vue", "content")
-        ), appId);
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.writeFiles(List.of(
+                        new FileBatchWriteTool.FileWrite("src/App.vue", "content")
+                ), appId));
 
-        assertTrue(result.contains("批量文件写入失败"));
-        assertFalse(result.contains("secret-value"));
+        assertTrue(failure.publicMessage().contains("批量文件写入失败"));
+        assertFalse(failure.publicMessage().contains("secret-value"));
     }
 
     @Test

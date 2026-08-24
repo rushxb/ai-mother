@@ -4,6 +4,7 @@ import cn.hutool.json.JSONObject;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 
 /**
  * 工具基类
@@ -36,6 +37,16 @@ public abstract class BaseTool {
             return fallbackMessage;
         }
         return "错误：" + exception.getMessage();
+    }
+
+    /** 构造可由 Agent 协议标记为失败、且允许安全返回给模型的工具结果。 */
+    protected final ToolPublicFailureException toolFailure(String publicMessage) {
+        return new ToolPublicFailureException(publicMessage);
+    }
+
+    /** 将工具输入异常转换为协议级失败，同时保留经过审核的可操作文案。 */
+    protected final ToolPublicFailureException toolInputFailure(String prefix, ToolInputException exception) {
+        return toolFailure(renderInputError(prefix, exception));
     }
 
     /**

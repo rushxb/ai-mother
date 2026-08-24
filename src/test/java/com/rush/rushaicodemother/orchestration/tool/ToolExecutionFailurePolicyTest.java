@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.tool;
 
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
+import com.rush.rushaicodemother.ai.tools.ToolInputException;
 import com.rush.rushaicodemother.core.error.GenerationAgentLoopException;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
@@ -9,6 +10,9 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.invocation.InvocationContext;
 import dev.langchain4j.service.tool.ToolErrorContext;
 import dev.langchain4j.service.tool.ToolErrorHandlerResult;
+import dev.langchain4j.service.tool.ToolExecutionResult;
+import dev.langchain4j.service.tool.ToolExecutor;
+import dev.langchain4j.service.tool.ToolService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -17,6 +21,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -81,6 +86,37 @@ class ToolExecutionFailurePolicyTest {
                 GenerationPerformanceProfile.balanced());
 
         assertEquals("工具执行失败，请检查输入并选择安全的替代方案。", result.text());
+    }
+
+    @Test
+    void safeToolRejectionMustRemainActionableAndBeMarkedAsProtocolError() {
+        ToolExecutionFailurePolicy policy = new ToolExecutionFailurePolicy(
+                mock(ToolApprovalService.class), mock(ToolInvocationCheckpointFactory.class));
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .id("call-safe-rejection")
+                .name("modifyFile")
+                .arguments("{\"relativeFilePath\":\"src/App.vue\"}")
+                .build();
+        ToolExecutor rejectingExecutor = (ignoredRequest, ignoredMemoryId) -> {
+            throw new ToolInputException("文件中未找到要替换的内容，文件未修改 - src/App.vue");
+        };
+
+        ToolExecutionResult result = ToolService.executeWithErrorHandling(
+                request,
+                rejectingExecutor,
+                mock(InvocationContext.class),
+                (failure, context) -> {
+                    throw new AssertionError("本用例不应进入参数反序列化错误处理", failure);
+                },
+                (failure, context) -> policy.handle(
+                        failure,
+                        context,
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        GenerationPerformanceProfile.balanced())
+        );
+
+        assertTrue(result.isError());
+        assertEquals("文件中未找到要替换的内容，文件未修改 - src/App.vue", result.resultText());
     }
 
     @Test

@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionConte
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -95,6 +96,22 @@ class FileDeleteToolTest {
         verify(gateway).applyPatch(
                 eq(9L), eq(file.projectRoot()), any(PatchOperation.class),
                 eq("tool-delete-file"), eq("delete_file"));
+    }
+
+    @Test
+    void protectedFileRejectionMustBeAProtocolFailure() {
+        ToolWorkspaceFileService.ToolWorkspaceFile file = file("src/App.vue");
+        when(workspaceFileService.resolveFile(9L, "src/App.vue")).thenReturn(file);
+        when(workspaceFileService.exists(file)).thenReturn(true);
+        when(workspaceFileService.isRegularFile(file)).thenReturn(true);
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.deleteFile("src/App.vue", 9L));
+
+        assertEquals("错误：不允许删除重要文件 - App.vue", failure.publicMessage());
+        verify(gateway, never()).applyPatch(
+                any(), any(), any(PatchOperation.class), any(), any());
     }
 
     @Test

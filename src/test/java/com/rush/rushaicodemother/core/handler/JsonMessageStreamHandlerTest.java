@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -232,6 +233,38 @@ class JsonMessageStreamHandlerTest {
                 org.mockito.ArgumentMatchers.eq(1L)
         );
         assertFalse(history.getValue().contains(secret));
+    }
+
+    @Test
+    void failedWriteResultMustNotBeRenderedAsPersistedWorkspaceMutation() {
+        ToolManager toolManager = mock(ToolManager.class);
+        BaseTool tool = mock(BaseTool.class);
+        when(toolManager.getTool("modifyFile")).thenReturn(tool);
+        when(tool.getRiskLevel()).thenReturn(ToolRiskLevel.WRITE);
+        when(tool.getDisplayName()).thenReturn("修改文件");
+        JsonMessageStreamHandler handler = new JsonMessageStreamHandler(toolManager);
+        User loginUser = new User();
+        loginUser.setId(1L);
+        GenerationStreamEvent rawResult = GenerationStreamEvent.toolResult(
+                "警告：文件中未找到要替换的内容，文件未修改 - src/App.vue",
+                Map.of(
+                        "toolName", "modifyFile",
+                        "arguments", "{\"relativeFilePath\":\"src/App.vue\"}",
+                        "requestId", "result-failed-write",
+                        "isError", true
+                )
+        );
+
+        GenerationStreamEvent publicResult = handler.handle(
+                        Flux.just(rawResult), mock(ChatHistoryService.class), 1L, loginUser)
+                .blockFirst();
+
+        assertTrue(publicResult.getText().contains("修改文件失败"));
+        assertTrue(publicResult.getText().contains("文件未修改"));
+        assertFalse(publicResult.getText().contains("已写入工作区"));
+        assertEquals(true, publicResult.getData().get("isError"));
+        verify(tool, never()).generateToolExecutedResult(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
     }
 
     private GenerationStreamEvent toolCall(String requestId, String arguments) {

@@ -157,6 +157,8 @@ public class JsonMessageStreamHandler implements GenerationStreamHandlerAdapter 
                 String toolId = event.getData() == null ? null : stringValue(event.getData().get("requestId"));
                 String toolName = event.getData() == null ? null : stringValue(event.getData().get("toolName"));
                 String arguments = event.getData() == null ? "" : String.valueOf(event.getData().get("arguments"));
+                boolean toolFailed = event.getData() != null
+                        && Boolean.TRUE.equals(event.getData().get("isError"));
                 clearToolArguments(toolArgumentBuffers, toolId, toolName, null);
                 JSONObject jsonObject = StrUtil.isBlank(arguments) ? new JSONObject() : JSONUtil.parseObj(arguments);
                 // 根据工具名称获取工具实例
@@ -168,24 +170,28 @@ public class JsonMessageStreamHandler implements GenerationStreamHandlerAdapter 
                             StrUtil.blankToDefault(event.getText(), "(无结果)"));
                     String output = publicToolOutput(fallbackResult);
                     chatHistoryStringBuilder.append(output);
-                    return GenerationStreamEvent.toolResult(output, buildToolEventData(
+                    return GenerationStreamEvent.toolResult(output, buildToolResultEventData(
                             toolId,
                             toolName,
                             false,
                             arguments,
-                            StrUtil.blankToDefault(event.getText(), "")
+                            StrUtil.blankToDefault(event.getText(), ""),
+                            toolFailed
                     ));
                 }
-                String result = tool.generateToolExecutedResult(jsonObject, event.getText());
+                String result = toolFailed
+                        ? failedToolResult(tool, event.getText())
+                        : tool.generateToolExecutedResult(jsonObject, event.getText());
                 // 输出前端和要持久化的内容
                 String output = publicToolOutput(result);
                 chatHistoryStringBuilder.append(output);
-                return GenerationStreamEvent.toolResult(output, buildToolEventData(
+                return GenerationStreamEvent.toolResult(output, buildToolResultEventData(
                         toolId,
                         toolName,
                         true,
                         arguments,
-                        StrUtil.blankToDefault(event.getText(), "")
+                        StrUtil.blankToDefault(event.getText(), ""),
+                        toolFailed
                 ));
             }
             case GenerationStreamEvent.BUILD_RESULT -> {
@@ -237,6 +243,26 @@ public class JsonMessageStreamHandler implements GenerationStreamHandlerAdapter 
         }
         appendFileOperationData(data, toolName, arguments);
         return data;
+    }
+
+    /** 工具结果必须保留协议失败位，前端与历史记录不能把失败渲染成已落盘。 */
+    private Map<String, Object> buildToolResultEventData(String requestId,
+                                                         String toolName,
+                                                         boolean registered,
+                                                         String arguments,
+                                                         String result,
+                                                         boolean failed) {
+        Map<String, Object> data = buildToolEventData(
+                requestId, toolName, registered, arguments, result);
+        data.put("isError", failed);
+        return data;
+    }
+
+    /** 失败结果使用真实公开文案，禁止调用只适用于成功路径的工具展示模板。 */
+    private String failedToolResult(BaseTool tool, String toolResult) {
+        String displayName = StrUtil.blankToDefault(tool.getDisplayName(), tool.getToolName());
+        String failureDetail = StrUtil.blankToDefault(toolResult, "执行失败");
+        return "[工具调用] " + displayName + "失败\n" + failureDetail;
     }
 
     /** 追加工具参数。 */

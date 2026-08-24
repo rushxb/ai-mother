@@ -41,16 +41,20 @@ public class ToolExecutionFailurePolicy {
             throw policyFailure;
         }
         GenerationApprovalRequiredException approvalRequired = findApprovalRequired(failure);
-        if (approvalRequired == null) {
-            return ToolErrorHandlerResult.text("工具执行失败，请检查输入并选择安全的替代方案。");
+        if (approvalRequired != null) {
+            ToolExecutionRequest request = context == null ? null : context.toolExecutionRequest();
+            UserMessage currentUserMessage = context == null || context.invocationContext() == null
+                    ? null
+                    : context.invocationContext().userMessage();
+            prepareApprovalSuspension(
+                    approvalRequired, request, codeGenType, profile, currentUserMessage);
+            throw approvalRequired;
         }
-        ToolExecutionRequest request = context == null ? null : context.toolExecutionRequest();
-        UserMessage currentUserMessage = context == null || context.invocationContext() == null
-                ? null
-                : context.invocationContext().userMessage();
-        prepareApprovalSuspension(
-                approvalRequired, request, codeGenType, profile, currentUserMessage);
-        throw approvalRequired;
+        ToolPublicFailure publicFailure = findPublicFailure(failure);
+        if (publicFailure != null) {
+            return ToolErrorHandlerResult.text(publicFailure.publicMessage());
+        }
+        return ToolErrorHandlerResult.text("工具执行失败，请检查输入并选择安全的替代方案。");
     }
 
     public void prepareApprovalSuspension(GenerationApprovalRequiredException approvalRequired,
@@ -110,6 +114,18 @@ public class ToolExecutionFailurePolicy {
         while (current != null) {
             if (current instanceof GenerationApprovalRequiredException approvalRequired) {
                 return approvalRequired;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    /** 只提取由平台显式标记为可公开的工具失败，禁止透传任意异常文案。 */
+    private ToolPublicFailure findPublicFailure(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof ToolPublicFailure publicFailure) {
+                return publicFailure;
             }
             current = current.getCause();
         }

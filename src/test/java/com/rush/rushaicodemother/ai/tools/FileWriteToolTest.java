@@ -11,6 +11,7 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.patch.PatchApplyServiceTestFactory;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -19,6 +20,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -35,9 +37,12 @@ class FileWriteToolTest {
                 "v1", "feature_update", List.of("src/App.vue"), List.of(), List.of(), List.of(), "review_only", "manual_retry_without_snapshot"
         ), false);
 
-        String result = tool.writeFile("src/Other.vue", "content", 1L);
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.writeFile("src/Other.vue", "content", 1L));
 
-        assertTrue(result.contains("outside_change_plan") || result.contains("patch_operation_validation_failed"));
+        assertTrue(failure.publicMessage().contains("outside_change_plan")
+                || failure.publicMessage().contains("patch_operation_validation_failed"));
     }
 
     @Test
@@ -70,10 +75,12 @@ class FileWriteToolTest {
                 .thenThrow(new IllegalStateException("provider-api-key=secret-value"));
         FileWriteTool tool = new FileWriteTool(gateway, ToolPathSupportTestFixture.workspaceForApp(appId));
 
-        String result = tool.writeFile("src/App.vue", "content", appId);
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.writeFile("src/App.vue", "content", appId));
 
-        assertTrue(result.contains("文件写入失败"));
-        assertFalse(result.contains("secret-value"));
+        assertTrue(failure.publicMessage().contains("文件写入失败"));
+        assertFalse(failure.publicMessage().contains("secret-value"));
     }
 
     private FileWriteTool createTool(long appId, ChangePlan changePlan, boolean allowBootstrap) throws Exception {

@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -64,15 +65,17 @@ public class FileBatchWriteTool extends BaseTool {
             if ("applied".equals(result.status())) {
                 return "批量文件写入成功：共 " + result.appliedOperationCount() + " 个文件";
             }
-            return "批量文件写入失败：" + result.reason();
+            throw toolFailure("批量文件写入失败：" + result.reason());
         } catch (ToolInputException exception) {
-            return renderInputError("批量文件写入失败：", exception);
+            throw toolInputFailure("批量文件写入失败：", exception);
+        } catch (ToolPublicFailureException publicFailure) {
+            throw publicFailure;
         } catch (GenerationExecutionPolicyException policyFailure) {
             throw policyFailure;
         } catch (Exception exception) {
             log.error("批量文件写入失败，appId={}, fileCount={}",
                     appId, files == null ? 0 : files.size(), LogExceptionSanitizer.sanitize(exception));
-            return "批量文件写入失败，请稍后重试";
+            throw toolFailure("批量文件写入失败，请稍后重试");
         }
     }
 

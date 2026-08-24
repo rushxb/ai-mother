@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -59,10 +60,10 @@ public class FileModifyTool extends BaseTool {
                     workspaceFileService.resolveFile(appId, relativeFilePath);
             String normalizedPath = file.relativePath();
             if (!workspaceFileService.exists(file) || !workspaceFileService.isRegularFile(file)) {
-                return "错误：文件不存在或不是文件 - " + normalizedPath;
+                throw toolFailure("错误：文件不存在或不是文件 - " + normalizedPath);
             }
             if (!workspaceFileService.readUtf8(file).contains(oldContent)) {
-                return "警告：文件中未找到要替换的内容，文件未修改 - " + normalizedPath;
+                throw toolFailure("警告：文件中未找到要替换的内容，文件未修改 - " + normalizedPath);
             }
             PatchApplyResult result = applyWithGlobalChangePlan(
                     appId,
@@ -73,14 +74,16 @@ public class FileModifyTool extends BaseTool {
                 log.info("成功修改文件: {}", file.absolutePath());
                 return "文件修改成功: " + normalizedPath;
             }
-            return "修改文件失败: " + normalizedPath + ", 原因: " + result.reason();
+            throw toolFailure("修改文件失败: " + normalizedPath + ", 原因: " + result.reason());
         } catch (ToolInputException e) {
-            return renderInputError("修改文件失败: ", e);
+            throw toolInputFailure("修改文件失败: ", e);
+        } catch (ToolPublicFailureException publicFailure) {
+            throw publicFailure;
         } catch (GenerationExecutionPolicyException policyFailure) {
             throw policyFailure;
         } catch (Exception e) {
             log.error("修改文件失败，relativeFilePath: {}", relativeFilePath, LogExceptionSanitizer.sanitize(e));
-            return "修改文件失败，请稍后重试";
+            throw toolFailure("修改文件失败，请稍后重试");
         }
     }
 

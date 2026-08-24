@@ -15,6 +15,7 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredEx
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import cn.hutool.crypto.digest.DigestUtil;
 import org.springframework.stereotype.Component;
@@ -68,12 +69,12 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
                 return "警告：文件不存在，无需删除 - " + normalizedPath;
             }
             if (!workspaceFileService.isRegularFile(file)) {
-                return "错误：指定路径不是文件，无法删除 - " + normalizedPath;
+                throw toolFailure("错误：指定路径不是文件，无法删除 - " + normalizedPath);
             }
             // 安全检查：避免删除重要文件
             String fileName = file.fileName();
             if (isImportantFile(fileName)) {
-                return "错误：不允许删除重要文件 - " + fileName;
+                throw toolFailure("错误：不允许删除重要文件 - " + fileName);
             }
             requireApproval(appId, normalizedPath);
             PatchApplyResult result = applyWithGlobalChangePlan(
@@ -85,16 +86,18 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
                 log.info("成功删除文件: {}", file.absolutePath());
                 return "文件删除成功: " + normalizedPath;
             }
-            return "删除文件失败: " + normalizedPath + ", 原因: " + result.reason();
+            throw toolFailure("删除文件失败: " + normalizedPath + ", 原因: " + result.reason());
         } catch (ToolInputException e) {
-            return renderInputError("删除文件失败: ", e);
+            throw toolInputFailure("删除文件失败: ", e);
         } catch (GenerationApprovalRequiredException approvalRequired) {
             throw approvalRequired;
+        } catch (ToolPublicFailureException publicFailure) {
+            throw publicFailure;
         } catch (GenerationExecutionPolicyException policyFailure) {
             throw policyFailure;
         } catch (Exception e) {
             log.error("删除文件失败，relativeFilePath: {}", relativeFilePath, LogExceptionSanitizer.sanitize(e));
-            return "删除文件失败，请稍后重试";
+            throw toolFailure("删除文件失败，请稍后重试");
         }
     }
 

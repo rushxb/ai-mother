@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -60,7 +61,7 @@ public class FileWriteTool extends BaseTool {
             Path projectRoot = file.projectRoot();
             boolean exists = workspaceFileService.exists(file);
             if (exists && !workspaceFileService.isRegularFile(file)) {
-                return "文件写入失败: 指定路径不是普通文件 - " + normalizedPath;
+                throw toolFailure("文件写入失败: 指定路径不是普通文件 - " + normalizedPath);
             }
             PatchOperation operation = exists
                     ? PatchOperation.modify(normalizedPath, content)
@@ -70,15 +71,17 @@ public class FileWriteTool extends BaseTool {
                 log.info("成功写入文件: {}", file.absolutePath());
                 return "文件写入成功: " + normalizedPath;
             }
-            return "文件写入失败: " + normalizedPath + ", 原因: " + result.reason();
+            throw toolFailure("文件写入失败: " + normalizedPath + ", 原因: " + result.reason());
         } catch (ToolInputException e) {
-            return renderInputError("文件写入失败: ", e);
+            throw toolInputFailure("文件写入失败: ", e);
+        } catch (ToolPublicFailureException publicFailure) {
+            throw publicFailure;
         } catch (GenerationExecutionPolicyException policyFailure) {
             throw policyFailure;
         } catch (Exception e) {
             log.error("文件写入失败，relativeFilePath: {}", relativeFilePath,
                     LogExceptionSanitizer.sanitize(e));
-            return "文件写入失败，请稍后重试";
+            throw toolFailure("文件写入失败，请稍后重试");
         }
     }
 

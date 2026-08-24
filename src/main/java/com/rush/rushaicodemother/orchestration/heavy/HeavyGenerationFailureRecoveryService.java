@@ -14,6 +14,7 @@ import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationCommitResult;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
+import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.workspace.GeneratedProjectWorkspaceInspection;
@@ -159,8 +160,30 @@ public class HeavyGenerationFailureRecoveryService {
     public void emitRollbackRestoreIfAllowed(Long appId,
                                              GenerationPreparation preparation,
                                              GenerationSession session) {
-        if (session.isCancelled() || preparation.artifact("rollback_restore") != null) {
+        if (session.isCancelled()) {
             return;
+        }
+        GenerationArtifact existingRestore = preparation.artifact(RollbackRestore.KEY);
+        if (existingRestore != null) {
+            try {
+                RollbackRestore.fromArtifact(existingRestore, appId, preparation.taskId());
+                return;
+            } catch (IllegalArgumentException invalidArtifact) {
+                log.warn("Ignoring invalid rollback restore artifact, appId: {}, taskId: {}, error: {}",
+                        appId,
+                        preparation.taskId(),
+                        invalidArtifact.getClass().getSimpleName());
+                // 托管执行纪元不会覆盖已发布工作区；即使后续无需物理恢复，也不能继续
+                // 把外来制品投影给用户。先写入当前任务的安全跳过结果，旧路径实际恢复后会覆盖它。
+                preparation.putArtifact(RollbackRestore.skipped(
+                        appId,
+                        preparation.taskId(),
+                        "manual_retry_without_snapshot",
+                        "",
+                        "",
+                        "rollback_restore_artifact_invalid"
+                ).toArtifact());
+            }
         }
         // 孤立的执行纪元并未改变已发布的工作空间。恢复旧的
         // 仅通过 appId 进行快照就会重新引入 epoch 工作区所避免的 TOCTOU 竞赛。
@@ -174,12 +197,19 @@ public class HeavyGenerationFailureRecoveryService {
                 preparation.artifact(ChangePlan.KEY),
                 preparation.artifact(RollbackPoint.KEY)
         );
+        RollbackRestore restore = RollbackRestore.fromArtifact(
+                rollbackRestore,
+                appId,
+                preparation.taskId()
+        );
         preparation.putArtifact(rollbackRestore);
-        Object status = rollbackRestore.payload().get("status");
-        Object reason = rollbackRestore.payload().get("reason");
-        generationOrchestrationMetricsCollector.recordRollbackRestore("agent", String.valueOf(status), String.valueOf(reason));
+        generationOrchestrationMetricsCollector.recordRollbackRestore(
+                "agent",
+                restore.status(),
+                restore.reason()
+        );
         session.emit(GenerationStreamEvent.agentEvent(
-                buildRollbackRestoreMessage(rollbackRestore),
+                buildRollbackRestoreMessage(restore),
                 buildRollbackRestoreEventData(preparation, rollbackRestore)
         ));
     }
@@ -259,7 +289,7 @@ public class HeavyGenerationFailureRecoveryService {
         putArtifactPayload(data, preparation, "diff_summary");
         putArtifactPayload(data, preparation, "patch_result");
         putArtifactPayload(data, preparation, GenerationCommitResult.KEY);
-        putArtifactPayload(data, preparation, "rollback_restore");
+        putArtifactPayload(data, preparation, RollbackRestore.KEY);
         return data;
     }
 
@@ -272,11 +302,16 @@ public class HeavyGenerationFailureRecoveryService {
  */
     public Map<String, Object> buildRollbackRestoreEventData(GenerationPreparation preparation,
                                                              GenerationArtifact rollbackRestore) {
+        RollbackRestore restore = RollbackRestore.fromArtifact(
+                rollbackRestore,
+                null,
+                preparation.taskId()
+        );
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("agent", "Orchestrator");
         data.put("stage", "rollback");
-        data.put("status", rollbackRestore.payload().get("status"));
-        data.put("summary", buildRollbackRestoreMessage(rollbackRestore));
+        data.put("status", restore.status());
+        data.put("summary", buildRollbackRestoreMessage(restore));
         data.put("taskId", preparation.taskId());
         data.put("artifact", rollbackRestore.payload());
         return data;
@@ -321,12 +356,11 @@ public class HeavyGenerationFailureRecoveryService {
     }
 
     /** 构建并返回回滚恢复消息。 */
-    private String buildRollbackRestoreMessage(GenerationArtifact rollbackRestore) {
-        Object status = rollbackRestore.payload().get("status");
-        if ("restored".equals(String.valueOf(status))) {
+    private String buildRollbackRestoreMessage(RollbackRestore rollbackRestore) {
+        if ("restored".equals(rollbackRestore.status())) {
             return "生成失败，已从本地回滚点恢复项目文件。";
         }
-        if ("failed".equals(String.valueOf(status))) {
+        if ("failed".equals(rollbackRestore.status())) {
             return "生成失败，尝试从本地回滚点恢复项目文件未成功。";
         }
         return "生成失败，当前回滚策略未执行自动恢复。";

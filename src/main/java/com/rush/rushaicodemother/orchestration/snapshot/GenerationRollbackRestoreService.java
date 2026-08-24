@@ -77,7 +77,7 @@ public class GenerationRollbackRestoreService {
                                                GenerationArtifact changePlanArtifact,
                                                GenerationArtifact rollbackPointArtifact) {
         RollbackRestore restore = restore(appId, taskId, changePlanArtifact, rollbackPointArtifact);
-        return GenerationArtifact.of("rollback_restore", "Orchestrator", "Rollback restore", restore.toPayload());
+        return restore.toArtifact();
     }
 
     /** 返回恢复。 */

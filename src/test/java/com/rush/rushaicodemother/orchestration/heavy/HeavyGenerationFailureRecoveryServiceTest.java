@@ -1,9 +1,13 @@
 package com.rush.rushaicodemother.orchestration.heavy;
 
+import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
 import com.rush.rushaicodemother.orchestration.GenerationPreparation;
+import com.rush.rushaicodemother.orchestration.GenerationSession;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
@@ -18,12 +22,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class HeavyGenerationFailureRecoveryServiceTest {
 
@@ -33,6 +40,7 @@ class HeavyGenerationFailureRecoveryServiceTest {
     private GenerationAppStateService appStateService;
     private GenerationWorkspaceService workspaceService;
     private GenerationTaskFenceGuard fenceGuard;
+    private GenerationRollbackRestoreService rollbackRestoreService;
     private HeavyGenerationFailureRecoveryService service;
 
     @BeforeEach
@@ -40,12 +48,56 @@ class HeavyGenerationFailureRecoveryServiceTest {
         appStateService = mock(GenerationAppStateService.class);
         workspaceService = mock(GenerationWorkspaceService.class);
         fenceGuard = mock(GenerationTaskFenceGuard.class);
+        rollbackRestoreService = mock(GenerationRollbackRestoreService.class);
         service = new HeavyGenerationFailureRecoveryService(
                 appStateService,
                 mock(GenerationOrchestrationMetricsCollector.class),
-                mock(GenerationRollbackRestoreService.class),
+                rollbackRestoreService,
                 workspaceService,
                 fenceGuard);
+    }
+
+    @Test
+    void foreignRollbackRestoreArtifactMustNotSuppressCurrentTaskRecovery() {
+        Map<String, GenerationArtifact> artifacts = new LinkedHashMap<>();
+        artifacts.put("rollback_restore", GenerationArtifact.of(
+                "rollback_restore",
+                "Orchestrator",
+                "Rollback restore",
+                RollbackRestore.skipped(
+                        99L,
+                        "foreign-task",
+                        "manual_retry_without_snapshot",
+                        "",
+                        "",
+                        "rollback_strategy_not_snapshot"
+                ).toPayload()
+        ));
+        GenerationPreparation preparation = preparation(artifacts);
+        GenerationArtifact currentTaskRestore = GenerationArtifact.of(
+                "rollback_restore",
+                "Orchestrator",
+                "Rollback restore",
+                RollbackRestore.skipped(
+                        1L,
+                        "task-1",
+                        "manual_retry_without_snapshot",
+                        "",
+                        "",
+                        "rollback_strategy_not_snapshot"
+                ).toPayload()
+        );
+        when(rollbackRestoreService.restoreIfAllowed(1L, "task-1", null, null))
+                .thenReturn(currentTaskRestore);
+        GenerationSession session = new GenerationSession(preparation);
+
+        service.emitRollbackRestoreIfAllowed(1L, preparation, session);
+        session.complete();
+
+        GenerationStreamEvent event = session.asFlux().blockFirst();
+        assertNotNull(event);
+        assertEquals("rollback", event.getData().get("stage"));
+        assertEquals(1L, preparation.artifact("rollback_restore").payload().get("appId"));
     }
 
     @Test
@@ -78,6 +130,10 @@ class HeavyGenerationFailureRecoveryServiceTest {
     }
 
     private GenerationPreparation preparation() {
+        return preparation(new LinkedHashMap<>());
+    }
+
+    private GenerationPreparation preparation(Map<String, GenerationArtifact> artifacts) {
         return new GenerationPreparation(
                 CodeGenTypeEnum.HTML,
                 CodeGenTypeEnum.VUE_PROJECT,
@@ -85,7 +141,7 @@ class HeavyGenerationFailureRecoveryServiceTest {
                 "build",
                 "prompt",
                 List.of(),
-                new LinkedHashMap<>(),
+                artifacts,
                 null,
                 Map.of(),
                 "task-1");

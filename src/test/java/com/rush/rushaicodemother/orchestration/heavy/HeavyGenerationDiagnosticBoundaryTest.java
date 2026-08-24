@@ -23,6 +23,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.RollbackRestore;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationRollbackRestoreService;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationResult;
 import com.rush.rushaicodemother.service.devserver.DevServerValidationRequest;
@@ -161,12 +162,14 @@ class HeavyGenerationDiagnosticBoundaryTest {
     void buildFailureBoundaryMustDefensivelySanitizeCallerProvidedTextAndData() {
         String taskId = "diagnostic-task-2";
         Map<String, GenerationArtifact> artifacts = new HashMap<>();
-        artifacts.put("rollback_restore", GenerationArtifact.of(
-                "rollback_restore",
-                "Orchestrator",
-                "回滚恢复",
-                Map.of("status", "skipped", "reason", "test")
-        ));
+        artifacts.put(RollbackRestore.KEY, RollbackRestore.skipped(
+                930_002L,
+                taskId,
+                "manual_retry_without_snapshot",
+                "",
+                "",
+                "test"
+        ).toArtifact());
         GenerationPreparation preparation = preparation(taskId, artifacts);
         GenerationSession session = new GenerationSession(preparation);
         HeavyGenerationFailureRecoveryService service = new HeavyGenerationFailureRecoveryService(

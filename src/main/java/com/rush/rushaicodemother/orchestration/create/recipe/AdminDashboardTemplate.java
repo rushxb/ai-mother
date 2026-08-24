@@ -4,11 +4,16 @@ import org.springframework.stereotype.Component;
 
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.escape;
 
-/** 呈现管理仪表板视图。 */
+/**
+ * 呈现可直接运行的管理工作台。
+ *
+ * <p>搜索、筛选、分页、表单和批量操作共享同一份响应式记录状态。将这些行为集中在一个
+ * 页面模板中，可以避免多个 slot 分别覆盖同一路径，也使 renderer 能用真实产物证明能力。</p>
+ */
 @Component
 final class AdminDashboardTemplate {
 
-    /** 返回管理端{@code Dashboard}视图。 */
+    /** 返回包含完整本地 CRUD 交互的管理端 Dashboard 视图。 */
     String adminDashboardView(AdminRecipe recipe) {
         return """
                 <template>
@@ -19,14 +24,9 @@ final class AdminDashboardTemplate {
                         <h1 class="text-2xl font-semibold">%s工作台</h1>
                       </div>
                       <div class="toolbar-actions">
-                        <Button v-if="enabledInteractions.includes('batch')" variant="outline">批量处理</Button>
-                        <Button v-if="enabledInteractions.includes('export')" variant="outline">导出</Button>
-                        <Button>新增%s</Button>
+                        <Button variant="outline" @click="exportRows">导出当前结果</Button>
+                        <Button @click="openCreate">新增{{ entityLabel }}</Button>
                       </div>
-                    </div>
-
-                    <div v-if="enabledInteractions.includes('filter')" class="filter-strip">
-                      <span v-for="item in filterChips" :key="item" class="filter-chip">{{ item }}</span>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 metric-grid">
@@ -52,9 +52,9 @@ final class AdminDashboardTemplate {
                         <CardContent>
                           <div class="flex items-end gap-2 h-[200px] p-4">
                             <div
-                              v-for="(height, index) in trendData"
+                              v-for="(height, index) in primaryViz.values"
                               :key="index"
-                              class="flex-1 rounded-t-md bg-gradient-to-t from-primary/80 to-primary/40 transition-all duration-300"
+                              class="flex-1 rounded-t-md bg-gradient-to-t from-primary/80 to-primary/40"
                               :style="{ height: height + '%%' }"
                             />
                           </div>
@@ -63,12 +63,12 @@ final class AdminDashboardTemplate {
 
                       <Card>
                         <CardHeader>
-                          <CardTitle>{{ secondaryViz.title }}</CardTitle>
+                          <CardTitle>近期动态</CardTitle>
                         </CardHeader>
                         <CardContent>
                           <div class="space-y-3">
-                            <div v-for="(item, index) in activities" :key="index" class="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 transition-colors">
-                              <div class="w-2 h-2 rounded-full bg-primary" />
+                            <div v-for="(item, index) in activities" :key="index" class="activity-item">
+                              <div class="activity-dot" />
                               <span class="text-sm">{{ item }}</span>
                             </div>
                           </div>
@@ -77,62 +77,281 @@ final class AdminDashboardTemplate {
                     </div>
 
                     <Card>
-                      <CardHeader class="flex flex-row items-center justify-between">
-                        <CardTitle>%s列表</CardTitle>
-                        <Button variant="link" @click="router.push('/orders')">查看全部</Button>
+                      <CardHeader class="space-y-4">
+                        <div class="management-heading">
+                          <div>
+                            <CardTitle>{{ entityLabel }}列表</CardTitle>
+                            <p class="text-sm text-muted-foreground">支持本地新增、编辑、删除、筛选与导出，可继续接入真实 API。</p>
+                          </div>
+                          <span class="inventory-summary">库存预警 {{ inventoryWarningCount }} 项</span>
+                        </div>
+
+                        <div class="filter-panel">
+                          <input
+                            v-model="searchQuery"
+                            class="filter-input"
+                            :placeholder="`搜索${entityLabel}名称、编号或负责人`"
+                          />
+                          <select v-model="statusFilter" class="filter-select" aria-label="状态筛选">
+                            <option value="">全部状态</option>
+                            <option v-for="status in statusOptions" :key="status" :value="status">{{ status }}</option>
+                          </select>
+                          <Button variant="outline" @click="resetFilters">重置筛选</Button>
+                        </div>
+
+                        <div class="bulk-toolbar">
+                          <span class="text-sm text-muted-foreground">已选择 {{ selectedRecordIds.length }} 项</span>
+                          <Button
+                            variant="outline"
+                            :disabled="selectedRecordIds.length === 0"
+                            @click="deleteSelected"
+                          >
+                            批量删除
+                          </Button>
+                        </div>
                       </CardHeader>
+
                       <CardContent>
-                        <div class="rounded-md border">
-                          <table class="w-full caption-bottom text-sm">
-                            <thead class="[&_tr]:border-b">
-                              <tr class="border-b transition-colors hover:bg-muted/50">
-                                <th v-for="column in columns" :key="column.key" class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">
-                                  {{ column.title }}
+                        <div class="rounded-md border table-scroll">
+                          <table class="management-table">
+                            <thead>
+                              <tr>
+                                <th class="selection-cell">
+                                  <input
+                                    type="checkbox"
+                                    :checked="allVisibleSelected"
+                                    aria-label="选择当前页全部记录"
+                                    @change="toggleAllVisible"
+                                  />
                                 </th>
+                                <th v-for="column in columns" :key="column.key">{{ column.title }}</th>
+                                <th>操作</th>
                               </tr>
                             </thead>
-                            <tbody class="[&_tr:last-child]:border-0">
-                              <tr v-for="row in orders" :key="row.no" class="border-b transition-colors hover:bg-muted/50">
-                                <td class="p-4 align-middle font-medium">{{ row.no }}</td>
-                                <td v-for="column in valueColumns" :key="column.key" class="p-4 align-middle">
-                                  {{ row[column.key] ?? '-' }}
+                            <tbody>
+                              <tr v-for="row in visibleRows" :key="row.no">
+                                <td class="selection-cell">
+                                  <input
+                                    type="checkbox"
+                                    :checked="selectedRecordIds.includes(row.no)"
+                                    :aria-label="`选择${row.no}`"
+                                    @change="toggleSelected(row.no)"
+                                  />
                                 </td>
-                                <td v-if="hasStatusColumn" class="p-4 align-middle">
-                                  <Badge :variant="statusVariant(row.status)">{{ row.status }}</Badge>
+                                <td v-for="column in columns" :key="column.key">
+                                  <Badge v-if="column.key === 'status'" :variant="statusVariant(String(row.status))">
+                                    {{ row.status }}
+                                  </Badge>
+                                  <span v-else>{{ displayValue(row[column.key]) }}</span>
                                 </td>
+                                <td>
+                                  <div class="row-actions">
+                                    <Button variant="outline" @click="openEdit(row)">编辑</Button>
+                                    <Button variant="outline" @click="deleteRecord(row.no)">删除</Button>
+                                  </div>
+                                </td>
+                              </tr>
+                              <tr v-if="visibleRows.length === 0">
+                                <td :colspan="columns.length + 2" class="empty-state">没有符合条件的记录</td>
                               </tr>
                             </tbody>
                           </table>
                         </div>
+
+                        <div class="pagination-bar">
+                          <span>共 {{ filteredRows.length }} 条，第 {{ currentPage }} / {{ totalPages }} 页</span>
+                          <div class="row-actions">
+                            <Button variant="outline" :disabled="currentPage <= 1" @click="currentPage--">上一页</Button>
+                            <Button variant="outline" :disabled="currentPage >= totalPages" @click="currentPage++">下一页</Button>
+                          </div>
+                        </div>
                       </CardContent>
                     </Card>
+
+                    <div v-if="modalOpen" class="modal-mask" role="dialog" aria-modal="true">
+                      <form class="record-modal" @submit.prevent="submitRecord">
+                        <div class="modal-heading">
+                          <div>
+                            <h2>{{ editingRecordNo ? '编辑' : '新增' }}{{ entityLabel }}</h2>
+                            <p>保存后立即更新当前工作台的本地数据。</p>
+                          </div>
+                          <button type="button" class="close-button" aria-label="关闭" @click="closeModal">×</button>
+                        </div>
+
+                        <div class="form-grid">
+                          <label v-for="column in editableColumns" :key="column.key">
+                            <span>{{ column.title }}</span>
+                            <input v-model="draft[column.key]" :required="column.key !== 'remark'" />
+                          </label>
+                          <label>
+                            <span>状态</span>
+                            <select v-model="draft.status" required>
+                              <option v-for="status in formStatusOptions" :key="status" :value="status">{{ status }}</option>
+                            </select>
+                          </label>
+                        </div>
+
+                        <div class="modal-actions">
+                          <Button type="button" variant="outline" @click="closeModal">取消</Button>
+                          <Button type="submit">保存</Button>
+                        </div>
+                      </form>
+                    </div>
                   </div>
                 </template>
 
                 <script setup lang="ts">
-                import { ref } from 'vue'
-                import { useRouter } from 'vue-router'
+                import { computed, reactive, ref, watch } from 'vue'
                 import { Button } from '@/components/ui/button'
                 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
                 import { Badge } from '@/components/ui/badge'
-                import { activities, dashboardClass, enabledInteractions, filterChips, metrics, orders, visualizationBlocks } from '@/data/adminData'
+                import {
+                  activities,
+                  dashboardClass,
+                  inventoryItems,
+                  metrics,
+                  orders,
+                  visualizationBlocks,
+                  type AdminRecord
+                } from '@/data/adminData'
                 import { columns } from '@/data/table.columns'
 
-                const router = useRouter()
-                const primaryViz = visualizationBlocks[0]
-                const secondaryViz = visualizationBlocks[1] ?? visualizationBlocks[0]
-                const trendData = ref(primaryViz.values)
-                const valueColumns = columns.filter(item => item.key !== 'no' && item.key !== 'status')
-                const hasStatusColumn = columns.some(item => item.key === 'status')
+                const entityLabel = '%s'
+                const records = ref<AdminRecord[]>(orders.map(item => ({ ...item })))
+                const searchQuery = ref('')
+                const statusFilter = ref('')
+                const selectedRecordIds = ref<string[]>([])
+                const currentPage = ref(1)
+                const pageSize = 5
+                const modalOpen = ref(false)
+                const editingRecordNo = ref<string | null>(null)
+                const draft = reactive<AdminRecord>({ no: '', status: '待处理' })
+                const primaryViz = visualizationBlocks[0] ?? {
+                  title: '业务趋势',
+                  range: '近 7 日',
+                  values: [42, 68, 54, 88, 74, 96, 82]
+                }
+
+                const statusOptions = computed(() =>
+                  [...new Set(records.value.map(item => String(item.status)).filter(Boolean))]
+                )
+                const formStatusOptions = computed(() =>
+                  statusOptions.value.length > 0 ? statusOptions.value : ['待处理', '进行中', '已完成']
+                )
+                const filteredRows = computed(() => {
+                  const keyword = searchQuery.value.trim().toLowerCase()
+                  return records.value.filter(row => {
+                    const matchesKeyword = !keyword || Object.values(row).some(value =>
+                      String(value).toLowerCase().includes(keyword)
+                    )
+                    const matchesStatus = !statusFilter.value || row.status === statusFilter.value
+                    return matchesKeyword && matchesStatus
+                  })
+                })
+                const totalPages = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / pageSize)))
+                const visibleRows = computed(() => {
+                  const start = (currentPage.value - 1) * pageSize
+                  return filteredRows.value.slice(start, start + pageSize)
+                })
+                const editableColumns = computed(() =>
+                  columns.filter(column => !['no', 'status'].includes(column.key))
+                )
+                const allVisibleSelected = computed(() =>
+                  visibleRows.value.length > 0
+                    && visibleRows.value.every(row => selectedRecordIds.value.includes(row.no))
+                )
+                const inventoryWarningCount = computed(() =>
+                  inventoryItems.filter(item => item.stock <= item.warningLine).length
+                )
+
+                watch([searchQuery, statusFilter], () => {
+                  currentPage.value = 1
+                })
+
+                function displayValue(value: unknown): string {
+                  if (value === null || value === undefined || value === '') return '-'
+                  return String(value)
+                }
+
+                function toggleSelected(recordNo: string): void {
+                  selectedRecordIds.value = selectedRecordIds.value.includes(recordNo)
+                    ? selectedRecordIds.value.filter(item => item !== recordNo)
+                    : [...selectedRecordIds.value, recordNo]
+                }
+
+                function toggleAllVisible(): void {
+                  const visibleIds = visibleRows.value.map(row => row.no)
+                  if (allVisibleSelected.value) {
+                    selectedRecordIds.value = selectedRecordIds.value.filter(id => !visibleIds.includes(id))
+                    return
+                  }
+                  selectedRecordIds.value = [...new Set([...selectedRecordIds.value, ...visibleIds])]
+                }
+
+                function resetDraft(): void {
+                  for (const key of Object.keys(draft)) delete draft[key]
+                }
+
+                function openCreate(): void {
+                  resetDraft()
+                  editingRecordNo.value = null
+                  draft.no = `REC-${String(Date.now()).slice(-6)}`
+                  draft.status = formStatusOptions.value[0]
+                  for (const column of editableColumns.value) draft[column.key] = ''
+                  modalOpen.value = true
+                }
+
+                function openEdit(row: AdminRecord): void {
+                  resetDraft()
+                  Object.assign(draft, row)
+                  editingRecordNo.value = row.no
+                  modalOpen.value = true
+                }
+
+                function closeModal(): void {
+                  modalOpen.value = false
+                  editingRecordNo.value = null
+                }
+
+                function submitRecord(): void {
+                  const record = { ...draft } as AdminRecord
+                  const existingIndex = records.value.findIndex(item => item.no === editingRecordNo.value)
+                  if (existingIndex >= 0) records.value[existingIndex] = record
+                  else records.value.unshift(record)
+                  closeModal()
+                }
+
+                function deleteRecord(recordNo: string): void {
+                  records.value = records.value.filter(item => item.no !== recordNo)
+                  selectedRecordIds.value = selectedRecordIds.value.filter(item => item !== recordNo)
+                }
+
+                function deleteSelected(): void {
+                  const selected = new Set(selectedRecordIds.value)
+                  records.value = records.value.filter(item => !selected.has(item.no))
+                  selectedRecordIds.value = []
+                }
+
+                function resetFilters(): void {
+                  searchQuery.value = ''
+                  statusFilter.value = ''
+                }
+
+                function exportRows(): void {
+                  const payload = JSON.stringify(filteredRows.value, null, 2)
+                  const url = URL.createObjectURL(new Blob([payload], { type: 'application/json;charset=utf-8' }))
+                  const link = document.createElement('a')
+                  link.href = url
+                  link.download = `${entityLabel}-数据.json`
+                  link.click()
+                  URL.revokeObjectURL(url)
+                }
 
                 function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
-                  const map: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-                    '已完成': 'default',
-                    '待处理': 'secondary',
-                    '已取消': 'destructive',
-                    '进行中': 'outline'
-                  }
-                  return map[status] || 'outline'
+                  if (['已完成', '启用', '在售', '充足'].includes(status)) return 'default'
+                  if (['待处理', '待支付'].includes(status)) return 'secondary'
+                  if (['已取消', '停用', '下架', '预警'].includes(status)) return 'destructive'
+                  return 'outline'
                 }
                 </script>
 
@@ -143,13 +362,19 @@ final class AdminDashboardTemplate {
                   flex-direction: column;
                   gap: var(--dashboard-gap);
                 }
-                .dashboard-toolbar {
+                .dashboard-toolbar,
+                .management-heading,
+                .bulk-toolbar,
+                .pagination-bar,
+                .modal-heading,
+                .modal-actions {
                   display: flex;
                   align-items: center;
                   justify-content: space-between;
                   gap: 16px;
                 }
-                .toolbar-actions {
+                .toolbar-actions,
+                .row-actions {
                   display: flex;
                   gap: 8px;
                   flex-wrap: wrap;
@@ -157,23 +382,145 @@ final class AdminDashboardTemplate {
                 .metric-grid {
                   gap: var(--dashboard-gap);
                 }
-                .filter-strip {
+                .activity-item {
                   display: flex;
-                  flex-wrap: wrap;
-                  gap: 8px;
-                }
-                .filter-chip {
-                  border: 1px solid hsl(var(--border));
+                  align-items: center;
+                  gap: 12px;
+                  padding: 8px;
                   border-radius: var(--panel-radius);
+                }
+                .activity-item:hover {
+                  background: var(--surface-muted);
+                }
+                .activity-dot {
+                  width: 8px;
+                  height: 8px;
+                  border-radius: 999px;
+                  background: hsl(var(--primary));
+                }
+                .inventory-summary {
                   padding: var(--chip-padding);
+                  border-radius: 999px;
                   background: var(--surface-muted);
                   font-size: var(--table-font-size);
+                }
+                .filter-panel {
+                  display: grid;
+                  grid-template-columns: minmax(220px, 1fr) minmax(140px, 220px) auto;
+                  gap: 12px;
+                }
+                .filter-input,
+                .filter-select,
+                .form-grid input,
+                .form-grid select {
+                  min-height: 40px;
+                  width: 100%%;
+                  border: 1px solid hsl(var(--border));
+                  border-radius: var(--panel-radius);
+                  padding: 8px 12px;
+                  background: hsl(var(--background));
+                }
+                .table-scroll {
+                  overflow-x: auto;
+                }
+                .management-table {
+                  width: 100%%;
+                  min-width: 760px;
+                  border-collapse: collapse;
+                  font-size: var(--table-font-size);
+                }
+                .management-table th,
+                .management-table td {
+                  padding: 12px;
+                  text-align: left;
+                  border-bottom: 1px solid hsl(var(--border));
+                }
+                .management-table th {
+                  color: hsl(var(--muted-foreground));
+                  background: var(--surface-muted);
+                  font-weight: 600;
+                }
+                .selection-cell {
+                  width: 44px;
+                  text-align: center !important;
+                }
+                .selection-cell input {
+                  width: 16px;
+                  height: 16px;
+                }
+                .empty-state {
+                  padding: 40px !important;
+                  text-align: center !important;
+                  color: hsl(var(--muted-foreground));
+                }
+                .pagination-bar {
+                  padding-top: 16px;
+                  color: hsl(var(--muted-foreground));
+                  font-size: 14px;
+                }
+                .modal-mask {
+                  position: fixed;
+                  inset: 0;
+                  z-index: 50;
+                  display: grid;
+                  place-items: center;
+                  padding: 20px;
+                  background: rgba(15, 23, 42, 0.55);
+                }
+                .record-modal {
+                  width: min(720px, 100%%);
+                  max-height: 90vh;
+                  overflow-y: auto;
+                  padding: 24px;
+                  border-radius: var(--panel-radius);
+                  background: hsl(var(--background));
+                  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+                }
+                .modal-heading h2 {
+                  margin: 0;
+                  font-size: 20px;
+                  font-weight: 700;
+                }
+                .modal-heading p {
+                  margin-top: 4px;
+                  color: hsl(var(--muted-foreground));
+                  font-size: 14px;
+                }
+                .close-button {
+                  border: 0;
+                  background: transparent;
+                  font-size: 24px;
+                  cursor: pointer;
+                }
+                .form-grid {
+                  display: grid;
+                  grid-template-columns: repeat(2, minmax(0, 1fr));
+                  gap: 16px;
+                  margin: 24px 0;
+                }
+                .form-grid label {
+                  display: grid;
+                  gap: 8px;
+                  font-size: 14px;
+                  font-weight: 600;
+                }
+                @media (max-width: 720px) {
+                  .dashboard-toolbar,
+                  .management-heading,
+                  .bulk-toolbar,
+                  .pagination-bar {
+                    align-items: stretch;
+                    flex-direction: column;
+                  }
+                  .filter-panel,
+                  .form-grid {
+                    grid-template-columns: 1fr;
+                  }
                 }
                 </style>
                 """.formatted(
                 escape(recipe.domain()),
                 escape(recipe.brand()),
-                escape(recipe.entityLabel()),
                 escape(recipe.entityLabel())
         );
     }

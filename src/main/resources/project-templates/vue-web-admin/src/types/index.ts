@@ -41,7 +41,12 @@ export interface NavItem {
 }
 
 // Route Types
-export interface RouteManifest {
+export interface RouteRedirectManifest {
+  path: string
+  redirect: string
+}
+
+export interface RouteViewManifest {
   path: string
   name: string
   component: string
@@ -53,6 +58,8 @@ export interface RouteManifest {
     icon?: string
   }
 }
+
+export type RouteManifest = RouteRedirectManifest | RouteViewManifest
 
 // Admin Types
 export interface DashboardMetrics {

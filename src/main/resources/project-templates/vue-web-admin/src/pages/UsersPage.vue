@@ -69,7 +69,7 @@
     </Card>
 
     <!-- Form Modal (simple) -->
-    <Dialog v-model:open="showModal">
+    <Dialog v-model="showModal">
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{{ modalTitle }}</DialogTitle>
@@ -132,7 +132,12 @@ const searchParams = reactive({
   userName: ''
 })
 
-const editForm = reactive({
+const editForm = reactive<{
+  userAccount: string
+  userName: string
+  userPassword: string
+  userRole: UserInfo['userRole']
+}>({
   userAccount: '',
   userName: '',
   userPassword: '',

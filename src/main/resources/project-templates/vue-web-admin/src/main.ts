@@ -3,12 +3,17 @@ import { createPinia } from 'pinia'
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import router from './router'
 import App from './App.vue'
-import { setupMock } from './mocks'
 import './styles/admin.css'
 import './styles/theme.css'
 
-// Setup mock in development
-setupMock()
+// Mock 仅在显式启用的开发环境按需加载，生产包不携带包含 eval 的 mockjs。
+async function setupDevelopmentMock(): Promise<void> {
+  if (!import.meta.env.DEV || import.meta.env.VITE_USE_MOCK !== 'true') return
+  const { setupMock } = await import('./mocks')
+  setupMock()
+}
+
+void setupDevelopmentMock()
 
 const app = createApp(App)
 

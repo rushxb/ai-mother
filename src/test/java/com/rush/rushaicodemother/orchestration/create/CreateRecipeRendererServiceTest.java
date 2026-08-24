@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CreateRecipeRendererServiceTest {
 
     @Test
-    void partiallySupportedAdminRecipeMustExposeMissingRequiredSlots() {
+    void adminProductRecipeMustRenderUsableCrudCapabilities() {
         CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
 
         RecipeRenderResult result = renderer.render(
@@ -36,15 +36,32 @@ class CreateRecipeRendererServiceTest {
                         "admin-products",
                         "vue-web-admin",
                         "products",
-                        List.of("table_columns", "form_modal"),
+                        List.of(
+                                "dashboard_content",
+                                "mock_data",
+                                "table_columns",
+                                "search_bar",
+                                "form_modal",
+                                "pro_table",
+                                "bulk_actions",
+                                "advanced_filters",
+                                "inventory_data"
+                        ),
                         0
                 ),
                 spec()
         );
 
         assertTrue(result.available());
-        assertFalse(result.complete());
-        assertEquals(List.of("form_modal"), result.unfilledSlots());
+        assertTrue(result.complete(), () -> "未覆盖的管理能力: " + result.unfilledSlots());
+        assertTrue(result.unfilledSlots().isEmpty());
+
+        String dashboard = content(result, "src/views/DashboardView.vue");
+        assertTrue(dashboard.contains("v-model=\"searchQuery\""));
+        assertTrue(dashboard.contains("filteredRows"));
+        assertTrue(dashboard.contains("selectedRecordIds"));
+        assertTrue(dashboard.contains("submitRecord"));
+        assertTrue(content(result, "src/data/adminData.ts").contains("inventoryItems"));
     }
 
     @Test

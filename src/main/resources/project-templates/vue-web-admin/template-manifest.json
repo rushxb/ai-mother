@@ -1,6 +1,6 @@
 {
   "templateId": "vue-web-admin",
-  "description": "后台管理模板，基于 Vue 3 + Vite + shadcn-vue + Inspira UI + TresJS，包含指标、筛选、表格、弹窗和设置区",
+  "description": "后台管理模板，基于 Vue 3 + Vite + shadcn-vue，包含指标、筛选、表格、弹窗和设置区",
   "slots": [
     {
       "id": "dashboard_content",

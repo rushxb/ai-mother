@@ -155,7 +155,7 @@ public class VueTemplateFeaturePlanner {
                     List.of("detail_page", "search_bar", "form_modal", "pro_table"),
                     "通用应用需要列表、详情、搜索和表单能力");
             default -> module("crud-table-form", "CRUD 表格表单", templateId,
-                    List.of("table_columns", "search_bar", "form_modal", "pro_table", "bulk_actions", "advanced_filters"),
+                    prepend("table_columns", AdminRecipeCapability.crudSlotIds()),
                     "用户需求涉及管理后台 CRUD");
         };
     }
@@ -178,7 +178,7 @@ public class VueTemplateFeaturePlanner {
                     List.of("mock_data", "detail_page", "pro_table"),
                     "商品应用需要商品数据、详情和列表");
             default -> module("product-management", "商品管理", templateId,
-                    List.of("mock_data", "table_columns", "inventory_data", "bulk_actions"),
+                    prepend(List.of("mock_data", "table_columns"), AdminRecipeCapability.commerceSlotIds()),
                     "商品管理需要商品、库存和批量操作");
         };
     }
@@ -372,6 +372,17 @@ public class VueTemplateFeaturePlanner {
             String reason
     ) {
         return new FeatureModuleManifest(moduleId, name, templateId, slotIds, reason);
+    }
+
+    private List<String> prepend(String requiredSlot, List<String> capabilitySlots) {
+        return prepend(List.of(requiredSlot), capabilitySlots);
+    }
+
+    /** 保留文件 slot 在前、能力 slot 在后的稳定顺序，便于事件与测试定位。 */
+    private List<String> prepend(List<String> requiredSlots, List<String> capabilitySlots) {
+        List<String> slots = new ArrayList<>(requiredSlots);
+        slots.addAll(capabilitySlots);
+        return List.copyOf(slots);
     }
 
     /** Vue 模板规划的内部不可变结果。 */

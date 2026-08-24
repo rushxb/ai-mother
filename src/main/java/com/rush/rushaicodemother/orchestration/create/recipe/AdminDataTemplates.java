@@ -16,7 +16,13 @@ final class AdminDataTemplates {
     String adminData(AdminRecipe recipe) {
         String dashboardClass = "dashboard-" + recipe.frontend().density() + " " + String.join(" ", recipe.frontend().styleClasses());
         return """
-                import type { DashboardMetrics, OrderInfo } from '@/types'
+                import type { DashboardMetrics } from '@/types'
+
+                export interface AdminRecord {
+                  no: string
+                  status: string
+                  [key: string]: string | number | boolean
+                }
 
                 export interface AdminSite {
                   brand: string
@@ -49,9 +55,20 @@ final class AdminDataTemplates {
                   { label: '异常预警', value: '7', trend: '-2.0%%', trendType: 'down' }
                 ]
 
-                export const orders: OrderInfo[] = [
+                export const orders: AdminRecord[] = [
                 %s
                 ]
+
+                export const inventoryItems = orders.map((item, index) => {
+                  const stock = Number(item.stock ?? ((index + 1) * 24))
+                  return {
+                    sku: String(item.sku ?? item.no),
+                    name: String(item.name ?? item.product ?? item.no),
+                    stock,
+                    warningLine: 30,
+                    status: stock <= 30 ? '预警' : '充足'
+                  }
+                })
 
                 export const activities: string[] = [
                   '%s数据同步完成，新增 42 条记录',
@@ -79,7 +96,10 @@ final class AdminDataTemplates {
 
     /** 返回{@code table}{@code Columns}。 */
     String tableColumns(AdminRecipe recipe) {
-        List<RecipeField> fields = recipe.fields().stream().limit(4).toList();
+        List<RecipeField> fields = recipe.fields().stream()
+                .filter(field -> !"status".equals(camel(field.name())))
+                .limit(4)
+                .toList();
         StringBuilder builder = new StringBuilder("export const columns = [\n");
         builder.append("  { key: 'no', title: '编号' },\n");
         for (RecipeField field : fields) {
@@ -200,10 +220,14 @@ final class AdminDataTemplates {
 
     /** 返回管理端{@code Rows}。 */
     private String adminRows(AdminRecipe recipe) {
+        List<RecipeField> valueFields = recipe.fields().stream()
+                .filter(field -> !List.of("no", "status", "amount", "createTime").contains(camel(field.name())))
+                .limit(4)
+                .toList();
         List<String> rows = new ArrayList<>();
         for (int i = 1; i <= 4; i++) {
             StringBuilder row = new StringBuilder("  { no: 'REC-00").append(i).append("'");
-            for (RecipeField field : recipe.fields().stream().limit(4).toList()) {
+            for (RecipeField field : valueFields) {
                 row.append(", ").append(camel(field.name())).append(": ").append(tsValue(field, i, recipe));
             }
             row.append(", status: '").append(List.of("已完成", "进行中", "待处理", "已完成").get(i - 1)).append("'");

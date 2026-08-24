@@ -11,9 +11,13 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GoBuildResultRegistryTest {
@@ -82,6 +86,74 @@ class GoBuildResultRegistryTest {
         registry.execute("task", projectRoot, new GoProjectSnapshot("three"), this::success);
 
         assertEquals(2, registry.size());
+    }
+
+    @Test
+    void interruptedJoinedBuildMustStopWaitingWithoutCancellingOwner() throws Exception {
+        GoBuildResultRegistry registry = registry(20);
+        GoProjectSnapshot snapshot = new GoProjectSnapshot("interruptible");
+        CountDownLatch ownerStarted = new CountDownLatch(1);
+        CountDownLatch releaseOwner = new CountDownLatch(1);
+        CountDownLatch waiterStarted = new CountDownLatch(1);
+        CountDownLatch waiterFinished = new CountDownLatch(1);
+        AtomicReference<Throwable> waiterFailure = new AtomicReference<>();
+        AtomicBoolean waiterInterruptRestored = new AtomicBoolean();
+
+        Thread owner = Thread.ofVirtual().start(() -> registry.execute(
+                "task-interruptible",
+                projectRoot,
+                snapshot,
+                () -> {
+                    ownerStarted.countDown();
+                    try {
+                        releaseOwner.await();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("构建所有者不应被等待方中断", interrupted);
+                    }
+                    return success();
+                }
+        ));
+        assertTrue(ownerStarted.await(1, TimeUnit.SECONDS), "构建所有者未开始执行");
+
+        Thread waiter = Thread.ofVirtual().start(() -> {
+            waiterStarted.countDown();
+            try {
+                registry.execute(
+                        "task-interruptible",
+                        projectRoot,
+                        snapshot,
+                        () -> {
+                            throw new AssertionError("等待方不应重复执行相同构建");
+                        }
+                );
+            } catch (Throwable failure) {
+                waiterFailure.set(failure);
+                waiterInterruptRestored.set(Thread.currentThread().isInterrupted());
+            } finally {
+                waiterFinished.countDown();
+            }
+        });
+        assertTrue(waiterStarted.await(1, TimeUnit.SECONDS), "构建等待方未开始执行");
+
+        try {
+            waiter.interrupt();
+            assertTrue(waiterFinished.await(500, TimeUnit.MILLISECONDS),
+                    "等待共享 Go 构建时忽略了任务取消中断");
+            IllegalStateException failure = assertInstanceOf(
+                    IllegalStateException.class,
+                    waiterFailure.get()
+            );
+            assertEquals("等待同任务 Go 构建时被中断", failure.getMessage());
+            assertTrue(waiterInterruptRestored.get(), "等待方退出前未恢复线程中断状态");
+        } finally {
+            releaseOwner.countDown();
+            waiter.interrupt();
+            waiter.join(1000);
+            owner.join(1000);
+        }
+
+        assertEquals(0, registry.inFlightSize());
     }
 
     private GoBuildResultRegistry registry(int maxEntries) {

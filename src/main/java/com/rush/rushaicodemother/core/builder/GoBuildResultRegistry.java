@@ -10,9 +10,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 
 /**
@@ -96,8 +96,13 @@ public class GoBuildResultRegistry {
     /** 等待{@code Go}构建结果注册器完成。 */
     private GoBuildResult await(CompletableFuture<GoBuildResult> future) {
         try {
-            return requireResult(future.join());
-        } catch (CompletionException exception) {
+            // join 不响应线程中断，会让已取消或超时的生成 worker 继续被旧构建占用。
+            // 这里只终止当前等待方；共享构建仍由所有者执行，不能取消 future 误伤其他调用者。
+            return requireResult(future.get());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("等待同任务 Go 构建时被中断", exception);
+        } catch (ExecutionException exception) {
             throw propagate(exception.getCause() == null ? exception : exception.getCause());
         }
     }

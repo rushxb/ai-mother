@@ -83,48 +83,6 @@ public class GenerationAgentSupport {
         );
     }
 
-    /**
- * 返回{@code infer}{@code Modules}。
- *
- * @param userMessage 用户消息
- * @param projectContext 项目上下文
- * @return 生成智能体集合
- */
-    public List<String> inferModules(String userMessage, String projectContext) {
-        String normalized = (StrUtil.blankToDefault(userMessage, "") + "\n" + StrUtil.blankToDefault(projectContext, "")).toLowerCase(Locale.ROOT);
-        List<String> modules = new ArrayList<>();
-        if (containsAny(normalized, "登录", "注册", "auth")) {
-            modules.add("auth");
-        }
-        if (containsAny(normalized, "dashboard", "工作台", "首页")) {
-            modules.add("dashboard");
-        }
-        if (containsAny(normalized, "列表", "table", "管理")) {
-            modules.add("management");
-        }
-        if (containsAny(normalized, "图表", "chart", "统计")) {
-            modules.add("analytics");
-        }
-        if (containsAny(normalized, "设置", "setting")) {
-            modules.add("settings");
-        }
-        if (containsAny(normalized, "路由", "router", "menu", "nav", "sidebar", "layout")) {
-            modules.add("navigation");
-        }
-        if (containsAny(normalized, "表单", "form", "input", "dialog", "modal", "editor")) {
-            modules.add("form");
-        }
-        if (containsAny(normalized, "database", "数据库", "sqlite", "sqllite", "sql lite", "后端", "backend", "接口", "api")) {
-            modules.add("database");
-        }
-        modules.addAll(skillLibrary.modules(matchSkills(userMessage)));
-        modules.addAll(recipeLibrary.modules(matchRecipes(userMessage, projectContext)));
-        if (modules.isEmpty()) {
-            modules.add("core-app");
-        }
-        return modules.stream().distinct().toList();
-    }
-
     public List<GenerationRecipe> matchRecipes(String userMessage, String projectContext) {
         return recipeLibrary.match(userMessage, projectContext);
     }
@@ -242,6 +200,25 @@ public class GenerationAgentSupport {
                                                             String userMessage,
                                                             File rootDir,
                                                             WorkspaceSemanticIndex indexSnapshot) {
+        return buildProjectContextPackage(
+                app,
+                codeGenTypeEnum,
+                userMessage,
+                rootDir,
+                indexSnapshot,
+                resolveGuidanceContextFileHints(userMessage)
+        );
+    }
+
+    /** 使用已冻结的工程指引提示构建项目上下文，避免 Agent 再次匹配 recipe/skill。 */
+    public ProjectContextPackage buildProjectContextPackage(
+            App app,
+            CodeGenTypeEnum codeGenTypeEnum,
+            String userMessage,
+            File rootDir,
+            WorkspaceSemanticIndex indexSnapshot,
+            List<String> guidanceContextFileHints
+    ) {
         String intent = inferIntent(userMessage);
         if (rootDir == null || !rootDir.exists() || !rootDir.isDirectory()) {
             return new ProjectContextPackage(intent, List.of(), 0, 0, List.of(), "empty", "");
@@ -252,7 +229,14 @@ public class GenerationAgentSupport {
         }
         WorkspaceSemanticIndex index = resolveIndexSnapshot(rootDir, indexSnapshot);
         List<String> selectedFiles = normalizeSelectedFiles(
-                selectContextFiles(app, resolvedType, userMessage, rootDir, index));
+                selectContextFiles(
+                        app,
+                        resolvedType,
+                        userMessage,
+                        rootDir,
+                        index,
+                        guidanceContextFileHints
+                ));
         int indexedFileCount = semanticIndexService.indexedFileCount(index);
         int indexedSymbolCount = semanticIndexService.indexedSymbolCount(index);
         List<Map<String, Object>> indexHits = collectIndexRecallPayloads(
@@ -310,7 +294,14 @@ public class GenerationAgentSupport {
             return List.of();
         }
         WorkspaceSemanticIndex index = semanticIndexService.loadOrBuild(rootDir.toPath());
-        return selectContextFiles(app, codeGenTypeEnum, userMessage, rootDir, index);
+        return selectContextFiles(
+                app,
+                codeGenTypeEnum,
+                userMessage,
+                rootDir,
+                index,
+                resolveGuidanceContextFileHints(userMessage)
+        );
     }
 
     /** 从候选项中选择上下文文件。 */
@@ -318,13 +309,17 @@ public class GenerationAgentSupport {
                                             CodeGenTypeEnum codeGenTypeEnum,
                                             String userMessage,
                                             File rootDir,
-                                            WorkspaceSemanticIndex index) {
+                                            WorkspaceSemanticIndex index,
+                                            List<String> guidanceContextFileHints) {
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
         String normalizedMessage = buildSearchScope(app, userMessage);
         candidates.addAll(semanticIndexService.suggestFilesFromSnapshot(
                 index, normalizedMessage, MAX_SELECTED_CONTEXT_FILES));
-        recipeLibrary.contextFileHints(matchRecipes(normalizedMessage, "")).forEach(candidates::add);
-        skillLibrary.contextFileHints(matchSkills(normalizedMessage)).forEach(candidates::add);
+        if (guidanceContextFileHints != null) {
+            guidanceContextFileHints.stream()
+                    .filter(StrUtil::isNotBlank)
+                    .forEach(candidates::add);
+        }
         if (containsAny(normalizedMessage, "登录", "注册", "auth", "login", "signin", "signup", "用户", "账号", "权限", "角色", "token")) {
             candidates.addAll(List.of("src/views/Login.vue", "src/views/Register.vue", "src/pages/login", "src/pages/register",
                     "src/components/Auth", "src/api", "src/stores", "src/store"));
@@ -394,6 +389,13 @@ public class GenerationAgentSupport {
             ));
         }
         return expandCandidates(rootDir, candidates, index);
+    }
+
+    private List<String> resolveGuidanceContextFileHints(String userMessage) {
+        LinkedHashSet<String> hints = new LinkedHashSet<>();
+        hints.addAll(recipeLibrary.contextFileHints(recipeLibrary.match(userMessage, "")));
+        hints.addAll(skillLibrary.contextFileHints(skillLibrary.match(userMessage)));
+        return List.copyOf(hints);
     }
 
     /**

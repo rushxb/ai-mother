@@ -25,13 +25,17 @@ public class GenerationScenarioDecisionKernel {
 
     private final GenerationModeRouter generationModeRouter;
     private final GenerationExecutionReleaseIdentityProvider releaseIdentityProvider;
+    private final GenerationGuidanceSelector guidanceSelector;
 
     public GenerationScenarioDecisionKernel(
             GenerationModeRouter generationModeRouter,
-            GenerationExecutionReleaseIdentityProvider releaseIdentityProvider) {
+            GenerationExecutionReleaseIdentityProvider releaseIdentityProvider,
+            GenerationGuidanceSelector guidanceSelector) {
         this.generationModeRouter = Objects.requireNonNull(generationModeRouter, "生成路由器不能为空");
         this.releaseIdentityProvider = Objects.requireNonNull(
                 releaseIdentityProvider, "生成发布身份模块不能为空");
+        this.guidanceSelector = Objects.requireNonNull(
+                guidanceSelector, "生成工程指引选择模块不能为空");
     }
 
     public GenerationScenarioDecision decide(GenerationTaskRequest request,
@@ -40,7 +44,7 @@ public class GenerationScenarioDecisionKernel {
         GenerationRouteSelection selection = Objects.requireNonNull(
                 generationModeRouter.select(request, currentType, workspace),
                 "路由器未返回场景选择");
-        return freeze(currentType, selection);
+        return freeze(currentType, selection, selectGuidance(request, selection));
     }
 
     GenerationScenarioDecision decide(GenerationTaskRequest request,
@@ -50,11 +54,26 @@ public class GenerationScenarioDecisionKernel {
         GenerationRouteSelection selection = Objects.requireNonNull(
                 generationModeRouter.select(request, currentType, workspace, profileRefiner),
                 "路由器未返回场景选择");
-        return freeze(currentType, selection);
+        return freeze(currentType, selection, selectGuidance(request, selection));
     }
 
-    private GenerationScenarioDecision freeze(CodeGenTypeEnum currentType,
-                                              GenerationRouteSelection selection) {
+    /** 只读任务不会进入代码生成 Agent，无需复制 recipe/skill 指引载荷。 */
+    private GenerationGuidanceSelection selectGuidance(
+            GenerationTaskRequest request,
+            GenerationRouteSelection selection
+    ) {
+        if (GenerationScenarioDecision.isReadOnlyOperation(
+                selection.intentProfile().operationType())) {
+            return GenerationGuidanceSelection.empty();
+        }
+        return guidanceSelector.select(request.message());
+    }
+
+    private GenerationScenarioDecision freeze(
+            CodeGenTypeEnum currentType,
+            GenerationRouteSelection selection,
+            GenerationGuidanceSelection guidanceSelection
+    ) {
         IntentProfile profile = selection.intentProfile();
         boolean readOnly = GenerationScenarioDecision.isReadOnlyOperation(profile.operationType());
         CodeGenTypeEnum targetType = resolveTargetType(currentType, profile, readOnly);
@@ -71,6 +90,7 @@ public class GenerationScenarioDecisionKernel {
                 .releaseFingerprint();
         return new GenerationScenarioDecision(
                 profile,
+                guidanceSelection,
                 targetType,
                 mutability,
                 requiredResources,

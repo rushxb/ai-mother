@@ -6,12 +6,11 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.context.AiContextBoundaryService;
+import com.rush.rushaicodemother.orchestration.decision.GenerationGuidanceSelection;
 import com.rush.rushaicodemother.memory.GenerationWorkingMemoryService;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
-import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipe;
-import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -52,6 +51,9 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
         App app = context.getRequest().app();
+        GenerationGuidanceSelection guidanceSelection = context.getRequest()
+                .scenarioDecision()
+                .guidanceSelection();
         CodeGenTypeEnum targetType = context.getTargetType() == null
                 ? context.getRequest().currentType()
                 : context.getTargetType();
@@ -72,7 +74,8 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                         targetType,
                         context.getRequest().userMessage(),
                         rootDir,
-                        context.getWorkspaceIndexSnapshot()
+                        context.getWorkspaceIndexSnapshot(),
+                        guidanceSelection.contextFileHints()
                 );
             }
         }
@@ -82,12 +85,7 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
             workingMemoryService.recordContextDigest(
                     context.getTask().getTaskId(), protectedContext.digest());
         }
-        List<GenerationSkill> matchedSkills = support.matchSkills(context.getRequest().userMessage());
         List<String> normalizedSelectedFiles = support.normalizeSelectedFiles(contextPackage.selectedFiles());
-        List<GenerationRecipe> matchedRecipes = support.matchRecipes(
-                context.getRequest().userMessage(),
-                protectedContext.content()
-        );
         GenerationArtifact artifact = ContextSummaryArtifact.create(
                 new ContextSummaryArtifact.RepositoryContext(
                         contextPackage.intent(),
@@ -107,8 +105,8 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                 new ContextSummaryArtifact.AgentGuidance(
                         StrUtil.blankToDefault(context.getRequest().resolveMemoryContext(), ""),
                         context.getRequest().hasGeneratedCode(),
-                        support.buildRecipePayloads(matchedRecipes),
-                        support.buildSkillPayloads(matchedSkills)
+                        guidanceSelection.recipes(),
+                        guidanceSelection.skills()
                 )
         ).toArtifact();
         String summary = StrUtil.isBlank(contextPackage.projectContext())
@@ -123,7 +121,7 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                         "indexHitCount", contextPackage.indexHits().size(),
                         "selectedFileCount", normalizedSelectedFiles.size(),
                         "contextMode", contextPackage.contextMode(),
-                        "skillCount", matchedSkills.size()
+                        "skillCount", guidanceSelection.skills().size()
                 )
         );
     }

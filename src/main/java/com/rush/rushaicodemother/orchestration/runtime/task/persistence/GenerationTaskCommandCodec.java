@@ -12,6 +12,7 @@ public final class GenerationTaskCommandCodec {
     private static final int FROZEN_EXECUTION_PLAN_SCHEMA_VERSION = 9;
     private static final int FROZEN_SCENARIO_DECISION_SCHEMA_VERSION = 9;
     private static final int PREFLIGHT_USAGE_SCHEMA_VERSION = 10;
+    private static final int FROZEN_GUIDANCE_SELECTION_SCHEMA_VERSION = 11;
 
     private static final JsonMapper MAPPER = JsonMapper.builder()
             .findAndAddModules()
@@ -57,6 +58,13 @@ public final class GenerationTaskCommandCodec {
                 payload, schemaVersion, "scenarioDecision", FROZEN_SCENARIO_DECISION_SCHEMA_VERSION);
         requirePersistedFieldSince(
                 payload, schemaVersion, "preflightUsage", PREFLIGHT_USAGE_SCHEMA_VERSION);
+        requireNestedPersistedFieldSince(
+                payload,
+                schemaVersion,
+                "scenarioDecision",
+                "guidanceSelection",
+                FROZEN_GUIDANCE_SELECTION_SCHEMA_VERSION
+        );
         try {
             return MAPPER.treeToValue(payload, GenerationTaskCommand.class);
         } catch (JsonProcessingException exception) {
@@ -86,6 +94,25 @@ public final class GenerationTaskCommandCodec {
                 && (payload.get(fieldName) == null || payload.get(fieldName).isNull())) {
             throw new IllegalArgumentException(
                     "任务命令 schema " + schemaVersion + " 缺少必需字段: " + fieldName);
+        }
+    }
+
+    private static void requireNestedPersistedFieldSince(
+            JsonNode payload,
+            int schemaVersion,
+            String parentField,
+            String fieldName,
+            int introducedSchemaVersion
+    ) {
+        if (schemaVersion < introducedSchemaVersion) {
+            return;
+        }
+        JsonNode parent = payload.get(parentField);
+        if (parent == null || !parent.isObject()
+                || parent.get(fieldName) == null || parent.get(fieldName).isNull()) {
+            throw new IllegalArgumentException(
+                    "任务命令 schema " + schemaVersion + " 缺少必需字段: "
+                            + parentField + "." + fieldName);
         }
     }
 }

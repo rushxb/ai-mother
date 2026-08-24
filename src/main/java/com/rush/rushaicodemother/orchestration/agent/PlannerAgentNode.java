@@ -6,14 +6,13 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationRequirementsArtifact;
+import com.rush.rushaicodemother.orchestration.decision.GenerationGuidanceSelection;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
 import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
-import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipe;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
-import com.rush.rushaicodemother.orchestration.skill.GenerationSkill;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -55,8 +54,7 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
         boolean requiresBuild = scenarioDecision.validationFloor() != ExpectedValidationLevel.FAST;
         String generationMode = patchFirst ? "patch_first_update" : "full_generation";
         String validationMode = requiresBuild ? "build_validation" : "review_only";
-        List<GenerationRecipe> matchedRecipes = support.matchRecipes(userMessage, "");
-        List<GenerationSkill> matchedSkills = support.matchSkills(userMessage);
+        GenerationGuidanceSelection guidanceSelection = scenarioDecision.guidanceSelection();
         App app = context.getRequest().app();
         GenerationAgentSupport.ProjectIndexRecall indexRecall = patchFirst
                 ? support.collectProjectIndexRecall(app, userMessage, 3)
@@ -67,8 +65,12 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
                 "保留现有项目能力并尽量复用结构",
                 complex ? "按模块拆分生成任务，允许并行处理" : "采用单模块增量生成策略",
                 requiresBuild ? "生成后必须经过 Review 与 BuildFix 门禁" : "生成后经过 Review 门禁，默认跳过构建修复链路",
-                matchedRecipes.isEmpty() ? "未匹配到专项 recipe，按通用生成策略执行" : "套用匹配的 recipe 作为最小实现边界",
-                matchedSkills.isEmpty() ? "未匹配到专项 skill，按通用生成策略执行" : "套用匹配的 skill 作为实现约束"
+                guidanceSelection.recipes().isEmpty()
+                        ? "未匹配到专项 recipe，按通用生成策略执行"
+                        : "套用匹配的 recipe 作为最小实现边界",
+                guidanceSelection.skills().isEmpty()
+                        ? "未匹配到专项 skill，按通用生成策略执行"
+                        : "套用匹配的 skill 作为实现约束"
         ));
         if (context.getTargetType() == CodeGenTypeEnum.FULL_STACK_PROJECT) {
             goals.add("全栈项目必须共享平台分配的前后端端口与 API 地址上下文");
@@ -91,8 +93,8 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
                 userMessage,
                 indexHits,
                 goals,
-                support.buildRecipePayloads(matchedRecipes),
-                support.buildSkillPayloads(matchedSkills)
+                guidanceSelection.recipes(),
+                guidanceSelection.skills()
         );
         GenerationArtifact artifact = requirements.toArtifact();
         ApiContractArtifact apiContract = ApiContractArtifact.create(
@@ -112,7 +114,7 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
                         "validationMode", validationMode,
                         "generationMode", generationMode,
                         "indexHitCount", indexHits.size(),
-                        "skillCount", matchedSkills.size()
+                        "skillCount", guidanceSelection.skills().size()
                 )
         );
     }

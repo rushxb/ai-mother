@@ -24,6 +24,7 @@ import java.util.Set;
  */
 public record GenerationScenarioDecision(
         IntentProfile intentProfile,
+        GenerationGuidanceSelection guidanceSelection,
         CodeGenTypeEnum targetType,
         GenerationMutability mutability,
         GenerationResourceRequirements requiredResources,
@@ -35,6 +36,9 @@ public record GenerationScenarioDecision(
 
     public GenerationScenarioDecision {
         Objects.requireNonNull(intentProfile, "场景意图画像不能为空");
+        guidanceSelection = guidanceSelection == null
+                ? GenerationGuidanceSelection.empty()
+                : guidanceSelection;
         Objects.requireNonNull(targetType, "场景目标工程类型不能为空");
         Objects.requireNonNull(mutability, "场景可变性不能为空");
         Objects.requireNonNull(requiredResources, "场景资源需求不能为空");
@@ -71,6 +75,22 @@ public record GenerationScenarioDecision(
         }
     }
 
+    /** 兼容尚未携带冻结工程指引的历史任务与既有调用方。 */
+    public GenerationScenarioDecision(
+            IntentProfile intentProfile,
+            CodeGenTypeEnum targetType,
+            GenerationMutability mutability,
+            GenerationResourceRequirements requiredResources,
+            GenerationModeDecision routeDecision,
+            GenerationToolPermissionProfile toolPermissionProfile,
+            String ruleVersion,
+            String releaseFingerprint
+    ) {
+        this(intentProfile, GenerationGuidanceSelection.empty(), targetType, mutability,
+                requiredResources, routeDecision, toolPermissionProfile, ruleVersion,
+                releaseFingerprint);
+    }
+
     public IntentOperationType operation() {
         return intentProfile.operationType();
     }
@@ -87,6 +107,7 @@ public record GenerationScenarioDecision(
     public GenerationScenarioDecision withRoute(GenerationModeDecision replacement) {
         return new GenerationScenarioDecision(
                 intentProfile,
+                guidanceSelection,
                 targetType,
                 mutability,
                 requiredResources,

@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.decision.GenerationMutability;
+import com.rush.rushaicodemother.orchestration.decision.GenerationGuidanceSelection;
 import com.rush.rushaicodemother.orchestration.decision.GenerationPreflightUsage;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.decision.GenerationToolPermissionProfile;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -39,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationTaskCommandCodecTest {
 
@@ -84,6 +87,10 @@ class GenerationTaskCommandCodecTest {
         assertEquals(plan(envelope), restored.executionPlan());
         assertEquals(GenerationPlanningVariant.COMPACT_PLAN, restored.planningVariant());
         assertEquals(scenarioDecision(), restored.scenarioDecision());
+        assertEquals(List.of("database-service"),
+                restored.scenarioDecision().guidanceSelection().recipeIds());
+        assertEquals(List.of("database-boundary"),
+                restored.scenarioDecision().guidanceSelection().skillIds());
         assertEquals(new GenerationPreflightUsage(1, 1, 2), restored.preflightUsage());
     }
 
@@ -120,7 +127,7 @@ class GenerationTaskCommandCodecTest {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> GenerationTaskCommandCodec.fromJson(JSON_MAPPER.writeValueAsString(payload)));
 
-        assertEquals("任务命令 schema 10 缺少必需字段: scenarioDecision", exception.getMessage());
+        assertEquals("任务命令 schema 11 缺少必需字段: scenarioDecision", exception.getMessage());
     }
 
     @Test
@@ -131,7 +138,7 @@ class GenerationTaskCommandCodecTest {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> GenerationTaskCommandCodec.fromJson(JSON_MAPPER.writeValueAsString(payload)));
 
-        assertEquals("任务命令 schema 10 缺少必需字段: preflightUsage", exception.getMessage());
+        assertEquals("任务命令 schema 11 缺少必需字段: preflightUsage", exception.getMessage());
     }
 
     @Test
@@ -142,7 +149,7 @@ class GenerationTaskCommandCodecTest {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> GenerationTaskCommandCodec.fromJson(JSON_MAPPER.writeValueAsString(payload)));
 
-        assertEquals("任务命令 schema 10 缺少必需字段: executionPlan", exception.getMessage());
+        assertEquals("任务命令 schema 11 缺少必需字段: executionPlan", exception.getMessage());
     }
 
     @Test
@@ -153,13 +160,27 @@ class GenerationTaskCommandCodecTest {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> GenerationTaskCommandCodec.fromJson(JSON_MAPPER.writeValueAsString(payload)));
 
-        assertEquals("任务命令 schema 10 缺少必需字段: planningVariant", exception.getMessage());
+        assertEquals("任务命令 schema 11 缺少必需字段: planningVariant", exception.getMessage());
+    }
+
+    @Test
+    void currentSchemaWithoutFrozenGuidanceSelectionMustFailClosed() throws Exception {
+        ObjectNode payload = completeCommandPayload();
+        ((ObjectNode) payload.get("scenarioDecision")).remove("guidanceSelection");
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> GenerationTaskCommandCodec.fromJson(JSON_MAPPER.writeValueAsString(payload)));
+
+        assertEquals(
+                "任务命令 schema 11 缺少必需字段: scenarioDecision.guidanceSelection",
+                exception.getMessage()
+        );
     }
 
     @Test
     void textualSchemaVersionMustNotBypassRequiredFieldValidation() throws Exception {
         ObjectNode payload = completeCommandPayload();
-        payload.put("schemaVersion", "10");
+        payload.put("schemaVersion", "11");
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> GenerationTaskCommandCodec.fromJson(JSON_MAPPER.writeValueAsString(payload)));
@@ -179,6 +200,20 @@ class GenerationTaskCommandCodecTest {
         assertEquals(9, restored.schemaVersion());
         assertEquals(GenerationPreflightUsage.none(), restored.preflightUsage());
         assertEquals(scenarioDecision(), restored.scenarioDecision());
+    }
+
+    @Test
+    void schemaTenWithoutFrozenGuidanceSelectionRemainsReadable() throws Exception {
+        ObjectNode payload = completeCommandPayload();
+        payload.put("schemaVersion", 10);
+        ((ObjectNode) payload.get("scenarioDecision")).remove("guidanceSelection");
+
+        GenerationTaskCommand restored = GenerationTaskCommandCodec.fromJson(
+                JSON_MAPPER.writeValueAsString(payload));
+
+        assertEquals(10, restored.schemaVersion());
+        assertTrue(restored.scenarioDecision().guidanceSelection().recipes().isEmpty());
+        assertTrue(restored.scenarioDecision().guidanceSelection().skills().isEmpty());
     }
 
     @Test
@@ -393,6 +428,18 @@ class GenerationTaskCommandCodecTest {
     private GenerationScenarioDecision scenarioDecision() {
         return new GenerationScenarioDecision(
                 profile(),
+                new GenerationGuidanceSelection(
+                        List.of(Map.of(
+                                "id", "database-service",
+                                "modules", List.of("database", "api"),
+                                "contextFileHints", List.of("backend/internal/modules")
+                        )),
+                        List.of(Map.of(
+                                "id", "database-boundary",
+                                "modules", List.of("database"),
+                                "contextFileHints", List.of("backend/sql/schema.sql")
+                        ))
+                ),
                 CodeGenTypeEnum.VUE_PROJECT,
                 GenerationMutability.WRITE,
                 GenerationResourceRequirements.ofDatabaseRequirement(true),

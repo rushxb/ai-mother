@@ -51,7 +51,7 @@ public record GenerationTaskCommand(
         GenerationPreflightUsage preflightUsage
 ) {
 
-    public static final int CURRENT_SCHEMA_VERSION = 10;
+    public static final int CURRENT_SCHEMA_VERSION = 11;
     public static final int MIN_SUPPORTED_SCHEMA_VERSION = 1;
 
     /** 创建生成任务命令实例并完成必要的依赖和初始状态设置。 */

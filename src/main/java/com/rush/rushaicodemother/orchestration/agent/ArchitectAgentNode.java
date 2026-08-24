@@ -17,12 +17,9 @@ import java.util.Map;
 @Component
 public class ArchitectAgentNode extends BaseGenerationAgentNode {
 
-    private final GenerationAgentSupport support;
-
-    public ArchitectAgentNode(GenerationAgentSupport support) {
+    public ArchitectAgentNode() {
         super("architect", "Architect", "architecture", List.of("planner", "context"),
                 GenerationNodeReplayPolicy.REPLAY_SAFE);
-        this.support = support;
     }
 
     /**
@@ -33,11 +30,17 @@ public class ArchitectAgentNode extends BaseGenerationAgentNode {
  */
     @Override
     public AgentNodeResult execute(GenerationAgentContext context) {
-        String projectContext = context.getArtifact(ContextSummaryArtifact.KEY)
+        context.getArtifact(ContextSummaryArtifact.KEY)
                 .map(ContextSummaryArtifact::fromArtifact)
-                .map(ContextSummaryArtifact::projectContext)
-                .orElseThrow(() -> new IllegalStateException("缺少项目上下文制品，无法完成架构规划"));
-        List<String> modules = support.inferModules(context.getRequest().userMessage(), projectContext);
+                .orElseThrow(() -> new IllegalStateException(
+                        "缺少项目上下文制品，无法完成架构规划"));
+        List<String> modules = context.getRequest()
+                .scenarioDecision()
+                .guidanceSelection()
+                .modules();
+        if (modules.isEmpty()) {
+            modules = List.of("core-app");
+        }
         List<String> constraints = List.of(
                 "优先复用已有目录和依赖",
                 "模块内改动聚合，跨模块接口最小化",

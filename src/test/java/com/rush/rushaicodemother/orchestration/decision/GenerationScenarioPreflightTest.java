@@ -23,9 +23,11 @@ import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.router.GenerationRouteSelection;
 import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentity;
 import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentityProvider;
+import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskAdmissionService;
+import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -33,6 +35,7 @@ import org.mockito.InOrder;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.UnaryOperator;
@@ -86,7 +89,14 @@ class GenerationScenarioPreflightTest {
                         "a".repeat(40), false, "b".repeat(64), "c".repeat(64),
                         "d".repeat(64), "intent-lexical/preflight-test"));
         GenerationScenarioDecisionKernel kernel =
-                new GenerationScenarioDecisionKernel(router, releaseIdentityProvider);
+                new GenerationScenarioDecisionKernel(
+                        router,
+                        releaseIdentityProvider,
+                        new GenerationGuidanceSelector(
+                                new GenerationRecipeLibrary(),
+                                new GenerationSkillLibrary(List.of(), false)
+                        )
+                );
 
         GenerationTaskAdmissionService admissionService = mock(GenerationTaskAdmissionService.class);
         IntentClarificationRefiner clarificationRefiner = mock(IntentClarificationRefiner.class);

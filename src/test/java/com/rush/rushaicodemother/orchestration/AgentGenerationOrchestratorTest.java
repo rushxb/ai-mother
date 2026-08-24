@@ -221,7 +221,7 @@ class AgentGenerationOrchestratorTest {
         PlannerAgentNode plannerNode = spy(new PlannerAgentNode(support));
         TemplateAgentNode templateNode = testTemplateAgentNode("resume");
         ContextAgentNode contextNode = new ContextAgentNode(support);
-        ArchitectAgentNode architectNode = new ArchitectAgentNode(support);
+        ArchitectAgentNode architectNode = new ArchitectAgentNode();
         var codeNode = codeAgentNode();
         var reviewNode = reviewAgentNode();
         restoredTask.setDagFingerprint(fingerprint(List.of(
@@ -285,7 +285,7 @@ class AgentGenerationOrchestratorTest {
         PlannerAgentNode plannerNode = spy(new PlannerAgentNode(support));
         TemplateAgentNode templateNode = testTemplateAgentNode("completed-resume");
         ContextAgentNode contextNode = new ContextAgentNode(support);
-        ArchitectAgentNode architectNode = new ArchitectAgentNode(support);
+        ArchitectAgentNode architectNode = new ArchitectAgentNode();
         var codeNode = codeAgentNode();
         var reviewNode = reviewAgentNode();
         GenerationOrchestrationMetricsCollector metricsCollector =
@@ -491,7 +491,7 @@ class AgentGenerationOrchestratorTest {
                         new PlannerAgentNode(support),
                         testTemplateAgentNode("metrics"),
                         new ContextAgentNode(support),
-                        new ArchitectAgentNode(support),
+                        new ArchitectAgentNode(),
                         codeAgentNode(),
                         reviewAgentNode(),
                         new BuildFixAgentNode()),
@@ -559,7 +559,7 @@ class AgentGenerationOrchestratorTest {
                         new PlannerAgentNode(support),
                         testTemplateAgentNode("shared"),
                         new ContextAgentNode(support),
-                        new ArchitectAgentNode(support),
+                        new ArchitectAgentNode(),
                         codeAgentNode(),
                         reviewAgentNode(),
                         new BuildFixAgentNode()),

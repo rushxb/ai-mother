@@ -18,9 +18,12 @@ import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.router.GenerationRouteSelection;
 import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentity;
 import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentityProvider;
+import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
+import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -44,11 +47,19 @@ class GenerationScenarioDecisionKernelTest {
                     "d".repeat(64),
                     "intent-lexical/test");
     private final GenerationScenarioDecisionKernel kernel =
-            new GenerationScenarioDecisionKernel(router, releaseIdentityProvider);
+            new GenerationScenarioDecisionKernel(
+                    router,
+                    releaseIdentityProvider,
+                    new GenerationGuidanceSelector(
+                            new GenerationRecipeLibrary(),
+                            new GenerationSkillLibrary(List.of(), false)
+                    )
+            );
 
     @Test
     void writeDecisionMustOwnResourcesPermissionsRouteAndValidationAsOneFact() {
         GenerationTaskRequest request = mock(GenerationTaskRequest.class);
+        when(request.message()).thenReturn("新增登录注册管理页面");
         GenerationWorkspace workspace = mock(GenerationWorkspace.class);
         IntentProfile profile = profile(IntentOperationType.EDIT, true);
         GenerationModeDecision route = GenerationModeDecision.of(
@@ -74,6 +85,7 @@ class GenerationScenarioDecisionKernelTest {
                 decision.contextHints());
         assertEquals("intent-lexical/test", decision.ruleVersion());
         assertEquals(releaseIdentity.releaseFingerprint(), decision.releaseFingerprint());
+        assertTrue(decision.guidanceSelection().recipeIds().contains("auth-basic"));
     }
 
     @Test
@@ -99,6 +111,8 @@ class GenerationScenarioDecisionKernelTest {
         assertFalse(decision.requiredResources().databaseRequired());
         assertEquals(GenerationToolPermissionProfile.READ_ONLY, decision.toolPermissionProfile());
         assertEquals(ExpectedValidationLevel.FAST, decision.validationFloor());
+        assertTrue(decision.guidanceSelection().recipes().isEmpty());
+        assertTrue(decision.guidanceSelection().skills().isEmpty());
     }
 
     @Test

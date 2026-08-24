@@ -2,12 +2,15 @@ package com.rush.rushaicodemother.ai.tools;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceDirectoryMetadata;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -91,23 +94,27 @@ public class DiffSummaryTool extends BaseTool {
                         validateRequiredSnapshotName(baseSnapshotName, "compareSnapshots 需要同时提供 baseSnapshotName 和 compareSnapshotName"),
                         validateRequiredSnapshotName(compareSnapshotName, "compareSnapshots 需要同时提供 baseSnapshotName 和 compareSnapshotName")
                 );
-                default -> "错误：不支持的操作类型 - " + normalizedAction;
+                default -> throw toolFailure("错误：不支持的操作类型 - " + normalizedAction);
             };
+        } catch (ToolPublicFailureException publicFailure) {
+            throw publicFailure;
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            throw executionPolicyFailure;
         } catch (ToolInputException e) {
-            return renderInputError(e);
+            throw toolInputFailure("错误：", e);
         } catch (SnapshotNamePolicy.ValidationException e) {
-            return renderInputError(new ToolInputException(e.getMessage(), e));
+            throw toolInputFailure("错误：", new ToolInputException(e.getMessage(), e));
         } catch (Exception e) {
             log.error("生成差异摘要失败，action: {}, exceptionType: {}",
                     action, e.getClass().getSimpleName());
-            return "生成差异摘要失败，请稍后重试";
+            throw toolFailure("生成差异摘要失败，请稍后重试");
         }
     }
 
     private String compareLatestSnapshot(Long appId, Path projectPath, Path snapshotRoot) throws Exception {
         Path latestSnapshot = resolveLatestSnapshot(appId, snapshotRoot);
         if (latestSnapshot == null) {
-            return "错误：当前没有可对比的快照";
+            throw toolFailure("错误：当前没有可对比的快照");
         }
         return buildDiffReport(latestSnapshot, projectPath, latestSnapshot.getFileName().toString(), "current");
     }
@@ -132,14 +139,15 @@ public class DiffSummaryTool extends BaseTool {
     /** 构建并返回{@code Diff}报告。 */
     private String buildDiffReport(Path leftRoot, Path rightRoot, String leftName, String rightName) throws Exception {
         if (!workspaceFileSystemService.isDirectory(leftRoot)) {
-            return "错误：基准目录不存在 - " + leftName;
+            throw toolFailure("错误：基准目录不存在 - " + leftName);
         }
         if (!workspaceFileSystemService.isDirectory(rightRoot)) {
-            return "错误：对比目录不存在 - " + rightName;
+            throw toolFailure("错误：对比目录不存在 - " + rightName);
         }
         DiffSummary summary = generationDiffSummaryService.summarizePaths(null, "", leftRoot, rightRoot);
-        if (!"created".equals(summary.status())) {
-            return "错误：差异摘要生成失败 - " + summary.reason();
+        if (!summary.created()) {
+            log.warn("差异摘要未生成，reason: {}", LogExceptionSanitizer.sanitizeValue(summary.reason(), 200));
+            throw toolFailure("错误：差异摘要生成失败，请稍后重试");
         }
         String rendered = generationDiffSummaryService.renderText(summary);
         return rendered.replaceFirst("生成后差异摘要", "差异对比: " + leftName + " -> " + rightName);

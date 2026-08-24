@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import cn.hutool.json.JSONObject;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -39,14 +41,18 @@ public class FileReadTool extends BaseTool {
             ToolWorkspaceFileService.ToolWorkspaceFile file =
                     workspaceFileService.resolveFile(appId, relativeFilePath);
             if (!workspaceFileService.exists(file) || !workspaceFileService.isRegularFile(file)) {
-                return "错误：文件不存在或不是文件 - " + relativeFilePath;
+                throw toolFailure("错误：文件不存在或不是文件 - " + relativeFilePath);
             }
             return workspaceFileService.readUtf8(file);
+        } catch (ToolPublicFailureException publicFailure) {
+            throw publicFailure;
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            throw executionPolicyFailure;
         } catch (ToolInputException e) {
-            return renderInputError("读取文件失败: ", e);
+            throw toolInputFailure("读取文件失败: ", e);
         } catch (Exception e) {
             log.error("读取文件失败，relativeFilePath: {}", relativeFilePath, LogExceptionSanitizer.sanitize(e));
-            return "读取文件失败，请稍后重试";
+            throw toolFailure("读取文件失败，请稍后重试");
         }
     }
 

@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -15,6 +16,8 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -105,22 +108,94 @@ class DiffSummaryToolTest {
 
     @Test
     void shouldRejectSnapshotPathTraversalBeforeFileSystemAccess() throws Exception {
-        String result = tool.summarizeDiff(
-                "compareSnapshots",
-                "../another-app",
-                "snapshot_2",
-                null,
-                APP_ID
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.summarizeDiff(
+                        "compareSnapshots",
+                        "../another-app",
+                        "snapshot_2",
+                        null,
+                        APP_ID
+                )
         );
 
-        assertEquals("错误：快照名称只能包含字母、数字、下划线和短横线", result);
+        assertEquals("错误：快照名称只能包含字母、数字、下划线和短横线", failure.publicMessage());
         verify(diffSummaryService, never()).summarizePaths(any(), anyString(), any(Path.class), any(Path.class));
     }
 
     @Test
     void shouldRejectMissingApplicationId() {
-        String result = tool.summarizeDiff("compareLatestSnapshot", null, null, null, null);
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.summarizeDiff("compareLatestSnapshot", null, null, null, null)
+        );
 
-        assertEquals("错误：应用标识不能为空且必须为正数", result);
+        assertEquals("错误：应用标识不能为空且必须为正数", failure.publicMessage());
+    }
+
+    @Test
+    void missingLatestSnapshotMustBeReportedAsProtocolFailure() throws Exception {
+        when(workspaceFileSystemService.isDirectory(any(Path.class))).thenReturn(false);
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.summarizeDiff("compareLatestSnapshot", null, null, "src", APP_ID)
+        );
+
+        assertEquals("错误：当前没有可对比的快照", failure.publicMessage());
+    }
+
+    @Test
+    void emptyCreatedDiffMustRemainAValidEmptySuccess() throws Exception {
+        DiffSummary emptySummary = DiffSummary.created(
+                APP_ID,
+                "",
+                "snapshot_1",
+                "snapshot_2",
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        when(diffSummaryService.summarizePaths(eq(null), eq(""), any(Path.class), any(Path.class)))
+                .thenReturn(emptySummary);
+        when(diffSummaryService.renderText(emptySummary)).thenReturn("生成后差异摘要\n无文件变更");
+
+        String result = tool.summarizeDiff(
+                "compareSnapshots",
+                "snapshot_1",
+                "snapshot_2",
+                null,
+                APP_ID
+        );
+
+        assertTrue(result.contains("无文件变更"));
+    }
+
+    @Test
+    void failedDiffSummaryMustNotExposeInternalReason() throws Exception {
+        DiffSummary skipped = DiffSummary.skipped(
+                APP_ID,
+                "",
+                "snapshot_1",
+                "snapshot_2",
+                "provider-api-key=secret-value"
+        );
+        when(diffSummaryService.summarizePaths(eq(null), eq(""), any(Path.class), any(Path.class)))
+                .thenReturn(skipped);
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.summarizeDiff(
+                        "compareSnapshots",
+                        "snapshot_1",
+                        "snapshot_2",
+                        null,
+                        APP_ID
+                )
+        );
+
+        assertFalse(failure.publicMessage().contains("secret-value"));
+        assertEquals("错误：差异摘要生成失败，请稍后重试", failure.publicMessage());
     }
 }

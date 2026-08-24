@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import dev.langchain4j.agent.tool.P;
@@ -53,11 +54,13 @@ public class FileDirReadTool extends BaseTool {
                 structure.append("... 目录内容超过安全遍历限制，已截断\n");
             }
             return structure.toString();
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            throw executionPolicyFailure;
         } catch (ToolInputException e) {
-            return renderInputError("读取目录结构失败: ", e);
+            throw toolInputFailure("读取目录结构失败: ", e);
         } catch (Exception e) {
             log.error("读取目录结构失败，relativeDirPath: {}", relativeDirPath, LogExceptionSanitizer.sanitize(e));
-            return "读取目录结构失败，请稍后重试";
+            throw toolFailure("读取目录结构失败，请稍后重试");
         }
     }
 

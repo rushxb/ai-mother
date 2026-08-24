@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticSearchHit;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -57,7 +58,7 @@ public class ProjectSearchTool extends BaseTool {
     ) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (StrUtil.isBlank(keyword)) {
-            return "错误：搜索关键词不能为空";
+            throw toolFailure("错误：搜索关键词不能为空");
         }
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
@@ -88,12 +89,14 @@ public class ProjectSearchTool extends BaseTool {
                         .append("内容:\n").append(hit.preview()).append('\n');
             }
             return builder.toString().trim();
+        } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+            throw executionPolicyFailure;
         } catch (ToolInputException e) {
-            return renderInputError(e);
+            throw toolInputFailure("错误：", e);
         } catch (Exception e) {
             log.error("项目搜索失败，keyword: {}",
                     LogExceptionSanitizer.sanitizeValue(keyword, 200), LogExceptionSanitizer.sanitize(e));
-            return "项目搜索失败，请稍后重试";
+            throw toolFailure("项目搜索失败，请稍后重试");
         }
     }
 

@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
@@ -47,14 +48,15 @@ public class ReadMultipleFilesTool extends BaseTool {
     ) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (relativeFilePaths == null || relativeFilePaths.isEmpty()) {
-            return "错误：文件路径列表不能为空";
+            throw toolFailure("错误：文件路径列表不能为空");
         }
         if (relativeFilePaths.size() > MAX_FILES) {
-            return "错误：单次最多读取 " + MAX_FILES + " 个文件";
+            throw toolFailure("错误：单次最多读取 " + MAX_FILES + " 个文件");
         }
         int requestedCharLimit = maxCharsPerFile == null ? DEFAULT_MAX_CHARS : maxCharsPerFile;
         int charLimit = Math.max(1, Math.min(requestedCharLimit, MAX_CHARS_LIMIT));
         StringBuilder builder = new StringBuilder();
+        int successfulReadCount = 0;
         // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String relativeFilePath : relativeFilePaths) {
             try {
@@ -66,10 +68,13 @@ public class ReadMultipleFilesTool extends BaseTool {
                     continue;
                 }
                 String content = workspaceFileService.readUtf8(file);
+                successfulReadCount++;
                 builder.append("[文件] ").append(file.relativePath()).append('\n')
                         .append("```").append(resolveFenceLanguage(file.fileName())).append('\n')
                         .append(truncate(content, charLimit))
                         .append("\n```\n\n");
+            } catch (GenerationExecutionPolicyException executionPolicyFailure) {
+                throw executionPolicyFailure;
             } catch (ToolInputException e) {
                 builder.append("[文件] ").append(relativeFilePath).append('\n')
                         .append(renderInputError(e)).append("\n\n");
@@ -78,6 +83,9 @@ public class ReadMultipleFilesTool extends BaseTool {
                 builder.append("[文件] ").append(relativeFilePath).append('\n')
                         .append("错误：文件读取失败，请稍后重试\n\n");
             }
+        }
+        if (successfulReadCount == 0) {
+            throw toolFailure("错误：批量读取失败，没有成功读取任何文件");
         }
         return StrUtil.trim(builder.toString());
     }

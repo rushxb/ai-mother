@@ -3,6 +3,8 @@ package com.rush.rushaicodemother.orchestration.create;
 import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.ai.model.CreateSpec;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -10,6 +12,16 @@ import java.util.Locale;
  * 当快速 AI 规范模型不可用时，使用本地 CREATE 规范回退。
  */
 public class CreateSpecDefaults {
+
+    private static final int MAX_ENTITIES = 4;
+    private static final List<EntityDescriptor> KNOWN_ENTITIES = List.of(
+            new EntityDescriptor("Course", "课程", List.of("课程", "course")),
+            new EntityDescriptor("Member", "会员", List.of("会员", "member")),
+            new EntityDescriptor("Coach", "教练", List.of("教练", "coach")),
+            new EntityDescriptor("Product", "商品", List.of("商品", "产品", "product")),
+            new EntityDescriptor("Order", "订单", List.of("订单", "order")),
+            new EntityDescriptor("Customer", "客户", List.of("客户", "customer"))
+    );
 
     /**
  * 根据输入数据创建当前对象。
@@ -25,16 +37,10 @@ public class CreateSpecDefaults {
         String appType = appType(plan, group);
         String domain = domain(message);
         String brandName = brandName(message, domain);
-        String entityName = entityName(message);
-        String entityLabel = entityLabel(message);
-        List<CreateSpec.FieldSpec> fields = fieldsFor(entityName, entityLabel);
-        CreateSpec.EntitySpec primaryEntity = new CreateSpec.EntitySpec(
-                entityName,
-                entityLabel,
-                fields,
-                List.of(),
-                List.of("list", "create", "update", "delete", "detail")
-        );
+        List<CreateSpec.EntitySpec> entities = entitiesFor(message);
+        CreateSpec.EntitySpec primaryEntity = entities.getFirst();
+        String entityName = primaryEntity.name();
+        String entityLabel = primaryEntity.label();
         CreateSpec.Frontend frontend = new CreateSpec.Frontend(
                 layout(appType),
                 styleKeywords(domain, appType),
@@ -60,8 +66,14 @@ public class CreateSpecDefaults {
                 lowerFirst(entityName)
         );
         CreateSpec.Database database = new CreateSpec.Database(
-                List.of(new CreateSpec.TableSpec(tableName(entityName), fields, List.of(fields.getFirst().name()))),
-                List.of(fields.getFirst().name()),
+                entities.stream()
+                        .map(entity -> new CreateSpec.TableSpec(
+                                tableName(entity.name()),
+                                entity.fields(),
+                                List.of(entity.fields().getFirst().name())
+                        ))
+                        .toList(),
+                entities.stream().map(entity -> entity.fields().getFirst().name()).distinct().toList(),
                 true,
                 "append_sql_schema"
         );
@@ -76,13 +88,13 @@ public class CreateSpecDefaults {
                 true,
                 List.of("package.json", "vite.config.ts", "go.mod"),
                 List.of("no_script_html", "no_secret", "no_private_endpoint", StrUtil.blankToDefault(reason, "local_spec_fallback")),
-                4,
+                MAX_ENTITIES,
                 8
         );
         return new CreateSpec(
                 new CreateSpec.Product(appType, domain, brandName, audience(domain), goal(appType, domain)),
-                modules(appType, entityLabel),
-                List.of(primaryEntity),
+                modules(appType, entities),
+                entities,
                 frontend,
                 backend,
                 database,
@@ -133,26 +145,42 @@ public class CreateSpecDefaults {
         };
     }
 
-    /** 返回{@code entity}名称。 */
-    private String entityName(String message) {
-        if (containsAny(message, "课程")) return "Course";
-        if (containsAny(message, "会员")) return "Member";
-        if (containsAny(message, "教练")) return "Coach";
-        if (containsAny(message, "商品", "产品")) return "Product";
-        if (containsAny(message, "订单")) return "Order";
-        if (containsAny(message, "客户")) return "Customer";
-        return "Record";
+    /**
+     * 从用户请求中保留所有明确出现的已知实体，并按首次出现顺序返回。
+     * 本地回退也必须维持多实体意图，不能因模型不可用而静默降级成单实体项目。
+     */
+    private List<CreateSpec.EntitySpec> entitiesFor(String message) {
+        String normalized = StrUtil.blankToDefault(message, "").toLowerCase(Locale.ROOT);
+        List<DetectedEntity> detected = new ArrayList<>();
+        for (EntityDescriptor descriptor : KNOWN_ENTITIES) {
+            int firstIndex = descriptor.keywords().stream()
+                    .mapToInt(normalized::indexOf)
+                    .filter(index -> index >= 0)
+                    .min()
+                    .orElse(-1);
+            if (firstIndex >= 0) {
+                detected.add(new DetectedEntity(descriptor, firstIndex));
+            }
+        }
+        detected.sort(Comparator.comparingInt(DetectedEntity::firstIndex));
+        List<CreateSpec.EntitySpec> entities = detected.stream()
+                .limit(MAX_ENTITIES)
+                .map(item -> entitySpec(item.descriptor()))
+                .toList();
+        if (!entities.isEmpty()) {
+            return entities;
+        }
+        return List.of(entitySpec(new EntityDescriptor("Record", "业务记录", List.of())));
     }
 
-    /** 返回{@code entity}{@code Label}。 */
-    private String entityLabel(String message) {
-        if (containsAny(message, "课程")) return "课程";
-        if (containsAny(message, "会员")) return "会员";
-        if (containsAny(message, "教练")) return "教练";
-        if (containsAny(message, "商品", "产品")) return "商品";
-        if (containsAny(message, "订单")) return "订单";
-        if (containsAny(message, "客户")) return "客户";
-        return "业务记录";
+    private CreateSpec.EntitySpec entitySpec(EntityDescriptor descriptor) {
+        return new CreateSpec.EntitySpec(
+                descriptor.name(),
+                descriptor.label(),
+                fieldsFor(descriptor.name(), descriptor.label()),
+                List.of(),
+                List.of("list", "create", "update", "delete", "detail")
+        );
     }
 
     /** 返回{@code fields}{@code For}。 */
@@ -171,6 +199,12 @@ public class CreateSpecDefaults {
                     field("price", "decimal", "价格", false), field("stock", "integer", "库存", false),
                     field("status", "enum", "状态", false, List.of("在售", "下架")));
         }
+        if ("Order".equals(entityName)) {
+            return List.of(field("orderNo", "string", "订单号", true),
+                    field("customerName", "string", "客户名称", true),
+                    field("amount", "decimal", "订单金额", true),
+                    field("status", "enum", "状态", false, List.of("待支付", "已支付", "已完成", "已取消")));
+        }
         return List.of(field("name", "string", entityLabel + "名称", true), field("owner", "string", "负责人", false),
                 field("status", "enum", "状态", false, List.of("启用", "停用")), field("remark", "string", "备注", false));
     }
@@ -184,15 +218,33 @@ public class CreateSpecDefaults {
     }
 
     /** 返回{@code modules}。 */
-    private List<CreateSpec.ModuleSpec> modules(String appType, String entityLabel) {
+    private List<CreateSpec.ModuleSpec> modules(String appType, List<CreateSpec.EntitySpec> entities) {
         if ("admin".equals(appType)) {
-            return List.of(new CreateSpec.ModuleSpec("dashboard", "工作台", List.of("metrics", "charts")),
-                    new CreateSpec.ModuleSpec("crud", entityLabel + "管理", List.of("table", "form", "batch_actions")));
+            List<CreateSpec.ModuleSpec> modules = new ArrayList<>();
+            modules.add(new CreateSpec.ModuleSpec("dashboard", "工作台", List.of("metrics", "charts")));
+            entities.forEach(entity -> modules.add(new CreateSpec.ModuleSpec(
+                    lowerFirst(entity.name()) + "_crud",
+                    entity.label() + "管理",
+                    List.of("table", "form", "batch_actions")
+            )));
+            return List.copyOf(modules);
         }
         if ("backend".equals(appType)) {
-            return List.of(new CreateSpec.ModuleSpec("crud_api", entityLabel + "接口", List.of("rest", "pagination", "search")));
+            return entities.stream()
+                    .map(entity -> new CreateSpec.ModuleSpec(
+                            lowerFirst(entity.name()) + "_crud_api",
+                            entity.label() + "接口",
+                            List.of("rest", "pagination", "search")
+                    ))
+                    .toList();
         }
         return List.of(new CreateSpec.ModuleSpec("presentation", "展示", List.of("content", "conversion")));
+    }
+
+    private record EntityDescriptor(String name, String label, List<String> keywords) {
+    }
+
+    private record DetectedEntity(EntityDescriptor descriptor, int firstIndex) {
     }
 
     private String layout(String appType) {

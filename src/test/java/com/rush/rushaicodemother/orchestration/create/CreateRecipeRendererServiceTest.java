@@ -121,6 +121,34 @@ class CreateRecipeRendererServiceTest {
     }
 
     @Test
+    void multiEntityBackendRecipeMustRenderEveryDeclaredEntity() {
+        CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
+
+        RecipeRenderResult result = renderer.render(
+                "做一个商品和订单 CRUD 后端",
+                new SlotGroup("backend", "go-sqlite-backend-basic", "backend",
+                        List.of("domain_contract", "module_model", "module_repository", "module_service",
+                                "module_handler", "database_schema", "module_import", "server_wiring"), 0),
+                multiEntityBackendSpec()
+        );
+
+        assertTrue(result.complete());
+        assertEquals(15, result.patchOperations().size());
+        assertTrue(result.patchOperations().stream().anyMatch(operation ->
+                operation.relativePath().equals("internal/modules/product/model.go")
+                        && operation.content().contains("type Product struct")));
+        assertTrue(result.patchOperations().stream().anyMatch(operation ->
+                operation.relativePath().equals("internal/modules/order/model.go")
+                        && operation.content().contains("type Order struct")));
+        assertTrue(result.patchOperations().stream().anyMatch(operation ->
+                operation.relativePath().equals("sql/schema.sql")
+                        && operation.newContent().contains("create table if not exists products")));
+        assertTrue(result.patchOperations().stream().anyMatch(operation ->
+                operation.relativePath().equals("sql/schema.sql")
+                        && operation.newContent().contains("create table if not exists orders")));
+    }
+
+    @Test
     void shouldUseFrontendSpecKnobsInAdminRecipeOutput() {
         CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
         RecipeRenderResult result = renderer.render(
@@ -181,7 +209,7 @@ class CreateRecipeRendererServiceTest {
     }
 
     @Test
-    void shouldCompileRenderedBackendRecipeWithGoTestWhenGoIsAvailable() throws Exception {
+    void shouldCompileRenderedMultiEntityBackendRecipeWithGoTestWhenGoIsAvailable() throws Exception {
         Assumptions.assumeTrue(goAvailable(), "Go toolchain is not available in this environment");
         Path outputRoot = Path.of("target", "test-workspaces", "create-backend-go-test")
                 .toAbsolutePath()
@@ -193,11 +221,11 @@ class CreateRecipeRendererServiceTest {
 
         CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
         RecipeRenderResult result = renderer.render(
-                "做一个课程管理后端",
+                "做一个商品和订单 CRUD 后端",
                 new SlotGroup("backend", "go-sqlite-backend-basic", "backend",
                         List.of("domain_contract", "module_model", "module_repository", "module_service",
                                 "module_handler", "database_schema", "module_import", "server_wiring"), 0),
-                spec()
+                multiEntityBackendSpec()
         );
         GenerationPatchApplyService patchApplyService = PatchApplyServiceTestFactory.create();
         var applyResult = patchApplyService.applyWithoutChangePlan(1L, "backend-go-test", root,
@@ -284,6 +312,32 @@ class CreateRecipeRendererServiceTest {
                         List.of("createdAt", "updatedAt"), importExport, batchActions, List.of("required"),
                         "standard_json", "course"),
                 new CreateSpec.Database(List.of(), List.of("title", "status"), softDelete, "append_sql_schema"),
+                base.content(),
+                base.constraints()
+        );
+    }
+
+    private CreateSpec multiEntityBackendSpec() {
+        CreateSpec base = spec();
+        CreateSpec.EntitySpec product = new CreateSpec.EntitySpec(
+                "Product", "商品", List.of(
+                new CreateSpec.FieldSpec("name", "string", "商品名称", true, List.of()),
+                new CreateSpec.FieldSpec("price", "decimal", "价格", true, List.of()),
+                new CreateSpec.FieldSpec("stock", "integer", "库存", false, List.of())
+        ), List.of(), List.of("list", "create", "update", "delete"));
+        CreateSpec.EntitySpec order = new CreateSpec.EntitySpec(
+                "Order", "订单", List.of(
+                new CreateSpec.FieldSpec("orderNo", "string", "订单号", true, List.of()),
+                new CreateSpec.FieldSpec("amount", "decimal", "金额", true, List.of()),
+                new CreateSpec.FieldSpec("status", "enum", "状态", false, List.of("待支付", "已完成"))
+        ), List.of(), List.of("list", "create", "update", "delete"));
+        return new CreateSpec(
+                base.product(),
+                base.modules(),
+                List.of(product, order),
+                base.frontend(),
+                base.backend(),
+                base.database(),
                 base.content(),
                 base.constraints()
         );

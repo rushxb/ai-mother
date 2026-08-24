@@ -64,6 +64,29 @@ class CreateSpecServiceTest {
     }
 
     @Test
+    void localBackendFallbackMustPreserveEveryExplicitlyRequestedEntity() {
+        AiCreateSpecServiceFactory serviceFactory = mock(AiCreateSpecServiceFactory.class);
+        when(serviceFactory.createService()).thenThrow(new IllegalStateException("provider unavailable"));
+        CreateSpecService service = new CreateSpecService(serviceFactory, new CreateSpecNormalizer());
+        CreateGenerationPlan plan = backendPlan();
+
+        CreateSpecService.SpecResult result = service.generate(
+                "做一个商品和订单 CRUD 后端",
+                plan,
+                plan.slotGroups().getFirst()
+        );
+
+        assertEquals(
+                List.of("Product", "Order"),
+                result.spec().entities().stream().map(CreateSpec.EntitySpec::name).toList()
+        );
+        assertEquals(
+                List.of("products", "orders"),
+                result.spec().database().tables().stream().map(CreateSpec.TableSpec::name).toList()
+        );
+    }
+
+    @Test
     void managedSpecCallMustConsumeTaskBudgetsAndUseClampedTimeout() {
         GenerationRuntimeProperties properties = new GenerationRuntimeProperties();
         properties.setModelCallTimeout(Duration.ofSeconds(20));
@@ -204,6 +227,31 @@ class CreateSpecServiceTest {
         return new CreateGenerationPlan(
                 CodeGenTypeEnum.VUE_PROJECT,
                 new CreateTemplateManifest("vue-web-landing", CodeGenTypeEnum.VUE_PROJECT, "landing"),
+                List.of(),
+                List.of(group),
+                0.9,
+                "test",
+                "test",
+                ""
+        );
+    }
+
+    private CreateGenerationPlan backendPlan() {
+        SlotGroup group = new SlotGroup(
+                "backend-slots",
+                "go-sqlite-backend-basic",
+                "backend",
+                List.of("domain_contract", "module_model", "module_repository", "module_service",
+                        "module_handler", "database_schema", "module_import", "server_wiring"),
+                0
+        );
+        return new CreateGenerationPlan(
+                CodeGenTypeEnum.BACKEND_PROJECT,
+                new CreateTemplateManifest(
+                        "go-sqlite-backend-basic",
+                        CodeGenTypeEnum.BACKEND_PROJECT,
+                        "backend"
+                ),
                 List.of(),
                 List.of(group),
                 0.9,

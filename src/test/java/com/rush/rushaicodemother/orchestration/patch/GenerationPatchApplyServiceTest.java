@@ -68,6 +68,31 @@ class GenerationPatchApplyServiceTest {
     }
 
     @Test
+    void shouldCountOnlyEffectiveMutationsInMixedBatch() throws Exception {
+        Path root = cleanTestRoot("effective-mutations");
+        Files.createDirectories(root);
+        Files.writeString(root.resolve("unchanged.txt"), "same content");
+
+        PatchApplyResult result = service.applyWithoutChangePlan(
+                16L,
+                "task-16",
+                root,
+                List.of(
+                        PatchOperation.modify("unchanged.txt", "same content"),
+                        PatchOperation.add("created.txt", "new content")
+                ),
+                "effective_mutation_test"
+        );
+
+        assertEquals("applied", result.status());
+        assertEquals(2, result.plannedOperationCount());
+        assertEquals(1, result.appliedOperationCount());
+        assertEquals(List.of("add:created.txt"), result.appliedFiles());
+        assertEquals("same content", Files.readString(root.resolve("unchanged.txt")));
+        assertEquals("new content", Files.readString(root.resolve("created.txt")));
+    }
+
+    @Test
     void shouldRejectOperationOutsideChangePlanBeforeWritingAnything() throws Exception {
         Path root = cleanTestRoot("outside-plan");
         Files.createDirectories(root.resolve("src"));

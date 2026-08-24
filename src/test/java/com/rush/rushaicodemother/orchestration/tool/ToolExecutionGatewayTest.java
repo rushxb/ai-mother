@@ -115,6 +115,45 @@ class ToolExecutionGatewayTest {
     }
 
     @Test
+    void idempotentStructuredPatchMustNotBeRecordedAsWorkspaceMutation() throws Exception {
+        Path root = Files.createTempDirectory("tool-gateway-idempotent-patch");
+        Path mainFile = root.resolve("main.go");
+        String originalContent = """
+                package main
+
+                import "fmt"
+
+                func main() {
+                    fmt.Println("ready")
+                }
+                """;
+        Files.writeString(mainFile, originalContent);
+        GenerationExecutionContextService executionContexts =
+                new GenerationExecutionContextService(new GenerationRuntimeProperties());
+        executionContexts.start("task-idempotent", 15L, 100L);
+        contextService.bindChangePlan(
+                15L, "task-idempotent", "full_generation", CodeGenTypeEnum.BACKEND_PROJECT,
+                null, true, "test");
+        ToolExecutionGateway budgetedGateway = new ToolExecutionGateway(
+                patchApplyService, contextService, executionContexts);
+
+        PatchApplyResult result = budgetedGateway.applyPatch(
+                15L,
+                root,
+                PatchOperation.goAddImport("main.go", "fmt"),
+                "tool-write",
+                "test"
+        );
+
+        assertEquals("applied", result.status());
+        assertEquals(0, result.appliedOperationCount());
+        assertTrue(result.appliedFiles().isEmpty());
+        assertEquals(0, executionContexts.getByTaskId("task-idempotent").orElseThrow()
+                .successfulWorkspaceMutationCount());
+        assertEquals(originalContent, Files.readString(mainFile));
+    }
+
+    @Test
     void rejectedPatchMustNotBeRecordedAsSuccessfulWorkspaceMutation() throws Exception {
         Path root = Files.createTempDirectory("tool-gateway-rejected-mutation");
         GenerationExecutionContextService executionContexts =

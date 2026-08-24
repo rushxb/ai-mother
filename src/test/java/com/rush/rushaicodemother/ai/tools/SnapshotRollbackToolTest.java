@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionConte
 import com.rush.rushaicodemother.orchestration.tool.DestructiveToolAction;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import cn.hutool.crypto.digest.DigestUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -77,18 +79,64 @@ class SnapshotRollbackToolTest {
 
     @Test
     void shouldRejectInvalidApplicationIdBeforeCreatingSnapshotDirectory() throws Exception {
-        String result = tool.manageSnapshot("createSnapshot", "safe", null, null);
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.manageSnapshot("createSnapshot", "safe", null, null)
+        );
 
-        assertEquals("错误：应用标识不能为空且必须为正数", result);
+        assertEquals("错误：应用标识不能为空且必须为正数", failure.publicMessage());
         verify(workspaceFileSystemService, never()).ensureDirectory(any(Path.class));
     }
 
     @Test
     void shouldRejectPathLikeSnapshotNameBeforeDeleting() throws Exception {
-        String result = tool.manageSnapshot("deleteSnapshot", "../other-app", null, 9L);
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.manageSnapshot("deleteSnapshot", "../other-app", null, 9L)
+        );
 
-        assertEquals("错误：快照名称只能包含字母、数字、下划线和短横线", result);
+        assertEquals("错误：快照名称只能包含字母、数字、下划线和短横线", failure.publicMessage());
         verify(workspaceFileSystemService, never()).deleteDirectory(any(Path.class));
+    }
+
+    @Test
+    void duplicateSnapshotNameMustBeReportedAsProtocolFailure() throws Exception {
+        when(workspaceFileService.resolveDirectory(9L, null)).thenReturn(
+                new ToolWorkspaceFileService.ToolWorkspaceDirectory(
+                        "", Path.of("target", "test-projects", "9"), null));
+        when(workspaceFileSystemService.isDirectory(any(Path.class))).thenReturn(true);
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.manageSnapshot("createSnapshot", "safe", null, 9L)
+        );
+
+        assertEquals("错误：快照名称已存在 - safe", failure.publicMessage());
+        verify(workspaceFileSystemService, never()).copyDirectory(any(Path.class), any(Path.class));
+    }
+
+    @Test
+    void unsupportedSnapshotActionMustBeReportedAsProtocolFailure() {
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.manageSnapshot("exportSnapshot", "safe", null, 9L)
+        );
+
+        assertEquals("错误：不支持的操作类型 - exportSnapshot", failure.publicMessage());
+    }
+
+    @Test
+    void unexpectedSnapshotFailureMustReturnSanitizedProtocolFailure() {
+        when(snapshotWorkspaceService.resolveApplicationRoot(9L))
+                .thenThrow(new IllegalStateException("secret snapshot path"));
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.manageSnapshot("listSnapshots", null, null, 9L)
+        );
+
+        assertEquals("管理快照失败，请稍后重试", failure.publicMessage());
+        assertNull(failure.getCause());
     }
 
     @Test
@@ -113,6 +161,34 @@ class SnapshotRollbackToolTest {
         verify(toolApprovalService, never()).requestApproval(
                 anyString(), any(), anyString(), org.mockito.ArgumentMatchers.anyMap());
         verify(workspaceFileSystemService, never()).deleteDirectory(any(Path.class));
+    }
+
+    @Test
+    void approvedRollbackWhoseSnapshotDisappearedMustBeProtocolFailure() throws Exception {
+        GenerationToolExecutionContextService.ToolInvocationExecution invocation =
+                new GenerationToolExecutionContextService.ToolInvocationExecution(
+                        "task-approval", "call-rollback", "manageSnapshot", "b".repeat(64));
+        when(executionContextService.getContext(9L)).thenReturn(Optional.of(
+                new GenerationToolExecutionContext(9L, "task-approval", "agent_edit", null,
+                        null, false, "test")));
+        when(executionContextService.currentInvocation()).thenReturn(Optional.of(invocation));
+        when(toolApprovalService.isExecutionAuthorized(
+                org.mockito.ArgumentMatchers.eq("task-approval"),
+                org.mockito.ArgumentMatchers.eq(DestructiveToolAction.SNAPSHOT_ROLLBACK),
+                anyString(), org.mockito.ArgumentMatchers.eq(invocation))).thenReturn(true);
+        when(workspaceFileService.resolveDirectory(9L, null)).thenReturn(
+                new ToolWorkspaceFileService.ToolWorkspaceDirectory(
+                        "", Path.of("target", "test-projects", "9"), null));
+        when(workspaceFileSystemService.isDirectory(any(Path.class))).thenReturn(false);
+
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.manageSnapshot("rollbackSnapshot", "safe", null, 9L)
+        );
+
+        assertEquals("错误：快照不存在 - safe", failure.publicMessage());
+        verify(fenceGuard).assertCurrent("task-approval");
+        verify(workspaceFileSystemService, never()).replaceDirectory(any(Path.class), any(Path.class));
     }
 
     @Test

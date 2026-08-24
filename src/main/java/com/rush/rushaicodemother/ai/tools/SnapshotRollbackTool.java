@@ -17,6 +17,7 @@ import com.rush.rushaicodemother.orchestration.tool.DestructiveToolAction;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
+import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -99,12 +100,14 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
                         validateRequiredSnapshotName(snapshotName, "删除时必须提供快照名称"),
                         approvedInvocationId
                 );
-                default -> "错误：不支持的操作类型 - " + normalizedAction;
+                default -> throw toolFailure("错误：不支持的操作类型 - " + normalizedAction);
             };
+        } catch (ToolPublicFailureException publicFailure) {
+            throw publicFailure;
         } catch (ToolInputException e) {
-            return renderInputError(e);
+            throw toolInputFailure("错误：", e);
         } catch (SnapshotNamePolicy.ValidationException e) {
-            return renderInputError(new ToolInputException(e.getMessage(), e));
+            throw toolInputFailure("错误：", new ToolInputException(e.getMessage(), e));
         } catch (GenerationApprovalRequiredException approvalRequired) {
             throw approvalRequired;
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {
@@ -113,7 +116,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
         } catch (Exception e) {
             log.error("管理快照失败，action: {}, snapshotName: {}, exceptionType: {}",
                     action, snapshotName, e.getClass().getSimpleName());
-            return "管理快照失败，请稍后重试";
+            throw toolFailure("管理快照失败，请稍后重试");
         }
     }
 
@@ -123,7 +126,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
                                   Long appId) throws Exception {
         Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, normalizedSnapshotName);
         if (workspaceFileSystemService.isDirectory(snapshotPath)) {
-            return "错误：快照名称已存在 - " + normalizedSnapshotName;
+            throw toolFailure("错误：快照名称已存在 - " + normalizedSnapshotName);
         }
         WorkspaceCopyResult copyResult = workspaceFileSystemService.copyDirectory(projectPath, snapshotPath);
         long fileCount = copyResult.fileCount();
@@ -174,7 +177,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
                                     String invocationId) throws Exception {
         Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, normalizedSnapshotName);
         if (!workspaceFileSystemService.isDirectory(snapshotPath)) {
-            return "错误：快照不存在 - " + normalizedSnapshotName;
+            throw toolFailure("错误：快照不存在 - " + normalizedSnapshotName);
         }
         String backupSnapshotName = snapshotNamePolicy.validateRequired(
                 "pre_rollback_" + DigestUtil.sha256Hex(invocationId).substring(0, 16));
@@ -195,7 +198,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
             if (StrUtil.isNotBlank(invocationId)) {
                 return "快照已由同一审批调用删除: " + normalizedSnapshotName;
             }
-            return "错误：快照不存在 - " + normalizedSnapshotName;
+            throw toolFailure("错误：快照不存在 - " + normalizedSnapshotName);
         }
         workspaceFileSystemService.deleteDirectory(snapshotPath);
         return "已删除快照: " + normalizedSnapshotName;

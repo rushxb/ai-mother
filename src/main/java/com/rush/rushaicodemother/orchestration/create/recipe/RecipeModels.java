@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.create.recipe;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 管理端配方的不可变数据载体。
@@ -12,9 +13,15 @@ record AdminRecipe(String brand,
                    String entityLabel,
                    List<RecipeField> fields,
                    FrontendOptions frontend,
-                   String mockDataStyle) {
+                   String mockDataStyle,
+                   Optional<CrudApiContract> crudApiContract) {
     AdminRecipe {
         fields = List.copyOf(fields == null ? List.of() : fields);
+        crudApiContract = crudApiContract == null ? Optional.empty() : crudApiContract;
+    }
+
+    boolean apiBacked() {
+        return crudApiContract.isPresent();
     }
 }
 

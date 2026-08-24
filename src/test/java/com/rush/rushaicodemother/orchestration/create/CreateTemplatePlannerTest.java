@@ -46,6 +46,8 @@ class CreateTemplatePlannerTest {
         assertTrue(plan.moduleIds().contains("crud-table-form")
                 || plan.moduleIds().contains("frontend-crud-admin"), plan.moduleIds().toString());
         assertTrue(plan.moduleIds().contains("backend-crud-api"), plan.moduleIds().toString());
+        assertTrue(allSlotIds(plan).contains("full_stack_crud_api"),
+                "全栈计划必须显式冻结前后端 CRUD API 桥接能力: " + allSlotIds(plan));
         assertNoDuplicateSlots(plan);
     }
 

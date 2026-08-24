@@ -45,6 +45,14 @@ final class BackendRepositoryTemplate {
                 	}
                 """.formatted(searchColumn)
                 : "";
+        String statusCondition = recipe.fields().stream().anyMatch(field -> "status".equals(camel(field.name())))
+                ? """
+                \tif strings.TrimSpace(req.Status) != "" {
+                \t\tconditions = append(conditions, "status = ?")
+                \t\targs = append(args, strings.TrimSpace(req.Status))
+                \t}
+                """
+                : "";
         String orderBy = recipe.options().sort() ? "safeOrderBy(req)" : "\"order by id desc\"";
         String sortHelper = recipe.options().sort() ? safeOrderByFunction(recipe) : "";
         return """
@@ -132,7 +140,7 @@ final class BackendRepositoryTemplate {
                 func buildWhere(req QueryRequest) (string, []any) {
                 %s
                 	args := make([]any, 0)
-                %s	if len(conditions) == 0 {
+                %s%s	if len(conditions) == 0 {
                 		return "", args
                 	}
                 	return "where " + strings.Join(conditions, " and "), args
@@ -171,6 +179,7 @@ final class BackendRepositoryTemplate {
                 scanTargets,
                 softDeleteCondition,
                 searchCondition,
+                statusCondition,
                 sortHelper
         );
     }

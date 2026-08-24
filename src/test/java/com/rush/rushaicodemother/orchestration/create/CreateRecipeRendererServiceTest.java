@@ -65,6 +65,61 @@ class CreateRecipeRendererServiceTest {
     }
 
     @Test
+    void fullStackAdminRecipeMustConsumeGeneratedBackendCrudContract() {
+        CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
+
+        RecipeRenderResult result = renderer.render(
+                "做一个课程管理全栈后台",
+                new SlotGroup(
+                        "full-stack-admin",
+                        "vue-web-admin",
+                        "full-stack-crud-bridge",
+                        List.of(
+                                "dashboard_content",
+                                "mock_data",
+                                "table_columns",
+                                "full_stack_crud_api"
+                        ),
+                        0
+                ),
+                spec()
+        );
+
+        assertTrue(result.complete(), () -> "未覆盖的全栈管理能力: " + result.unfilledSlots());
+        String apiBridge = newContent(result, "src/services/api.ts");
+        assertTrue(apiBridge.contains("/courses/list/page"), apiBridge);
+        assertTrue(apiBridge.contains("loadGeneratedRecords"), apiBridge);
+
+        String dashboard = content(result, "src/views/DashboardView.vue");
+        assertTrue(dashboard.contains("loadGeneratedRecords"), dashboard);
+        assertTrue(dashboard.contains("createGeneratedRecord"), dashboard);
+        assertTrue(dashboard.contains("updateGeneratedRecord"), dashboard);
+        assertTrue(dashboard.contains("deleteGeneratedRecord"), dashboard);
+        assertFalse(dashboard.contains("可继续接入真实 API"), dashboard);
+    }
+
+    @Test
+    void multiEntityFullStackAdminMustFallbackInsteadOfClaimingPartialApiCoverage() {
+        CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
+
+        RecipeRenderResult result = renderer.render(
+                "做一个商品订单全栈后台",
+                new SlotGroup(
+                        "full-stack-admin",
+                        "vue-web-admin",
+                        "full-stack-crud-bridge",
+                        List.of("dashboard_content", "mock_data", "table_columns", "full_stack_crud_api"),
+                        0
+                ),
+                multiEntityBackendSpec()
+        );
+
+        assertFalse(result.complete());
+        assertEquals(List.of("full_stack_crud_api"), result.unfilledSlots());
+        assertTrue(newContent(result, "src/services/api.ts").isEmpty());
+    }
+
+    @Test
     void shouldRenderBasicVueRecipeFromCreateSpec() {
         CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
         RecipeRenderResult result = renderer.render(
@@ -243,8 +298,12 @@ class CreateRecipeRendererServiceTest {
         assertEquals(List.of(), result.unfilledSlots());
         assertEquals(8, result.patchOperations().size(), "能力 slot 由现有 CRUD 文件承载，不应重复生成补丁");
         assertTrue(content(result, "internal/modules/course/model.go").contains("Keyword string"));
-        assertTrue(content(result, "internal/modules/course/handler.go").contains("/import"));
-        assertTrue(content(result, "internal/modules/course/handler.go").contains("/export"));
+        String handler = content(result, "internal/modules/course/handler.go");
+        assertTrue(handler.contains("POST /api/courses/list/page"));
+        assertTrue(handler.contains("/import"));
+        assertTrue(handler.contains("/export"));
+        assertTrue(content(result, "internal/modules/course/repository.go")
+                .contains("strings.TrimSpace(req.Status)"));
     }
 
     @Test

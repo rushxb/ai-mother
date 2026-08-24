@@ -84,6 +84,7 @@ public class VueTemplateFeaturePlanner {
         List<FeatureModuleManifest> modules = new ArrayList<>();
         modules.add(defaultFrontendModule(baseTemplate));
         modules.add(frontendCrudAdminModule(baseTemplate));
+        modules.add(fullStackCrudApiModule(baseTemplate));
         if (containsAny(userMessage, "登录", "注册", "auth", "权限", "用户")) {
             modules.add(authModule(baseTemplate));
         }
@@ -164,6 +165,22 @@ public class VueTemplateFeaturePlanner {
         FeatureModuleManifest crud = crudModule(templateId);
         return module("frontend-crud-admin", "全栈前端 CRUD 管理", templateId, crud.slotIds(),
                 "全栈 CRUD 需要前端管理页面、搜索表格和表单与后端 API 对齐");
+    }
+
+    /**
+     * 冻结全栈前端必须消费后端 CRUD 契约的事实。
+     *
+     * <p>该 slot 只在 FULL_STACK 规划入口出现。尚未实现契约 adapter 的前端模板会安全降级
+     * 到 Heavy，而不是继续发布一个前后端彼此断开的“伪全栈”项目。</p>
+     */
+    private FeatureModuleManifest fullStackCrudApiModule(String templateId) {
+        return module(
+                "full-stack-crud-bridge",
+                "全栈 CRUD API 桥接",
+                templateId,
+                List.of("full_stack_crud_api"),
+                "全栈前端必须通过与后端同源的 CRUD 契约完成查询和持久化"
+        );
     }
 
     private FeatureModuleManifest commerceModule(String templateId) {

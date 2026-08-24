@@ -25,9 +25,10 @@ public final class CreateRecipeRendererTestFactory {
                 new MobileCreateRecipeRenderer(basicRecipeFactory, new MobileVueRecipeTemplates()),
                 new AdminCreateRecipeRenderer(
                         adminRecipeFactory,
-                        new AdminDashboardTemplate(),
+                        new AdminDashboardTemplate(new AdminDashboardPersistenceTemplate()),
                         new AdminDataTemplates(),
-                        new AdminThemeTemplate()
+                        new AdminThemeTemplate(),
+                        new AdminCrudApiTemplate()
                 ),
                 new BackendCreateRecipeRenderer(
                         backendRecipeFactory,

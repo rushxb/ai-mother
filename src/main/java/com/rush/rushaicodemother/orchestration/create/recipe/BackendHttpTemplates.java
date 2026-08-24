@@ -2,16 +2,15 @@ package com.rush.rushaicodemother.orchestration.create.recipe;
 
 import org.springframework.stereotype.Component;
 
-import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.tableName;
-
 /** 呈现 Go 后端模块的 HTTP 处理程序和服务器组合。 */
 @Component
 final class BackendHttpTemplates {
 
     /** 返回后端处理器。 */
     String backendHandler(BackendRecipe recipe) {
-        String route = "/" + recipe.tableName().replace("_", "-");
-        String listRoute = recipe.options().pagination() ? "/list/page" : "/list";
+        CrudApiContract apiContract = CrudApiContract.fromTable(
+                recipe.tableName(), recipe.options().pagination());
+        String route = apiContract.collectionPath();
         String optionalRoutes = ""
                 + (recipe.options().batchActions() ? "\tmux.HandleFunc(\"POST /api" + route + "/batch-delete\", h.batchDelete)\n" : "")
                 + (recipe.options().importExport() ? "\tmux.HandleFunc(\"POST /api" + route + "/import\", h.importItems)\n\tmux.HandleFunc(\"POST /api" + route + "/export\", h.exportItems)\n" : "");
@@ -50,7 +49,7 @@ final class BackendHttpTemplates {
                 	mux.HandleFunc("PUT /api%s", h.update)
                 	mux.HandleFunc("DELETE /api%s/", h.delete)
                 	mux.HandleFunc("GET /api%s/", h.detail)
-                	mux.HandleFunc("POST /api%s%s", h.list)
+                \tmux.HandleFunc("POST /api%s", h.list)
                 %s
                 	// @AI_INJECT_ROUTE: %s
                 }
@@ -151,8 +150,7 @@ final class BackendHttpTemplates {
                 route,
                 route,
                 route,
-                route,
-                listRoute,
+                apiContract.listPath(),
                 optionalRoutes,
                 recipe.packageName(),
                 authGuard,

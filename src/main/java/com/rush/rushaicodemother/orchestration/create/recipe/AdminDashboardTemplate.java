@@ -13,8 +13,15 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 @Component
 final class AdminDashboardTemplate {
 
+    private final AdminDashboardPersistenceTemplate persistenceTemplate;
+
+    AdminDashboardTemplate(AdminDashboardPersistenceTemplate persistenceTemplate) {
+        this.persistenceTemplate = persistenceTemplate;
+    }
+
     /** 返回包含完整本地 CRUD 交互的管理端 Dashboard 视图。 */
     String adminDashboardView(AdminRecipe recipe) {
+        AdminDashboardPersistenceTemplate.PersistenceView persistence = persistenceTemplate.render(recipe);
         return """
                 <template>
                   <div :class="['dashboard-view', dashboardClass]">
@@ -25,7 +32,7 @@ final class AdminDashboardTemplate {
                       </div>
                       <div class="toolbar-actions">
                         <Button variant="outline" @click="exportRows">导出当前结果</Button>
-                        <Button @click="openCreate">新增{{ entityLabel }}</Button>
+                        <Button :disabled="saving" @click="openCreate">新增{{ entityLabel }}</Button>
                       </div>
                     </div>
 
@@ -81,9 +88,13 @@ final class AdminDashboardTemplate {
                         <div class="management-heading">
                           <div>
                             <CardTitle>{{ entityLabel }}列表</CardTitle>
-                            <p class="text-sm text-muted-foreground">支持本地新增、编辑、删除、筛选与导出，可继续接入真实 API。</p>
+                            <p class="text-sm text-muted-foreground">%s</p>
                           </div>
                           <span class="inventory-summary">库存预警 {{ inventoryWarningCount }} 项</span>
+                        </div>
+
+                        <div v-if="persistenceError" class="persistence-alert" role="alert">
+                          {{ persistenceError }}
                         </div>
 
                         <div class="filter-panel">
@@ -103,7 +114,7 @@ final class AdminDashboardTemplate {
                           <span class="text-sm text-muted-foreground">已选择 {{ selectedRecordIds.length }} 项</span>
                           <Button
                             variant="outline"
-                            :disabled="selectedRecordIds.length === 0"
+                            :disabled="saving || selectedRecordIds.length === 0"
                             @click="deleteSelected"
                           >
                             批量删除
@@ -146,8 +157,8 @@ final class AdminDashboardTemplate {
                                 </td>
                                 <td>
                                   <div class="row-actions">
-                                    <Button variant="outline" @click="openEdit(row)">编辑</Button>
-                                    <Button variant="outline" @click="deleteRecord(row.no)">删除</Button>
+                                    <Button variant="outline" :disabled="saving" @click="openEdit(row)">编辑</Button>
+                                    <Button variant="outline" :disabled="saving" @click="deleteRecord(row)">删除</Button>
                                   </div>
                                 </td>
                               </tr>
@@ -159,7 +170,7 @@ final class AdminDashboardTemplate {
                         </div>
 
                         <div class="pagination-bar">
-                          <span>共 {{ filteredRows.length }} 条，第 {{ currentPage }} / {{ totalPages }} 页</span>
+                          <span>共 {{ totalItems }} 条，第 {{ currentPage }} / {{ totalPages }} 页</span>
                           <div class="row-actions">
                             <Button variant="outline" :disabled="currentPage <= 1" @click="currentPage--">上一页</Button>
                             <Button variant="outline" :disabled="currentPage >= totalPages" @click="currentPage++">下一页</Button>
@@ -173,7 +184,7 @@ final class AdminDashboardTemplate {
                         <div class="modal-heading">
                           <div>
                             <h2>{{ editingRecordNo ? '编辑' : '新增' }}{{ entityLabel }}</h2>
-                            <p>保存后立即更新当前工作台的本地数据。</p>
+                            <p>%s</p>
                           </div>
                           <button type="button" class="close-button" aria-label="关闭" @click="closeModal">×</button>
                         </div>
@@ -193,7 +204,7 @@ final class AdminDashboardTemplate {
 
                         <div class="modal-actions">
                           <Button type="button" variant="outline" @click="closeModal">取消</Button>
-                          <Button type="submit">保存</Button>
+                          <Button type="submit" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</Button>
                         </div>
                       </form>
                     </div>
@@ -201,23 +212,24 @@ final class AdminDashboardTemplate {
                 </template>
 
                 <script setup lang="ts">
-                import { computed, reactive, ref, watch } from 'vue'
+                import { %s } from 'vue'
                 import { Button } from '@/components/ui/button'
                 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
                 import { Badge } from '@/components/ui/badge'
                 import {
                   activities,
                   dashboardClass,
-                  inventoryItems,
                   metrics,
                   orders,
-                  visualizationBlocks,
-                  type AdminRecord
+                  visualizationBlocks%s
                 } from '@/data/adminData'
                 import { columns } from '@/data/table.columns'
+                %s
 
                 const entityLabel = '%s'
-                const records = ref<AdminRecord[]>(orders.map(item => ({ ...item })))
+                const apiBacked = %s
+                const records = ref<DashboardRecord[]>(orders.map(item => ({ ...item })))
+                const remoteTotal = ref(records.value.length)
                 const searchQuery = ref('')
                 const statusFilter = ref('')
                 const selectedRecordIds = ref<string[]>([])
@@ -225,7 +237,9 @@ final class AdminDashboardTemplate {
                 const pageSize = 5
                 const modalOpen = ref(false)
                 const editingRecordNo = ref<string | null>(null)
-                const draft = reactive<AdminRecord>({ no: '', status: '待处理' })
+                const draft = reactive<DashboardRecord>({ no: '', status: '待处理' })
+                const persistenceError = ref('')
+                const saving = ref(false)
                 const primaryViz = visualizationBlocks[0] ?? {
                   title: '业务趋势',
                   range: '近 7 日',
@@ -248,8 +262,10 @@ final class AdminDashboardTemplate {
                     return matchesKeyword && matchesStatus
                   })
                 })
-                const totalPages = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / pageSize)))
+                const totalItems = computed(() => apiBacked ? remoteTotal.value : filteredRows.value.length)
+                const totalPages = computed(() => Math.max(1, Math.ceil(totalItems.value / pageSize)))
                 const visibleRows = computed(() => {
+                  if (apiBacked) return records.value
                   const start = (currentPage.value - 1) * pageSize
                   return filteredRows.value.slice(start, start + pageSize)
                 })
@@ -260,13 +276,13 @@ final class AdminDashboardTemplate {
                   visibleRows.value.length > 0
                     && visibleRows.value.every(row => selectedRecordIds.value.includes(row.no))
                 )
-                const inventoryWarningCount = computed(() =>
-                  inventoryItems.filter(item => item.stock <= item.warningLine).length
-                )
+                const inventoryWarningCount = computed(() => records.value.filter(row =>
+                  Number(row.stock ?? Number.MAX_SAFE_INTEGER) <= 30
+                ).length)
 
-                watch([searchQuery, statusFilter], () => {
-                  currentPage.value = 1
-                })
+                %s
+
+                %s
 
                 function displayValue(value: unknown): string {
                   if (value === null || value === undefined || value === '') return '-'
@@ -301,7 +317,7 @@ final class AdminDashboardTemplate {
                   modalOpen.value = true
                 }
 
-                function openEdit(row: AdminRecord): void {
+                function openEdit(row: DashboardRecord): void {
                   resetDraft()
                   Object.assign(draft, row)
                   editingRecordNo.value = row.no
@@ -313,24 +329,7 @@ final class AdminDashboardTemplate {
                   editingRecordNo.value = null
                 }
 
-                function submitRecord(): void {
-                  const record = { ...draft } as AdminRecord
-                  const existingIndex = records.value.findIndex(item => item.no === editingRecordNo.value)
-                  if (existingIndex >= 0) records.value[existingIndex] = record
-                  else records.value.unshift(record)
-                  closeModal()
-                }
-
-                function deleteRecord(recordNo: string): void {
-                  records.value = records.value.filter(item => item.no !== recordNo)
-                  selectedRecordIds.value = selectedRecordIds.value.filter(item => item !== recordNo)
-                }
-
-                function deleteSelected(): void {
-                  const selected = new Set(selectedRecordIds.value)
-                  records.value = records.value.filter(item => !selected.has(item.no))
-                  selectedRecordIds.value = []
-                }
+                %s
 
                 function resetFilters(): void {
                   searchQuery.value = ''
@@ -403,6 +402,14 @@ final class AdminDashboardTemplate {
                   border-radius: 999px;
                   background: var(--surface-muted);
                   font-size: var(--table-font-size);
+                }
+                .persistence-alert {
+                  padding: 10px 12px;
+                  border: 1px solid #f59e0b;
+                  border-radius: var(--panel-radius);
+                  background: #fffbeb;
+                  color: #92400e;
+                  font-size: 14px;
                 }
                 .filter-panel {
                   display: grid;
@@ -521,7 +528,17 @@ final class AdminDashboardTemplate {
                 """.formatted(
                 escape(recipe.domain()),
                 escape(recipe.brand()),
-                escape(recipe.entityLabel())
+                persistence.managementDescription(),
+                persistence.modalDescription(),
+                persistence.vueImports(),
+                persistence.dataRecordImportSuffix(),
+                persistence.apiImport(),
+                escape(recipe.entityLabel()),
+                persistence.apiBacked(),
+                persistence.watchers(),
+                persistence.supportFunctions(),
+                persistence.mutationHandlers()
         );
     }
+
 }

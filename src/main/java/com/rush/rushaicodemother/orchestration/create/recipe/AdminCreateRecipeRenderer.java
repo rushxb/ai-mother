@@ -29,15 +29,18 @@ final class AdminCreateRecipeRenderer implements CreateRecipeRenderer {
     private final AdminDashboardTemplate dashboardTemplate;
     private final AdminDataTemplates dataTemplates;
     private final AdminThemeTemplate themeTemplate;
+    private final AdminCrudApiTemplate crudApiTemplate;
 
     AdminCreateRecipeRenderer(AdminRecipeFactory recipeFactory,
                               AdminDashboardTemplate dashboardTemplate,
                               AdminDataTemplates dataTemplates,
-                              AdminThemeTemplate themeTemplate) {
+                              AdminThemeTemplate themeTemplate,
+                              AdminCrudApiTemplate crudApiTemplate) {
         this.recipeFactory = recipeFactory;
         this.dashboardTemplate = dashboardTemplate;
         this.dataTemplates = dataTemplates;
         this.themeTemplate = themeTemplate;
+        this.crudApiTemplate = crudApiTemplate;
     }
 
     @Override
@@ -54,9 +57,13 @@ final class AdminCreateRecipeRenderer implements CreateRecipeRenderer {
             return RecipeRenderResult.empty();
         }
 
-        AdminRecipe recipe = recipeFactory.create(userMessage, spec);
         List<String> requestedSlots = group.slotIds() == null ? List.of() : group.slotIds();
         Set<String> requestedSlotSet = new LinkedHashSet<>(requestedSlots);
+        AdminRecipe recipe = recipeFactory.create(
+                userMessage,
+                spec,
+                requestedSlotSet.contains("full_stack_crud_api")
+        );
         List<String> filledSlots = new ArrayList<>();
         List<PatchOperation> operations = new ArrayList<>();
 
@@ -107,6 +114,13 @@ final class AdminCreateRecipeRenderer implements CreateRecipeRenderer {
             case "operations_data" -> PatchOperation.modify("src/data/operations.ts", dataTemplates.operationsData(recipe));
             case "activity_timeline" -> PatchOperation.modify("src/data/activity.ts", dataTemplates.activityData(recipe));
             case "theme_tokens" -> PatchOperation.modify("src/styles/theme.css", themeTemplate.themeCss(recipe));
+            case "full_stack_crud_api" -> recipe.crudApiContract()
+                    .map(ignored -> PatchOperation.insertBeforeMarker(
+                            "src/services/api.ts",
+                            "// @AI_INJECT_API",
+                            crudApiTemplate.crudApi(recipe)
+                    ))
+                    .orElse(null);
             default -> null;
         };
     }

@@ -626,6 +626,12 @@ class CreateTemplateRuntimeTest {
         assertEquals(1, ((Map<?, ?>) result.metadata().get("telemetry")).get("aiCallCount"));
         assertTrue(result.patchOperations().stream().anyMatch(operation -> operation.relativePath().startsWith("frontend/")));
         assertTrue(result.patchOperations().stream().anyMatch(operation -> operation.relativePath().startsWith("backend/")));
+        assertTrue(result.patchOperations().stream().anyMatch(operation ->
+                operation.relativePath().equals("frontend/src/services/api.ts")
+                        && operation.newContent().contains("/courses/list/page")));
+        assertTrue(result.patchOperations().stream().anyMatch(operation ->
+                operation.relativePath().equals("frontend/src/views/DashboardView.vue")
+                        && operation.content().contains("loadGeneratedRecords")));
         verify(createSpecService, times(1)).generate(anyString(), any());
         verify(portAllocator).allocate(any(GenerationWorkspace.class));
         verify(vueBootstrapService).bootstrapIfNecessary(
@@ -1077,14 +1083,16 @@ class CreateTemplateRuntimeTest {
                 new CreateTemplateManifest("full-stack-basic", CodeGenTypeEnum.FULL_STACK_PROJECT, "full stack"),
                 List.of(
                         new FeatureModuleManifest("admin-dashboard", "Admin", "vue-web-admin",
-                                List.of("dashboard_content", "mock_data", "table_columns", "sidebar_menu", "statistics_cards"), ""),
+                                List.of("dashboard_content", "mock_data", "table_columns", "sidebar_menu",
+                                        "statistics_cards", "full_stack_crud_api"), ""),
                         new FeatureModuleManifest("backend-crud", "Backend", "go-sqlite-backend-basic",
                                 List.of("domain_contract", "module_model", "module_repository", "module_service",
                                         "module_handler", "database_schema", "module_import", "server_wiring"), "")
                 ),
                 List.of(
                         new SlotGroup("admin-dashboard-slots", "vue-web-admin", "admin-dashboard",
-                                List.of("dashboard_content", "mock_data", "table_columns", "sidebar_menu", "statistics_cards"), 0),
+                                List.of("dashboard_content", "mock_data", "table_columns", "sidebar_menu",
+                                        "statistics_cards", "full_stack_crud_api"), 0),
                         new SlotGroup("backend-crud-slots", "go-sqlite-backend-basic", "backend-crud",
                                 List.of("domain_contract", "module_model", "module_repository", "module_service",
                                         "module_handler", "database_schema", "module_import", "server_wiring"), 1)

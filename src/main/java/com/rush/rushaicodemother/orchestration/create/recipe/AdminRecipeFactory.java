@@ -4,7 +4,9 @@ import com.rush.rushaicodemother.ai.model.CreateSpec;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Optional;
 
+import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeSpecSupport.backendOptions;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeSpecSupport.frontendOptions;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeSpecSupport.normalizeFields;
 import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueSupport.*;
@@ -16,7 +18,7 @@ import static com.rush.rushaicodemother.orchestration.create.recipe.RecipeValueS
 final class AdminRecipeFactory {
 
     /** 创建管理端{@code Recipe}。 */
-    AdminRecipe create(String userMessage, CreateSpec spec) {
+    AdminRecipe create(String userMessage, CreateSpec spec, boolean apiBacked) {
         String brand = firstNonBlank(spec.product() == null ? null : spec.product().brandName(), inferBrand(userMessage, "运营中台"));
         String domain = firstNonBlank(readableDomain(spec.product() == null ? null : spec.product().domain()), inferIndustry(userMessage));
         String primary = validHex(spec.frontend() == null || spec.frontend().theme() == null ? null : spec.frontend().theme().primary(), "#2563eb");
@@ -33,7 +35,24 @@ final class AdminRecipeFactory {
         String entityLabel = firstNonBlank(primaryEntity.label(), "业务记录");
         List<RecipeField> recipeFields = normalizeFields(primaryEntity.fields());
         FrontendOptions frontend = frontendOptions(spec);
+        Optional<CrudApiContract> apiContract = resolveApiContract(
+                userMessage, spec, primaryEntity, entities.size(), apiBacked);
         return new AdminRecipe(brand, domain, primary, accent, entityLabel, recipeFields, frontend,
-                firstNonBlank(spec.content() == null ? null : spec.content().mockDataStyle(), domain + "运营数据"));
+                firstNonBlank(spec.content() == null ? null : spec.content().mockDataStyle(), domain + "运营数据"),
+                apiContract);
+    }
+
+    /** 只有单实体 admin recipe 才能完整证明当前快速链路的前后端契约覆盖。 */
+    private Optional<CrudApiContract> resolveApiContract(String userMessage,
+                                                         CreateSpec spec,
+                                                         CreateSpec.EntitySpec primaryEntity,
+                                                         int entityCount,
+                                                         boolean apiBacked) {
+        if (!apiBacked || entityCount != 1) {
+            return Optional.empty();
+        }
+        String entityName = firstNonBlank(primaryEntity.name(), inferEntityName(userMessage));
+        String table = tableName(lowerIdentifier(entityName));
+        return Optional.of(CrudApiContract.fromTable(table, backendOptions(spec).pagination()));
     }
 }

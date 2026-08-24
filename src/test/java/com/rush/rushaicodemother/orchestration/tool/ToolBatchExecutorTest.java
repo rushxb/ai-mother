@@ -128,6 +128,45 @@ class ToolBatchExecutorTest {
                 }));
     }
 
+    @Test
+    void concurrentFailureMustCancelSlowSiblingWithoutWaitingForItsTimeout() {
+        CountDownLatch slowToolStarted = new CountDownLatch(1);
+        CountDownLatch neverReleased = new CountDownLatch(1);
+        CountDownLatch slowToolInterrupted = new CountDownLatch(1);
+
+        assertTimeout(Duration.ofSeconds(1), () -> {
+            IllegalStateException failure = assertThrows(IllegalStateException.class, () -> executor.execute(
+                    List.of(ToolBatchSegment.concurrent(List.of(indexed(0, "slow"), indexed(1, "failed")))),
+                    2,
+                    request -> {
+                        if (request.index() == 0) {
+                            slowToolStarted.countDown();
+                            try {
+                                neverReleased.await(2, TimeUnit.SECONDS);
+                                return result("slow");
+                            } catch (InterruptedException interrupted) {
+                                slowToolInterrupted.countDown();
+                                Thread.currentThread().interrupt();
+                                throw new IllegalStateException("慢工具已取消", interrupted);
+                            }
+                        }
+                        try {
+                            if (!slowToolStarted.await(1, TimeUnit.SECONDS)) {
+                                throw new IllegalStateException("慢工具未开始执行");
+                            }
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException("失败工具等待被中断", interrupted);
+                        }
+                        throw new IllegalStateException("快速失败");
+                    }));
+
+            assertEquals("快速失败", failure.getMessage());
+            assertTrue(slowToolInterrupted.await(500, TimeUnit.MILLISECONDS),
+                    "并发段失败后仍在运行慢工具");
+        });
+    }
+
     private IndexedToolRequest indexed(int index, String name) {
         return new IndexedToolRequest(index, ToolExecutionRequest.builder()
                 .id(String.valueOf(index)).name(name).arguments("{}").build());

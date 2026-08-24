@@ -10,10 +10,11 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Function;
 
@@ -78,18 +79,20 @@ public class ToolBatchExecutor {
             Function<IndexedToolRequest, ToolExecutionResult> action
     ) {
         MonitorContext capturedContext = copyContext(MonitorContextHolder.getContext());
-        List<CompletableFuture<Void>> pending = new ArrayList<>(segment.requests().size());
+        ExecutorCompletionService<IndexedToolResult> completed =
+                new ExecutorCompletionService<>(executor);
+        List<Future<IndexedToolResult>> pending = new ArrayList<>(segment.requests().size());
         try {
             for (IndexedToolRequest indexed : segment.requests()) {
-                pending.add(CompletableFuture.runAsync(
-                        () -> ordered.set(indexed.index(), invokeWithContext(
-                                indexed, capturedContext, action)),
-                        executor));
+                pending.add(completed.submit(() -> new IndexedToolResult(
+                        indexed.index(),
+                        invokeWithContext(indexed, capturedContext, action)
+                )));
             }
         } catch (RejectedExecutionException rejected) {
             // 执行器已关闭（应用停机）时退化为串行，保证当前请求仍能完成。
             log.warn("工具并发执行器不可用，本轮只读工具退化为串行执行");
-            pending.forEach(future -> future.cancel(true));
+            cancelPending(pending);
             for (IndexedToolRequest indexed : segment.requests()) {
                 if (ordered.get(indexed.index()) == null) {
                     ordered.set(indexed.index(), action.apply(indexed));
@@ -97,23 +100,47 @@ public class ToolBatchExecutor {
             }
             return;
         }
-        awaitAll(pending);
+        awaitAll(completed, pending, ordered);
     }
 
-    /** 等待全部并发任务；解包 CompletionException 以保持调用方原有异常契约。 */
-    private void awaitAll(List<CompletableFuture<Void>> pending) {
+    /**
+     * 按完成顺序接收结果；任一任务失败时立即中断仍在执行的 sibling。
+     *
+     * <p>不能使用 {@code CompletableFuture.allOf(...).join()}：它会等所有任务结束后才暴露异常，
+     * 而 {@code CompletableFuture.cancel(true)} 也不保证中断底层 {@code runAsync} 任务。</p>
+     */
+    private void awaitAll(ExecutorCompletionService<IndexedToolResult> completed,
+                          List<Future<IndexedToolResult>> pending,
+                          List<ToolExecutionResult> ordered) {
         try {
-            CompletableFuture.allOf(pending.toArray(CompletableFuture[]::new)).join();
-        } catch (CompletionException completionFailure) {
-            Throwable cause = completionFailure.getCause();
-            if (cause instanceof RuntimeException runtimeCause) {
-                throw runtimeCause;
+            for (int remaining = pending.size(); remaining > 0; remaining--) {
+                IndexedToolResult completedResult = completed.take().get();
+                ordered.set(completedResult.index(), completedResult.result());
             }
-            if (cause instanceof Error errorCause) {
-                throw errorCause;
-            }
-            throw completionFailure;
+        } catch (InterruptedException interrupted) {
+            cancelPending(pending);
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("工具并发执行被中断", interrupted);
+        } catch (ExecutionException executionFailure) {
+            cancelPending(pending);
+            throw propagate(executionFailure.getCause());
         }
+    }
+
+    /** 向仍在运行的虚拟线程传播中断，已经完成的任务不受影响。 */
+    private void cancelPending(List<? extends Future<?>> pending) {
+        pending.forEach(future -> future.cancel(true));
+    }
+
+    /** 解包任务异常，保持调用方原有的 RuntimeException / Error 契约。 */
+    private RuntimeException propagate(Throwable cause) {
+        if (cause instanceof RuntimeException runtimeCause) {
+            return runtimeCause;
+        }
+        if (cause instanceof Error errorCause) {
+            throw errorCause;
+        }
+        return new IllegalStateException("工具并发执行失败", cause);
     }
 
     /** 在工作线程安装归因上下文后执行工具，结束后恢复线程原有上下文。 */
@@ -153,5 +180,8 @@ public class ToolBatchExecutor {
     @PreDestroy
     void shutdown() {
         executor.shutdown();
+    }
+
+    private record IndexedToolResult(int index, ToolExecutionResult result) {
     }
 }

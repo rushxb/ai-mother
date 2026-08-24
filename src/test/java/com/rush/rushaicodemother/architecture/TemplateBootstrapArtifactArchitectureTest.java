@@ -23,7 +23,11 @@ class TemplateBootstrapArtifactArchitectureTest {
                 .contains("TemplateBootstrapArtifact", ".fromPayload(", ".toArtifact(")
                 .doesNotContain("\"template_bootstrap\"");
         assertThat(consumer)
-                .contains("TemplateBootstrapArtifact.KEY", "TemplateBootstrapArtifact.fromArtifact(")
-                .doesNotContain("\"template_bootstrap\"");
+                .contains(
+                        "TemplateBootstrapArtifact.KEY",
+                        "TemplateBootstrapArtifact.fromArtifact(",
+                        ".orElseThrow("
+                )
+                .doesNotContain("\"template_bootstrap\"", "\"artifact_missing\"");
     }
 }

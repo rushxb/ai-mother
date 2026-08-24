@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.TemplateBootstrapArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
@@ -124,6 +125,35 @@ class CodeAgentNodeTest {
         ));
 
         assertThrows(IllegalArgumentException.class, () -> node.execute(context));
+    }
+
+    @Test
+    void missingRecoveredTemplateArtifactMustFailBeforeBuildingGenerationPrompt() {
+        GenerationAgentContext context = newContext(
+                false,
+                CodeGenTypeEnum.VUE_PROJECT,
+                false
+        );
+        context.putArtifacts(List.of(
+                GenerationArtifact.of("requirements", "Planner", "需求与目标", Map.of(
+                        "patchFirst", false,
+                        "requiresBuild", true,
+                        "validationMode", "build_validation",
+                        "generationMode", "full_generation",
+                        "goals", List.of("生成完整工程")
+                )),
+                GenerationArtifact.of("architecture_plan", "Architect", "架构规划", Map.of(
+                        "modules", List.of("app")
+                )),
+                contextSummary(List.of(), List.of(), List.of())
+        ));
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> node.execute(context)
+        );
+
+        assertTrue(exception.getMessage().contains("项目模板制品"));
     }
 
     @Test
@@ -279,6 +309,14 @@ class CodeAgentNodeTest {
             boolean hasGeneratedCode,
             CodeGenTypeEnum codeGenType
     ) {
+        return newContext(hasGeneratedCode, codeGenType, true);
+    }
+
+    private GenerationAgentContext newContext(
+            boolean hasGeneratedCode,
+            CodeGenTypeEnum codeGenType,
+            boolean includeTemplateArtifact
+    ) {
         App app = new App();
         app.setId(1L);
         app.setCodeGenType(codeGenType.getValue());
@@ -286,7 +324,15 @@ class CodeAgentNodeTest {
                 app, "优化登录页与表单交互", codeGenType, "update", hasGeneratedCode);
         GenerationOrchestrationTask task = new GenerationOrchestrationTask();
         task.setTaskId("task-1");
-        return new GenerationAgentContext(request, task, true);
+        GenerationAgentContext context = new GenerationAgentContext(request, task, true);
+        if (includeTemplateArtifact) {
+            context.putArtifacts(List.of(
+                    TemplateBootstrapArtifact
+                            .skipped(codeGenType, "not_new_project")
+                            .toArtifact("项目模板")
+            ));
+        }
+        return context;
     }
 
     private GenerationArtifact contextSummary(

@@ -70,8 +70,8 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
                 .getArtifact(TemplateBootstrapArtifact.KEY)
                 .map(artifact -> TemplateBootstrapArtifact.fromArtifact(
                         artifact, context.getTargetType()))
-                .orElseGet(() -> TemplateBootstrapArtifact.skipped(
-                        context.getTargetType(), "artifact_missing"));
+                .orElseThrow(() -> new IllegalStateException(
+                        "缺少项目模板制品，无法生成代码规范"));
         String templateId = templateBootstrap.templateId();
         boolean templateBootstrapped = templateBootstrap.bootstrapped();
         boolean patchFirst = requirements.patchFirst();

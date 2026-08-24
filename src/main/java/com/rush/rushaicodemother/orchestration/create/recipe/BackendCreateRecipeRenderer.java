@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.create.recipe;
 
 import com.rush.rushaicodemother.ai.model.CreateSpec;
+import com.rush.rushaicodemother.orchestration.create.BackendRecipeCapability;
 import com.rush.rushaicodemother.orchestration.create.SlotGroup;
 import com.rush.rushaicodemother.orchestration.create.TemplateVariableManifest;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
@@ -59,9 +60,9 @@ final class BackendCreateRecipeRenderer implements CreateRecipeRenderer {
             if (slotId == null || slotId.isBlank()) {
                 continue;
             }
-            List<PatchOperation> slotOperations = renderSlot(slotId, recipes);
-            if (!slotOperations.isEmpty()) {
-                operations.addAll(slotOperations);
+            SlotRenderOutcome slotOutcome = renderSlot(slotId, recipes, spec);
+            if (slotOutcome.supported()) {
+                operations.addAll(slotOutcome.operations());
                 filledSlots.add(slotId);
             }
         }
@@ -74,18 +75,28 @@ final class BackendCreateRecipeRenderer implements CreateRecipeRenderer {
         );
     }
 
-    private List<PatchOperation> renderSlot(String slotId, List<BackendRecipe> recipes) {
+    private SlotRenderOutcome renderSlot(String slotId,
+                                         List<BackendRecipe> recipes,
+                                         CreateSpec spec) {
         if ("domain_contract".equals(slotId)) {
-            return List.of(PatchOperation.modify(
+            return SlotRenderOutcome.supported(List.of(PatchOperation.modify(
                     "internal/domain/model.go",
                     domainTemplates.domainContract(recipes.getFirst())
-            ));
+            )));
+        }
+        var capability = BackendRecipeCapability.fromSlotId(slotId);
+        if (capability.isPresent()) {
+            return capability.get().isEnabled(spec.backend())
+                    ? SlotRenderOutcome.supported(List.of())
+                    : SlotRenderOutcome.unsupported();
         }
         List<PatchOperation> operations = recipes.stream()
                 .map(recipe -> renderEntitySlot(slotId, recipe))
                 .filter(Objects::nonNull)
                 .toList();
-        return operations.size() == recipes.size() ? operations : List.of();
+        return operations.size() == recipes.size()
+                ? SlotRenderOutcome.supported(operations)
+                : SlotRenderOutcome.unsupported();
     }
 
     private PatchOperation renderEntitySlot(String slotId, BackendRecipe recipe) {
@@ -101,5 +112,21 @@ final class BackendCreateRecipeRenderer implements CreateRecipeRenderer {
                     "cmd/server/main.go", "// @AI_INJECT_MODULE_WIRING: register", httpTemplates.backendWiring(recipe));
             default -> null;
         };
+    }
+
+    /** 一个 slot 可以由已有补丁中的行为满足，因此“支持”和“新增补丁”必须分别表达。 */
+    private record SlotRenderOutcome(boolean supported, List<PatchOperation> operations) {
+
+        private SlotRenderOutcome {
+            operations = List.copyOf(operations == null ? List.of() : operations);
+        }
+
+        private static SlotRenderOutcome supported(List<PatchOperation> operations) {
+            return new SlotRenderOutcome(true, operations);
+        }
+
+        private static SlotRenderOutcome unsupported() {
+            return new SlotRenderOutcome(false, List.of());
+        }
     }
 }

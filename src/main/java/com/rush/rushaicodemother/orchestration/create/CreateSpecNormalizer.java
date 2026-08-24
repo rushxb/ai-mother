@@ -61,7 +61,10 @@ public class CreateSpecNormalizer {
         CreateSpec.Product product = normalizeProduct(raw.product(), fallback.product());
         CreateSpec.Frontend frontend = normalizeFrontend(raw.frontend(), fallback.frontend());
         List<CreateSpec.EntitySpec> entities = normalizeEntities(raw.entities(), fallback.entities(), warnings);
-        CreateSpec.Backend backend = normalizeBackend(raw.backend(), fallback.backend());
+        CreateSpec.Backend backend = BackendRecipeCapability.enforcePlannedCapabilities(
+                normalizeBackend(raw.backend(), fallback.backend()),
+                group
+        );
         CreateSpec.Database database = normalizeDatabase(raw.database(), fallback.database(), entities);
         CreateSpec.Content content = normalizeContent(raw.content(), fallback.content(), product, frontend, entities);
         CreateSpec.Constraints constraints = normalizeConstraints(raw.constraints());

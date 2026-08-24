@@ -681,6 +681,62 @@ class CreateTemplateRuntimeTest {
         verify(patchApplyService, times(1)).applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString());
     }
 
+    @Test
+    void localBackendCapabilitiesMustStayOnRecipePathWhenProviderIsUnavailable() {
+        Path projectRoot = Path.of("target/test-workspaces/create-template-runtime/backend-capabilities")
+                .toAbsolutePath()
+                .normalize();
+        com.rush.rushaicodemother.ai.AiCreateSpecServiceFactory modelFactory =
+                mock(com.rush.rushaicodemother.ai.AiCreateSpecServiceFactory.class);
+        when(modelFactory.createService()).thenThrow(new IllegalStateException("provider unavailable"));
+        CreateSpecService createSpecService = new CreateSpecService(modelFactory, new CreateSpecNormalizer());
+        BackendProjectTemplateBootstrapService backendBootstrapService =
+                mock(BackendProjectTemplateBootstrapService.class);
+        GenerationPatchApplyService patchApplyService = mock(GenerationPatchApplyService.class);
+        when(backendBootstrapService.bootstrapIfNecessary(1L, CodeGenTypeEnum.BACKEND_PROJECT))
+                .thenReturn(BackendProjectTemplateBootstrapService.BootstrapResult.created(
+                        "go-sqlite-backend-basic", projectRoot.toString(), 1));
+        when(patchApplyService.applyWithoutChangePlan(anyLong(), anyString(), any(), any(), anyString()))
+                .thenReturn(PatchApplyResult.applied(
+                        1L,
+                        "task",
+                        projectRoot.toString(),
+                        8,
+                        List.of("internal/modules/product/handler.go")
+                ));
+        CreateTemplateRuntime runtime = runtime(
+                backendBootstrapService,
+                new CreatePatchMergeService(),
+                preWriteValidationService(),
+                createSpecService,
+                CreateRecipeRendererTestFactory.create(),
+                null,
+                patchApplyService,
+                mock(GenerationTaskFenceGuard.class),
+                workspaceService(projectRoot, CodeGenTypeEnum.BACKEND_PROJECT),
+                new LandingSlotFallbackRenderer(),
+                mock(VueProjectTemplateBootstrapService.class)
+        );
+
+        SlotFillResult result = runtime.generate(
+                app(CodeGenTypeEnum.BACKEND_PROJECT),
+                request(
+                        "做一个支持搜索、分页、批量导入导出的商品后端",
+                        CodeGenTypeEnum.BACKEND_PROJECT
+                ),
+                backendCapabilityPlan()
+        );
+
+        assertEquals(false, result.fallback());
+        assertEquals(List.of(), result.skippedSlots());
+        assertTrue(result.patchOperations().stream().anyMatch(operation ->
+                operation.relativePath().equals("internal/modules/product/handler.go")
+                        && operation.content().contains("/import")
+                        && operation.content().contains("/export")));
+        verify(patchApplyService, times(1)).applyWithoutChangePlan(
+                anyLong(), anyString(), any(), any(), anyString());
+    }
+
     private CreateTemplateRuntime runtime(
             BackendProjectTemplateBootstrapService backendBootstrapService,
             CreatePatchMergeService patchMergeService,
@@ -1033,6 +1089,40 @@ class CreateTemplateRuntimeTest {
                                 List.of("domain_contract", "module_model", "module_repository", "module_service",
                                         "module_handler", "database_schema", "module_import", "server_wiring"), 1)
                 ),
+                0.9,
+                "test",
+                "test",
+                ""
+        );
+    }
+
+    private CreateGenerationPlan backendCapabilityPlan() {
+        List<String> slots = List.of(
+                "domain_contract", "module_model", "module_repository", "module_service",
+                "module_handler", "database_schema", "module_import", "server_wiring",
+                "module_search", "module_pagination", "module_import_export"
+        );
+        return new CreateGenerationPlan(
+                CodeGenTypeEnum.BACKEND_PROJECT,
+                new CreateTemplateManifest(
+                        "go-sqlite-backend-basic",
+                        CodeGenTypeEnum.BACKEND_PROJECT,
+                        "backend capabilities"
+                ),
+                List.of(new FeatureModuleManifest(
+                        "backend-capabilities",
+                        "后端完整能力",
+                        "go-sqlite-backend-basic",
+                        slots,
+                        "test"
+                )),
+                List.of(new SlotGroup(
+                        "backend-capability-slots",
+                        "go-sqlite-backend-basic",
+                        "backend-capabilities",
+                        slots,
+                        0
+                )),
                 0.9,
                 "test",
                 "test",

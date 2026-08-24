@@ -87,6 +87,47 @@ class CreateSpecServiceTest {
     }
 
     @Test
+    void frozenBackendCapabilitySlotsMustOverrideWeakerModelSpec() {
+        AiCreateSpecServiceFactory serviceFactory = mock(AiCreateSpecServiceFactory.class);
+        AiCreateSpecService model = mock(AiCreateSpecService.class);
+        CreateGenerationPlan plan = backendCapabilityPlan();
+        CreateSpec localSpec = new CreateSpecDefaults().fromRequest(
+                "做一个支持搜索、分页、导入导出的商品后端",
+                plan,
+                plan.slotGroups().getFirst(),
+                "test"
+        );
+        CreateSpec weakerModelSpec = new CreateSpec(
+                localSpec.product(),
+                localSpec.modules(),
+                localSpec.entities(),
+                localSpec.frontend(),
+                new CreateSpec.Backend(
+                        "rest", false, false, false, false, true,
+                        List.of("createdAt", "updatedAt"), false, false,
+                        List.of("required"), "standard_json", "product"
+                ),
+                localSpec.database(),
+                localSpec.content(),
+                localSpec.constraints()
+        );
+        when(serviceFactory.createService()).thenReturn(model);
+        when(model.generateSpec(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(weakerModelSpec);
+        CreateSpecService service = new CreateSpecService(serviceFactory, new CreateSpecNormalizer());
+
+        CreateSpecService.SpecResult result = service.generate(
+                "做一个支持搜索、分页、导入导出的商品后端",
+                plan,
+                plan.slotGroups().getFirst()
+        );
+
+        assertTrue(result.spec().backend().search());
+        assertTrue(result.spec().backend().pagination());
+        assertTrue(result.spec().backend().importExport());
+    }
+
+    @Test
     void managedSpecCallMustConsumeTaskBudgetsAndUseClampedTimeout() {
         GenerationRuntimeProperties properties = new GenerationRuntimeProperties();
         properties.setModelCallTimeout(Duration.ofSeconds(20));
@@ -258,6 +299,29 @@ class CreateSpecServiceTest {
                 "test",
                 "test",
                 ""
+        );
+    }
+
+    private CreateGenerationPlan backendCapabilityPlan() {
+        CreateGenerationPlan base = backendPlan();
+        SlotGroup group = new SlotGroup(
+                "backend-capability-slots",
+                "go-sqlite-backend-basic",
+                "backend",
+                List.of("domain_contract", "module_model", "module_repository", "module_service",
+                        "module_handler", "database_schema", "module_import", "server_wiring",
+                        "module_search", "module_pagination", "module_import_export"),
+                0
+        );
+        return new CreateGenerationPlan(
+                base.codeGenType(),
+                base.baseTemplate(),
+                base.modules(),
+                List.of(group),
+                base.confidence(),
+                base.reason(),
+                base.plannerSource(),
+                base.fallbackReason()
         );
     }
 

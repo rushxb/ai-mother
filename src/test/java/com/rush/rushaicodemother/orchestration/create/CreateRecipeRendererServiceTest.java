@@ -209,6 +209,28 @@ class CreateRecipeRendererServiceTest {
     }
 
     @Test
+    void plannedBackendCapabilitiesMustBeCoveredByGeneratedCrudModules() {
+        CreateSpec capableSpec = specWithBackendOptions(true, true, true, true, false, true, true);
+        CreateRecipeRendererService renderer = CreateRecipeRendererTestFactory.create();
+
+        RecipeRenderResult result = renderer.render(
+                "做一个支持搜索、分页、批量导入导出的课程后端",
+                new SlotGroup("backend", "go-sqlite-backend-basic", "backend",
+                        List.of("domain_contract", "module_model", "module_repository", "module_service",
+                                "module_handler", "database_schema", "module_import", "server_wiring",
+                                "module_search", "module_pagination", "module_import_export"), 0),
+                capableSpec
+        );
+
+        assertTrue(result.complete(), result.unfilledSlots().toString());
+        assertEquals(List.of(), result.unfilledSlots());
+        assertEquals(8, result.patchOperations().size(), "能力 slot 由现有 CRUD 文件承载，不应重复生成补丁");
+        assertTrue(content(result, "internal/modules/course/model.go").contains("Keyword string"));
+        assertTrue(content(result, "internal/modules/course/handler.go").contains("/import"));
+        assertTrue(content(result, "internal/modules/course/handler.go").contains("/export"));
+    }
+
+    @Test
     void shouldCompileRenderedMultiEntityBackendRecipeWithGoTestWhenGoIsAvailable() throws Exception {
         Assumptions.assumeTrue(goAvailable(), "Go toolchain is not available in this environment");
         Path outputRoot = Path.of("target", "test-workspaces", "create-backend-go-test")

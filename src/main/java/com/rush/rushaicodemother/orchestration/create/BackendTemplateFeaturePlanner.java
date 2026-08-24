@@ -5,8 +5,6 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.rush.rushaicodemother.orchestration.create.CreatePromptKeywordMatcher.containsAny;
-
 /**
  * Go SQLite 后端模板与功能模块规则的 deep module。
  *
@@ -39,29 +37,10 @@ public class BackendTemplateFeaturePlanner {
                 List.of("module_import", "server_wiring"),
                 "新增模块需要注册到服务启动入口"
         ));
-        if (containsAny(userMessage, "搜索", "筛选", "filter", "search", "查询")) {
-            modules.add(module(
-                    "backend-search",
-                    "后端搜索扩展",
-                    List.of("module_search"),
-                    "后端搜索需要模糊查询和分页能力"
-            ));
-        }
-        if (containsAny(userMessage, "导入", "导出", "批量", "csv", "excel", "import", "export")) {
-            modules.add(module(
-                    "backend-export",
-                    "后端导入导出",
-                    List.of("module_import_export"),
-                    "后端导入导出需要 CSV/JSON 批量操作"
-            ));
-        }
-        if (containsAny(userMessage, "分页", "pagination", "列表", "page")) {
-            modules.add(module(
-                    "backend-pagination",
-                    "后端分页扩展",
-                    List.of("module_pagination"),
-                    "后端分页需要统一分页查询辅助"
-            ));
+        for (BackendRecipeCapability capability : BackendRecipeCapability.values()) {
+            if (capability.matches(userMessage)) {
+                modules.add(capability.plannedModule(BACKEND_TEMPLATE));
+            }
         }
         return new BackendTemplateFeaturePlan(BACKEND_TEMPLATE, modules);
     }

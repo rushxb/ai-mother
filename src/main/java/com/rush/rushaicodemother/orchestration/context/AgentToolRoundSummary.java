@@ -71,8 +71,29 @@ public record AgentToolRoundSummary(
             text.append("\n未解决的失败证据：");
             unresolvedErrors.forEach(error -> text.append("\n- ").append(error));
         }
-        text.append("\n上述改动均已落盘，请勿重复执行；需要原文时调用读取工具。");
+        appendRecoveryGuidance(text);
         return text.toString();
+    }
+
+    /**
+     * 根据摘要中的可验证事实生成恢复指引，避免把失败调用或只读历史误报为已落盘改动。
+     */
+    private void appendRecoveryGuidance(StringBuilder text) {
+        boolean hasLandedWorkspaceChanges = !mutatedPaths.isEmpty() || !deletedPaths.isEmpty();
+        if (hasLandedWorkspaceChanges) {
+            text.append("\n以上列出的成功改动已落盘，请勿重复执行；");
+            if (!unresolvedErrors.isEmpty()) {
+                text.append("未解决的失败操作尚未落盘，请修正后重试；");
+            }
+            text.append("需要原文时调用读取工具。");
+            return;
+        }
+        if (!unresolvedErrors.isEmpty()) {
+            text.append("\n上述失败操作尚未落盘，请根据失败证据修正后重试；")
+                    .append("需要原文时调用读取工具。");
+            return;
+        }
+        text.append("\n以上仅为历史读取事实，未确认工作区改动；需要原文时调用读取工具。");
     }
 
     private void appendPaths(StringBuilder text, String label, List<String> paths) {

@@ -98,6 +98,42 @@ class AgentConversationFolderTest {
         assertFalse(system.contains("已写入或修改文件"),
                 "本用例唯一的写操作已失败，不应出现改动栏:\n" + system);
         assertTrue(system.contains("写入失败：路径越界"), "失败证据必须保留供模型重试");
+        assertFalse(system.contains("上述改动均已落盘"),
+                "只有失败证据时不得宣称改动已落盘，否则模型会放弃必要重试:\n" + system);
+    }
+
+    @Test
+    void mixedSuccessAndFailureMustDistinguishLandedFactsFromRetryableFailures() {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from("系统提示"));
+        messages.add(UserMessage.from("生成后台"));
+        messages.addAll(toolRound("r1", "writeFile",
+                "{\"relativeFilePath\":\"src/ok.ts\"}", "已写入", false));
+        messages.addAll(toolRound("r2", "writeFile",
+                "{\"relativeFilePath\":\"src/failed.ts\"}", "写入失败：路径越界", true));
+        messages.addAll(toolRound("r3", "readFile",
+                "{\"relativeFilePath\":\"src/keep.ts\"}", "内容", false));
+
+        AgentConversationFolder.FoldResult result = folder.fold(messages, 1);
+
+        String system = assertInstanceOf(
+                SystemMessage.class, result.messages().getFirst()).text();
+        assertTrue(system.contains("以上列出的成功改动已落盘，请勿重复执行"),
+                "成功落盘事实必须保留:\n" + system);
+        assertTrue(system.contains("未解决的失败操作尚未落盘，请修正后重试"),
+                "失败操作必须明确允许修正重试:\n" + system);
+    }
+
+    @Test
+    void readOnlySummaryMustNotClaimWorkspaceChanges() {
+        AgentConversationFolder.FoldResult result = folder.fold(conversation(3), 1);
+
+        String system = assertInstanceOf(
+                SystemMessage.class, result.messages().getFirst()).text();
+        assertFalse(system.contains("已落盘"),
+                "只读历史没有工作区变更证据，不得宣称已落盘:\n" + system);
+        assertTrue(system.contains("未确认工作区改动"),
+                "只读摘要必须明确事实边界:\n" + system);
     }
 
     @Test

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -114,6 +115,38 @@ class GenerationDagRunnerTest {
         assertFalse(task.toString().contains("secret-value"));
         assertEquals(AgentRuntimeState.FAILED, task.getRuntimeState());
         assertEquals("runtime", task.getTerminationReason());
+    }
+
+    @Test
+    void nodeMustNotReachDoneWithoutItsDeclaredCheckpointArtifact() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationDagRunner runner = new GenerationDagRunner(
+                taskStore,
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                mock(GenerationExecutionContextService.class)
+        );
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-missing-node-artifact");
+        task.setAppId(1L);
+        task.setStatus("running");
+        GenerationAgentNode node = artifactNode(
+                "producer",
+                Set.of("required_artifact"),
+                AgentNodeResult.of("错误地报告完成", List.of(), Map.of())
+        );
+
+        CompletionException failure = assertThrows(
+                CompletionException.class,
+                () -> runner.run(
+                        List.of(node),
+                        new GenerationAgentContext(newRequest(), task, true)
+                )
+        );
+
+        assertTrue(failure.getCause().getMessage().contains("required_artifact"));
+        assertEquals("failed", task.getNodeStatuses().get("producer"));
+        assertFalse(task.getArtifacts().containsKey("required_artifact"));
+        assertEquals(AgentRuntimeState.FAILED, task.getRuntimeState());
     }
 
     @Test
@@ -367,6 +400,47 @@ class GenerationDagRunnerTest {
         assertEquals(0, secondExecutions.get());
         assertEquals("completed", task.getStatus());
         assertEquals(AgentRuntimeState.COMPLETED, task.getRuntimeState());
+    }
+
+    @Test
+    void restoredArtifactMapKeyMustMatchThePersistedArtifactIdentity() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationDagRunner runner = new GenerationDagRunner(
+                taskStore,
+                new GenerationOrchestrationMetricsCollector(new SimpleMeterRegistry()),
+                mock(GenerationExecutionContextService.class)
+        );
+        GenerationAgentNode node = artifactNode(
+                "producer",
+                Set.of("required_artifact"),
+                AgentNodeResult.of("done", List.of(), Map.of())
+        );
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("task-mismatched-artifact-identity");
+        task.setAppId(1L);
+        task.setStatus("completed");
+        task.setRuntimeState(AgentRuntimeState.COMPLETED);
+        task.setDagFingerprint(fingerprint(List.of(node)));
+        task.getNodeStatuses().put("producer", "done");
+        task.getArtifacts().put(
+                "required_artifact",
+                GenerationArtifact.of(
+                        "foreign_artifact",
+                        "Producer",
+                        "错误制品",
+                        Map.of("value", "foreign")
+                )
+        );
+
+        GenerationDagRecoveryException failure = assertThrows(
+                GenerationDagRecoveryException.class,
+                () -> runner.run(
+                        List.of(node),
+                        new GenerationAgentContext(newRequest(), task, true)
+                )
+        );
+
+        assertEquals(GenerationDagRecoveryException.Reason.ARTIFACT_MISMATCH, failure.reason());
     }
 
     @Test
@@ -653,6 +727,42 @@ class GenerationDagRunnerTest {
 
     private GenerationOrchestrationRequest newRequest() {
         return frozenRequest(null, "generate", CodeGenTypeEnum.VUE_PROJECT, "generating", false);
+    }
+
+    private GenerationAgentNode artifactNode(String key,
+                                             Set<String> requiredArtifactKeys,
+                                             AgentNodeResult result) {
+        return new GenerationAgentNode() {
+            @Override
+            public String key() {
+                return key;
+            }
+
+            @Override
+            public String agentName() {
+                return key;
+            }
+
+            @Override
+            public String stage() {
+                return "planning";
+            }
+
+            @Override
+            public List<String> dependencies() {
+                return List.of();
+            }
+
+            @Override
+            public Set<String> requiredArtifactKeys() {
+                return requiredArtifactKeys;
+            }
+
+            @Override
+            public AgentNodeResult execute(GenerationAgentContext ignored) {
+                return result;
+            }
+        };
     }
 
     private GenerationAgentNode successfulNode(String key,

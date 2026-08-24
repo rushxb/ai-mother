@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Planner：需求拆解与路由策略。
@@ -27,7 +28,14 @@ public class PlannerAgentNode extends BaseGenerationAgentNode {
     private final GenerationAgentSupport support;
 
     public PlannerAgentNode(GenerationAgentSupport support) {
-        super("planner", "Planner", "planning", List.of(), GenerationNodeReplayPolicy.REPLAY_SAFE);
+        super(
+                "planner",
+                "Planner",
+                "planning",
+                List.of(),
+                GenerationNodeReplayPolicy.REPLAY_SAFE,
+                Set.of(GenerationRequirementsArtifact.KEY, ApiContractArtifact.KEY)
+        );
         this.support = support;
     }
 

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * BuildFix：定义后置构建修复策略。
@@ -18,9 +19,17 @@ import java.util.Map;
 @Component
 public class BuildFixAgentNode extends BaseGenerationAgentNode {
 
+    private static final String ARTIFACT_KEY = "buildfix_plan";
+
     public BuildFixAgentNode() {
-        super("buildfix", "BuildFix", "buildfix", List.of("review"),
-                GenerationNodeReplayPolicy.REPLAY_SAFE);
+        super(
+                "buildfix",
+                "BuildFix",
+                "buildfix",
+                List.of("review"),
+                GenerationNodeReplayPolicy.REPLAY_SAFE,
+                Set.of(ARTIFACT_KEY)
+        );
     }
 
     /**
@@ -57,7 +66,12 @@ public class BuildFixAgentNode extends BaseGenerationAgentNode {
         payload.put("rollbackStrategy", rollbackStrategy);
         payload.put("impactedModules", changePlan == null ? List.of() : changePlan.impactedModules());
         payload.put("fileChangeCount", changePlan == null ? 0 : changePlan.fileChangeCount());
-        GenerationArtifact artifact = GenerationArtifact.of("buildfix_plan", "BuildFix", "构建修复策略", payload);
+        GenerationArtifact artifact = GenerationArtifact.of(
+                ARTIFACT_KEY,
+                "BuildFix",
+                "构建修复策略",
+                payload
+        );
         return AgentNodeResult.of(
                 requiresBuild ? "已配置构建校验、自动修复和失败回退策略" : "当前模式无需 BuildFix，仅保留失败回退策略",
                 List.of(artifact),

@@ -7,8 +7,11 @@ import com.rush.rushaicodemother.orchestration.dag.GenerationAgentNode;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /** 在一个持久检查点内复用现有确定性规划步骤。 */
 public class CompactPlanningAgentNode extends BaseGenerationAgentNode {
@@ -16,8 +19,14 @@ public class CompactPlanningAgentNode extends BaseGenerationAgentNode {
     private final List<GenerationAgentNode> delegates;
 
     public CompactPlanningAgentNode(List<GenerationAgentNode> delegates) {
-        super("compact_plan", "CompactPlan", "planning", List.of(),
-                GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT);
+        super(
+                "compact_plan",
+                "CompactPlan",
+                "planning",
+                List.of(),
+                GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT,
+                requiredArtifactKeys(delegates)
+        );
         this.delegates = List.copyOf(delegates);
     }
 
@@ -34,5 +43,18 @@ public class CompactPlanningAgentNode extends BaseGenerationAgentNode {
                 artifacts,
                 Map.of("mergedStageCount", delegates.size())
         );
+    }
+
+    /** 折叠节点必须承诺其全部委托节点的完成制品，避免单检查点变体降低恢复强度。 */
+    private static Set<String> requiredArtifactKeys(List<GenerationAgentNode> delegates) {
+        Objects.requireNonNull(delegates, "精简规划委托节点不能为空");
+        Set<String> artifactKeys = new LinkedHashSet<>();
+        for (GenerationAgentNode delegate : delegates) {
+            if (delegate == null) {
+                throw new IllegalArgumentException("精简规划委托节点不能包含空值");
+            }
+            artifactKeys.addAll(delegate.requiredArtifactKeys());
+        }
+        return Set.copyOf(artifactKeys);
     }
 }

@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.orchestration.dag.GenerationAgentNode;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 角色节点基类。
@@ -16,25 +17,39 @@ public abstract class BaseGenerationAgentNode implements GenerationAgentNode {
     private final String stage;
     private final List<String> dependencies;
     private final GenerationNodeReplayPolicy replayPolicy;
+    private final Set<String> requiredArtifactKeys;
 
-    protected BaseGenerationAgentNode(String key, String agentName, String stage, List<String> dependencies) {
-        this(key, agentName, stage, dependencies, GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT);
-    }
-
-    /**
- * 创建基础生成智能体节点实例并完成必要的依赖和初始状态设置。
- *
- * @param key 键
- * @param agentName 智能体名称
- * @param stage 阶段
- * @param dependencies 待处理的 {@code dependencies} 集合
- * @param replayPolicy {@code replayPolicy} 对应的调用参数
- */
     protected BaseGenerationAgentNode(String key,
                                       String agentName,
                                       String stage,
                                       List<String> dependencies,
-                                      GenerationNodeReplayPolicy replayPolicy) {
+                                      Set<String> requiredArtifactKeys) {
+        this(
+                key,
+                agentName,
+                stage,
+                dependencies,
+                GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT,
+                requiredArtifactKeys
+        );
+    }
+
+    /**
+     * 创建基础生成智能体节点实例并完成必要的依赖和初始状态设置。
+     *
+     * @param key 键
+     * @param agentName 智能体名称
+     * @param stage 阶段
+     * @param dependencies 待处理的 {@code dependencies} 集合
+     * @param replayPolicy {@code replayPolicy} 对应的调用参数
+     * @param requiredArtifactKeys 节点完成时必须持久化的制品键
+     */
+    protected BaseGenerationAgentNode(String key,
+                                      String agentName,
+                                      String stage,
+                                      List<String> dependencies,
+                                      GenerationNodeReplayPolicy replayPolicy,
+                                      Set<String> requiredArtifactKeys) {
         this.key = key;
         this.agentName = agentName;
         this.stage = stage;
@@ -42,6 +57,11 @@ public abstract class BaseGenerationAgentNode implements GenerationAgentNode {
         this.replayPolicy = replayPolicy == null
                 ? GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT
                 : replayPolicy;
+        if (requiredArtifactKeys == null || requiredArtifactKeys.stream().anyMatch(
+                artifactKey -> artifactKey == null || artifactKey.isBlank())) {
+            throw new IllegalArgumentException("节点必需制品键不能为空");
+        }
+        this.requiredArtifactKeys = Set.copyOf(requiredArtifactKeys);
     }
 
     @Override
@@ -67,6 +87,11 @@ public abstract class BaseGenerationAgentNode implements GenerationAgentNode {
     @Override
     public GenerationNodeReplayPolicy replayPolicy() {
         return replayPolicy;
+    }
+
+    @Override
+    public Set<String> requiredArtifactKeys() {
+        return requiredArtifactKeys;
     }
 
     /**

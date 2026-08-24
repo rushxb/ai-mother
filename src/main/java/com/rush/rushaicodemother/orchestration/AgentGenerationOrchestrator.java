@@ -15,6 +15,7 @@ import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentNode;
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagCheckpointRecoveryPolicy;
+import com.rush.rushaicodemother.orchestration.dag.GenerationDagRecoveryException;
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagRunner;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
@@ -118,6 +119,13 @@ public class AgentGenerationOrchestrator implements GenerationOrchestrator {
                     "failed",
                     Duration.ofMillis(sumDurations(context))
             );
+            if (e instanceof GenerationDagRecoveryException recoveryException) {
+                throw new BusinessException(
+                        ErrorCode.OPERATION_ERROR,
+                        "生成任务检查点不完整，无法安全恢复",
+                        recoveryException
+                );
+            }
             throw e;
         }
     }

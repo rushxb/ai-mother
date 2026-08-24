@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Review：生成前质量门禁。
@@ -35,7 +36,14 @@ public class ReviewAgentNode extends BaseGenerationAgentNode {
  */
     public ReviewAgentNode(VueSecurityReviewService vueSecurityReviewService,
                            BackendQualityReviewService backendQualityReviewService) {
-        super("review", "Review", "quality", List.of("code"), GenerationNodeReplayPolicy.REPLAY_SAFE);
+        super(
+                "review",
+                "Review",
+                "quality",
+                List.of("code"),
+                GenerationNodeReplayPolicy.REPLAY_SAFE,
+                Set.of(QualityGateArtifact.KEY)
+        );
         this.vueSecurityReviewService = Objects.requireNonNull(
                 vueSecurityReviewService,
                 "vueSecurityReviewService must not be null"

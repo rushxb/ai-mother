@@ -5,9 +5,12 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.artifact.ApiContractArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.QualityGateArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.TemplateBootstrapArtifact;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.intent.IntentBusinessDomain;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.agent.ArchitectAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.BuildFixAgentNode;
@@ -19,6 +22,7 @@ import com.rush.rushaicodemother.orchestration.agent.ReviewAgentNode;
 import com.rush.rushaicodemother.orchestration.agent.TemplateAgentNode;
 import com.rush.rushaicodemother.orchestration.dag.AgentRuntimeState;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentNode;
+import com.rush.rushaicodemother.orchestration.dag.GenerationDagRecoveryException;
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagRunner;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
@@ -214,6 +218,14 @@ class AgentGenerationOrchestratorTest {
                         "indexHits", List.of()
                 )
         ));
+        restoredTask.getArtifacts().put(
+                ApiContractArtifact.KEY,
+                ApiContractArtifact.create(
+                        false,
+                        "继续生成 Vue 应用",
+                        IntentBusinessDomain.GENERAL
+                ).toArtifact()
+        );
         when(taskStore.load(1L, "runtime-task-resume")).thenReturn(Optional.of(restoredTask));
         when(taskStore.matchesRequest(restoredTask, "继续生成 Vue 应用")).thenReturn(true);
 
@@ -357,6 +369,44 @@ class AgentGenerationOrchestratorTest {
         task.getArtifacts().remove(QualityGateArtifact.KEY);
 
         assertThrows(BusinessException.class, () -> orchestrator.prepare(request));
+    }
+
+    @Test
+    void completedTemplateCheckpointWithoutBootstrapArtifactMustFailClosed() {
+        GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
+        GenerationOrchestrationTask task = new GenerationOrchestrationTask();
+        task.setTaskId("runtime-task-missing-template-artifact");
+        task.setAppId(1L);
+        task.setStatus("running");
+        when(taskStore.load(1L, "runtime-task-missing-template-artifact"))
+                .thenReturn(Optional.empty(), Optional.of(task));
+        when(taskStore.create("runtime-task-missing-template-artifact", 1L, "创建一个 Vue 应用"))
+                .thenReturn(task);
+        when(taskStore.matchesRequest(task, "创建一个 Vue 应用")).thenReturn(true);
+        GenerationAgentSupport support = support(codeOutputRoot("missing-template-artifact"));
+        AgentGenerationOrchestrator orchestrator = buildOrchestrator(taskStore, support);
+        App app = new App();
+        app.setId(1L);
+        app.setCodeGenType(CodeGenTypeEnum.HTML.getValue());
+        GenerationOrchestrationRequest request = frozenRequest(
+                app,
+                "创建一个 Vue 应用",
+                CodeGenTypeEnum.HTML,
+                "create",
+                false,
+                CodeGenTypeEnum.VUE_PROJECT,
+                "runtime-task-missing-template-artifact"
+        );
+
+        orchestrator.prepare(request);
+        task.getArtifacts().remove(TemplateBootstrapArtifact.KEY);
+
+        BusinessException failure = assertThrows(
+                BusinessException.class,
+                () -> orchestrator.prepare(request)
+        );
+
+        assertTrue(failure.getCause() instanceof GenerationDagRecoveryException);
     }
 
     @Test

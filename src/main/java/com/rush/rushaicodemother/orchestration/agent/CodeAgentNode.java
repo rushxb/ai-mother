@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Code：将结构化 artifact 组装成最终生成规范。
@@ -32,7 +33,14 @@ public class CodeAgentNode extends BaseGenerationAgentNode {
     private final GenerationContextCompressionService contextCompressionService;
 
     public CodeAgentNode(GenerationContextCompressionService contextCompressionService) {
-        super("code", "Code", "codegen", List.of("architect"), GenerationNodeReplayPolicy.REPLAY_SAFE);
+        super(
+                "code",
+                "Code",
+                "codegen",
+                List.of("architect"),
+                GenerationNodeReplayPolicy.REPLAY_SAFE,
+                Set.of(ChangePlan.KEY, GenerationSpecificationArtifact.KEY)
+        );
         this.contextCompressionService = Objects.requireNonNull(
                 contextCompressionService,
                 "contextCompressionService must not be null"

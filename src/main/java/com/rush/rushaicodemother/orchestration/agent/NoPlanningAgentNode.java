@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationSpecificationArtifact;
+import com.rush.rushaicodemother.orchestration.artifact.TemplateBootstrapArtifact;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationNodeReplayPolicy;
@@ -14,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /** 仅准备模板、项目上下文和运行时必需生成规范的无规划基线。 */
 public class NoPlanningAgentNode extends BaseGenerationAgentNode {
@@ -23,8 +25,19 @@ public class NoPlanningAgentNode extends BaseGenerationAgentNode {
 
     public NoPlanningAgentNode(TemplateAgentNode templateNode,
                                ContextAgentNode contextNode) {
-        super("no_plan", "NoPlan", "planning", List.of(),
-                GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT);
+        super(
+                "no_plan",
+                "NoPlan",
+                "planning",
+                List.of(),
+                GenerationNodeReplayPolicy.REQUIRES_START_CHECKPOINT,
+                Set.of(
+                        TemplateBootstrapArtifact.KEY,
+                        ContextSummaryArtifact.KEY,
+                        ChangePlan.KEY,
+                        GenerationSpecificationArtifact.KEY
+                )
+        );
         this.templateNode = Objects.requireNonNull(templateNode, "模板节点不能为空");
         this.contextNode = Objects.requireNonNull(contextNode, "上下文节点不能为空");
     }

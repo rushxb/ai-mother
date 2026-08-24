@@ -25,6 +25,7 @@ public final class GenerationDagRecoveryException extends IllegalStateException 
 
     public enum Reason {
         AMBIGUOUS_NODE,
+        ARTIFACT_MISMATCH,
         GRAPH_MISMATCH,
         LEGACY_CHECKPOINT,
         INVALID_GRAPH

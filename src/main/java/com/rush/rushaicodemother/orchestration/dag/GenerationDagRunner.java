@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.core.error.GenerationErrorClassifier;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
+import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,10 +24,9 @@ import java.util.concurrent.CompletionException;
 /**
  * 确定性 DAG 调度程序。
  *
- * <p>HHeavy 代已经拥有有界任务执行者的许可。因此这位跑步者
- * 按声明顺序执行就绪节点，而不是创建嵌套执行器
- * 绕过全球资源治理。检查点优化仅限于显式可重放
- * 节点，而副作用节点保留持久的起始边界。</p>
+ * <p>Heavy 生成已在外层接受有界任务执行器治理。本 Runner 按声明顺序执行
+ * 就绪节点，不创建嵌套执行器绕过全局资源治理。检查点优化仅适用于显式可重放
+ * 节点；具有副作用的节点仍保留持久化起始边界。</p>
  */
 @Component
 @Slf4j
@@ -211,6 +211,7 @@ public class GenerationDagRunner {
             if (!completed.containsAll(node.dependencies())) {
                 throw new IllegalStateException("orchestration checkpoint has incomplete node dependencies");
             }
+            validateRestoredNodeArtifacts(node, task);
         }
         return completed;
     }
@@ -223,6 +224,7 @@ public class GenerationDagRunner {
             assertCanContinue(context);
             AgentNodeResult result = node.execute(context);
             assertCanContinue(context);
+            validateExecutedNodeArtifacts(node, result);
             long durationMs = Duration.between(startedAt, Instant.now()).toMillis();
             return new NodeExecution(node, result, durationMs);
         } catch (Exception exception) {
@@ -272,6 +274,9 @@ public class GenerationDagRunner {
                     || node.agentName() == null || node.agentName().isBlank()
                     || node.stage() == null || node.stage().isBlank()
                     || node.dependencies() == null
+                    || node.requiredArtifactKeys() == null
+                    || node.requiredArtifactKeys().stream().anyMatch(
+                            artifactKey -> artifactKey == null || artifactKey.isBlank())
                     || node.replayPolicy() == null) {
                 throw new GenerationDagRecoveryException(
                         GenerationDagRecoveryException.Reason.INVALID_GRAPH,
@@ -298,6 +303,60 @@ public class GenerationDagRunner {
             }
         }
         return nodeMap;
+    }
+
+    /** 校验本次节点执行确实产出了它承诺的全部完成制品。 */
+    private void validateExecutedNodeArtifacts(GenerationAgentNode node,
+                                               AgentNodeResult result) {
+        if (result == null || result.artifacts() == null) {
+            throw new IllegalStateException("DAG 节点未返回可持久化执行结果: " + node.key());
+        }
+        Set<String> actualArtifactKeys = new LinkedHashSet<>();
+        result.artifacts().forEach(artifact -> {
+            if (artifact == null || artifact.key() == null || artifact.key().isBlank()) {
+                throw new IllegalStateException("DAG 节点返回了无效制品: " + node.key());
+            }
+            if (!actualArtifactKeys.add(artifact.key())) {
+                throw new IllegalStateException(
+                        "DAG 节点返回了重复制品: " + node.key() + "/" + artifact.key());
+            }
+        });
+        Set<String> missingArtifactKeys = missingArtifactKeys(
+                node.requiredArtifactKeys(), actualArtifactKeys);
+        if (!missingArtifactKeys.isEmpty()) {
+            throw new IllegalStateException(
+                    "DAG 节点未产出必需制品: node=" + node.key()
+                            + ", missing=" + missingArtifactKeys);
+        }
+    }
+
+    /** 校验已完成节点的持久检查点仍包含它承诺的全部制品。 */
+    private void validateRestoredNodeArtifacts(GenerationAgentNode node,
+                                               GenerationOrchestrationTask task) {
+        Set<String> missingArtifactKeys = new LinkedHashSet<>();
+        Map<String, GenerationArtifact> persistedArtifacts = task.getArtifacts();
+        for (String requiredArtifactKey : node.requiredArtifactKeys()) {
+            GenerationArtifact artifact = persistedArtifacts == null
+                    ? null
+                    : persistedArtifacts.get(requiredArtifactKey);
+            if (artifact == null || !requiredArtifactKey.equals(artifact.key())) {
+                missingArtifactKeys.add(requiredArtifactKey);
+            }
+        }
+        if (!missingArtifactKeys.isEmpty()) {
+            throw new GenerationDagRecoveryException(
+                    GenerationDagRecoveryException.Reason.ARTIFACT_MISMATCH,
+                    "已完成 DAG 节点缺少必需制品: node=" + node.key()
+                            + ", missing=" + missingArtifactKeys
+            );
+        }
+    }
+
+    private static Set<String> missingArtifactKeys(Set<String> requiredArtifactKeys,
+                                                   Set<String> actualArtifactKeys) {
+        Set<String> missingArtifactKeys = new LinkedHashSet<>(requiredArtifactKeys);
+        missingArtifactKeys.removeAll(actualArtifactKeys);
+        return missingArtifactKeys;
     }
 
     /** 绑定{@code Graph}。 */

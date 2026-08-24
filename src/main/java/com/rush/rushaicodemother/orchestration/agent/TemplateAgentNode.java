@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 模板智能体节点。
@@ -23,7 +24,13 @@ public class TemplateAgentNode extends BaseGenerationAgentNode {
     private final GenerationTemplateBootstrapRegistry templateBootstrapRegistry;
 
     public TemplateAgentNode(GenerationTemplateBootstrapRegistry templateBootstrapRegistry) {
-        super("template", "Template", "template", List.of("planner"));
+        super(
+                "template",
+                "Template",
+                "template",
+                List.of("planner"),
+                Set.of(TemplateBootstrapArtifact.KEY)
+        );
         this.templateBootstrapRegistry = java.util.Objects.requireNonNull(
                 templateBootstrapRegistry, "模板初始化 registry 不能为空");
     }

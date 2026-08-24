@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Architect：模块划分与工程策略。
@@ -18,8 +19,14 @@ import java.util.Map;
 public class ArchitectAgentNode extends BaseGenerationAgentNode {
 
     public ArchitectAgentNode() {
-        super("architect", "Architect", "architecture", List.of("planner", "context"),
-                GenerationNodeReplayPolicy.REPLAY_SAFE);
+        super(
+                "architect",
+                "Architect",
+                "architecture",
+                List.of("planner", "context"),
+                GenerationNodeReplayPolicy.REPLAY_SAFE,
+                Set.of(ArchitecturePlan.KEY)
+        );
     }
 
     /**

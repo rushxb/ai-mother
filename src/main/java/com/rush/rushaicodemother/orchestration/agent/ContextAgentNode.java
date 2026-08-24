@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.io.File;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Context：提取项目上下文。
@@ -36,7 +37,14 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
     public ContextAgentNode(GenerationAgentSupport support,
                             AiContextBoundaryService contextBoundaryService,
                             GenerationWorkingMemoryService workingMemoryService) {
-        super("context", "Context", "context", List.of("template"), GenerationNodeReplayPolicy.REPLAY_SAFE);
+        super(
+                "context",
+                "Context",
+                "context",
+                List.of("template"),
+                GenerationNodeReplayPolicy.REPLAY_SAFE,
+                Set.of(ContextSummaryArtifact.KEY)
+        );
         this.support = support;
         this.contextBoundaryService = contextBoundaryService;
         this.workingMemoryService = workingMemoryService;

@@ -91,6 +91,12 @@ app:
     local-first-heavy-routing-enabled: ${AI_LOCAL_FIRST_HEAVY_ROUTING_ENABLED:true}
     first-token-hedge-enabled: ${AI_FIRST_TOKEN_HEDGE_ENABLED:false}
     intent-clarification-enabled: ${AI_INTENT_CLARIFICATION_ENABLED:false}
+  workspace-semantic-index:
+    cache:
+      maximum-workspaces: ${WORKSPACE_INDEX_MAXIMUM_WORKSPACES:256}
+      maximum-indexed-files: ${WORKSPACE_INDEX_MAXIMUM_INDEXED_FILES:50000}
+      lock-stripes: ${WORKSPACE_INDEX_LOCK_STRIPES:256}
+      expire-after-access: ${WORKSPACE_INDEX_EXPIRE_AFTER_ACCESS:30m}
   ai-model-secrets:
     active-key-id: ${AI_MODEL_SECRET_ACTIVE_KEY_ID:}
     active-key: ${AI_MODEL_SECRET_ACTIVE_KEY:}

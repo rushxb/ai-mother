@@ -1,5 +1,8 @@
 package com.rush.rushaicodemother.orchestration.index;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.rush.rushaicodemother.config.WorkspaceSemanticIndexCacheProperties;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
@@ -13,6 +16,7 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemSe
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceFileMetadata;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceScan;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -23,8 +27,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 
 /**
@@ -34,7 +37,7 @@ import java.util.regex.Pattern;
 @Component
 public class WorkspaceSemanticIndexService {
 
-    private static final String SCHEMA_VERSION = "v2";
+    private static final String SCHEMA_VERSION = "v3";
     private static final String INDEX_RELATIVE_PATH = ".ai-code-index/semantic-index.json";
     private static final long MAX_INDEX_FILE_BYTES = 64L * 1024 * 1024;
     private static final int MAX_INDEXED_CONTENT_CHARS = 6000;
@@ -55,12 +58,40 @@ public class WorkspaceSemanticIndexService {
             Pattern.compile("\\bname\\s*:\\s*['\"]([A-Za-z_$][\\w$-]*)['\"]")
     );
 
-    private final ConcurrentMap<String, CachedIndex> cache = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, Object> rebuildLocks = new ConcurrentHashMap<>();
+    private final Cache<String, CachedIndex> cache;
+    private final ReentrantLock[] rebuildLocks;
     private final WorkspaceFileSystemService workspaceFileSystemService;
 
     public WorkspaceSemanticIndexService(WorkspaceFileSystemService workspaceFileSystemService) {
+        this(workspaceFileSystemService, new WorkspaceSemanticIndexCacheProperties());
+    }
+
+    @Autowired
+    public WorkspaceSemanticIndexService(
+            WorkspaceFileSystemService workspaceFileSystemService,
+            WorkspaceSemanticIndexCacheProperties properties) {
         this.workspaceFileSystemService = workspaceFileSystemService;
+        WorkspaceSemanticIndexCacheProperties validated = properties == null
+                ? new WorkspaceSemanticIndexCacheProperties() : properties;
+        if (validated.getExpireAfterAccess() == null
+                || validated.getExpireAfterAccess().isZero()
+                || validated.getExpireAfterAccess().isNegative()) {
+            throw new IllegalArgumentException("semantic index cache retention must be positive");
+        }
+        long minimumWorkspaceWeight = Math.max(
+                1L,
+                (validated.getMaximumIndexedFiles() + validated.getMaximumWorkspaces() - 1L)
+                        / validated.getMaximumWorkspaces());
+        this.cache = Caffeine.newBuilder()
+                .maximumWeight(validated.getMaximumIndexedFiles())
+                .weigher((String key, CachedIndex value) -> Math.max(
+                        Math.toIntExact(Math.min(Integer.MAX_VALUE, minimumWorkspaceWeight)),
+                        value.index().indexedFileCount()))
+                .expireAfterAccess(validated.getExpireAfterAccess())
+                .build();
+        this.rebuildLocks = java.util.stream.IntStream.range(0, validated.getLockStripes())
+                .mapToObj(ignored -> new ReentrantLock())
+                .toArray(ReentrantLock[]::new);
     }
 
     /**
@@ -72,12 +103,13 @@ public class WorkspaceSemanticIndexService {
     public WorkspaceSemanticIndex loadOrBuild(Path rootDir) {
         Path normalizedRoot = normalizeRoot(rootDir);
         String cacheKey = normalizedRoot.toString();
-        Object lock = rebuildLocks.computeIfAbsent(cacheKey, unused -> new Object());
-        synchronized (lock) {
+        ReentrantLock lock = rebuildLock(cacheKey);
+        lock.lock();
+        try {
             try {
                 WorkspaceScan scan = workspaceFileSystemService.scanProject(normalizedRoot);
                 String signature = computeWorkspaceSignature(scan);
-                CachedIndex cachedIndex = cache.get(cacheKey);
+                CachedIndex cachedIndex = cache.getIfPresent(cacheKey);
                 if (cachedIndex != null && signature.equals(cachedIndex.signature())) {
                     return cachedIndex.index();
                 }
@@ -105,9 +137,11 @@ public class WorkspaceSemanticIndexService {
             } catch (Exception exception) {
                 log.warn("构建工作区语义索引失败，rootDir: {}", normalizedRoot, LogExceptionSanitizer.sanitize(exception));
                 WorkspaceSemanticIndex unavailable = emptyIndex(normalizedRoot);
-                cache.remove(cacheKey);
+                cache.invalidate(cacheKey);
                 return unavailable;
             }
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -363,13 +397,12 @@ public class WorkspaceSemanticIndexService {
      * @param relativePaths 相对路径列表
      */
     public void refreshFilesIndex(Path rootDir, List<String> relativePaths) {
-        // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (rootDir == null || CollUtil.isEmpty(relativePaths)) {
             return;
         }
         Path normalizedRoot = normalizeRoot(rootDir);
         String cacheKey = normalizedRoot.toString();
-        CachedIndex cachedIndex = cache.get(cacheKey);
+        CachedIndex cachedIndex = cache.getIfPresent(cacheKey);
         if (cachedIndex == null) {
             return;
         }
@@ -380,26 +413,31 @@ public class WorkspaceSemanticIndexService {
         if (selectedPaths.isEmpty()) {
             return;
         }
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
+        ReentrantLock lock = rebuildLock(cacheKey);
+        lock.lock();
         try {
-            WorkspaceScan scan = workspaceFileSystemService.scanProject(normalizedRoot);
-            java.util.Map<String, WorkspaceFileMetadata> filesByPath = scan.files().stream()
-                    .collect(java.util.stream.Collectors.toMap(
-                            WorkspaceFileMetadata::relativePath,
-                            file -> file,
-                            (left, right) -> left,
-                            java.util.LinkedHashMap::new
-                    ));
-            List<WorkspaceSemanticIndexEntry> entries = new ArrayList<>(cachedIndex.index().entries());
+            CachedIndex current = cache.getIfPresent(cacheKey);
+            if (current == null) {
+                return;
+            }
+            List<WorkspaceSemanticIndexEntry> entries = new ArrayList<>(current.index().entries());
             entries.removeIf(entry -> selectedPaths.contains(entry.relativePath()));
             for (String selectedPath : selectedPaths) {
-                WorkspaceFileMetadata file = filesByPath.get(selectedPath);
-                if (file != null && isIndexable(selectedPath)) {
-                    entries.add(buildEntry(scan, file));
+                if (!isIndexable(selectedPath)) {
+                    continue;
+                }
+                try {
+                    WorkspaceFileMetadata file = workspaceFileSystemService.resolveExistingFile(
+                            normalizedRoot, selectedPath);
+                    entries.add(buildEntry(normalizedRoot, file));
+                } catch (WorkspaceFileSystemException missingFile) {
+                    if (missingFile.reason() != WorkspaceFileSystemException.Reason.MISSING_FILE) {
+                        throw missingFile;
+                    }
                 }
             }
             entries.sort(Comparator.comparing(WorkspaceSemanticIndexEntry::relativePath));
-            String signature = computeWorkspaceSignature(scan);
+            String signature = computeWorkspaceSignature(normalizedRoot, entries);
             WorkspaceSemanticIndex updatedIndex = new WorkspaceSemanticIndex(
                     SCHEMA_VERSION,
                     normalizedRoot.toString(),
@@ -409,11 +447,52 @@ public class WorkspaceSemanticIndexService {
                     List.copyOf(entries)
             );
             cache.put(cacheKey, new CachedIndex(signature, updatedIndex));
-            writeIndex(normalizedRoot, updatedIndex);
+            // 持久化快照留给下次全量构建；高频单文件编辑不放大为 O(项目文件数) 写入。
             log.debug("增量更新文件索引，paths: {}", selectedPaths);
         } catch (Exception exception) {
             log.warn("增量更新文件索引失败，rootDir: {}", normalizedRoot, LogExceptionSanitizer.sanitize(exception));
+        } finally {
+            lock.unlock();
         }
+    }
+
+    /** 终态或工作区回收时释放一个根目录的内存索引。 */
+    public void invalidate(Path rootDir) {
+        if (rootDir != null) {
+            cache.invalidate(normalizeRoot(rootDir).toString());
+        }
+    }
+
+    /** 释放某执行纪元目录下所有按项目类型建立的索引。 */
+    public void invalidateUnder(Path rootDir) {
+        if (rootDir == null) {
+            return;
+        }
+        Path normalized = normalizeRoot(rootDir);
+        cache.asMap().keySet().removeIf(key -> {
+            try {
+                return Path.of(key).toAbsolutePath().normalize().startsWith(normalized);
+            } catch (RuntimeException invalidKey) {
+                return true;
+            }
+        });
+    }
+
+    long estimatedCacheSize() {
+        cache.cleanUp();
+        return cache.estimatedSize();
+    }
+
+    WorkspaceSemanticIndex cachedSnapshot(Path rootDir) {
+        if (rootDir == null) {
+            return null;
+        }
+        CachedIndex cachedIndex = cache.getIfPresent(normalizeRoot(rootDir).toString());
+        return cachedIndex == null ? null : cachedIndex.index();
+    }
+
+    private ReentrantLock rebuildLock(String cacheKey) {
+        return rebuildLocks[Math.floorMod(cacheKey.hashCode(), rebuildLocks.length)];
     }
 
     /**
@@ -502,6 +581,10 @@ public class WorkspaceSemanticIndexService {
 
     /** 构建并返回条目。 */
     private WorkspaceSemanticIndexEntry buildEntry(WorkspaceScan scan, WorkspaceFileMetadata file) throws IOException {
+        return buildEntry(scan.root(), file);
+    }
+
+    private WorkspaceSemanticIndexEntry buildEntry(Path root, WorkspaceFileMetadata file) throws IOException {
         String relativePath = file.relativePath();
         String fileName = file.fileName();
         String extension = normalizeExtension(FileUtil.extName(fileName));
@@ -509,7 +592,7 @@ public class WorkspaceSemanticIndexService {
         List<String> symbols = List.of();
         if (file.size() <= 512 * 1024) {
             try {
-                String content = workspaceFileSystemService.readUtf8(scan, file, 512 * 1024L);
+                String content = workspaceFileSystemService.readUtf8(root, file, 512 * 1024L);
                 contentExcerpt = truncate(normalizeContent(content));
                 symbols = extractSymbols(content, fileName);
             } catch (WorkspaceFileSystemException exception) {
@@ -727,16 +810,34 @@ public class WorkspaceSemanticIndexService {
 
     /** 计算工作区签名。 */
     private String computeWorkspaceSignature(WorkspaceScan scan) {
+        List<WorkspaceFileMetadata> eligibleEntries = scan.files().stream()
+                .filter(file -> isIndexable(file.relativePath()))
+                .toList();
         StringBuilder builder = new StringBuilder(scan.root().toString())
                 .append('|')
-                .append(scan.files().size());
-        for (WorkspaceFileMetadata file : scan.files()) {
+                .append(eligibleEntries.size());
+        for (WorkspaceFileMetadata file : eligibleEntries) {
             builder.append('\n')
                     .append(file.relativePath())
                     .append('|')
                     .append(file.size())
                     .append('|')
                     .append(file.lastModifiedTime());
+        }
+        return DigestUtil.sha256Hex(builder.toString());
+    }
+
+    private String computeWorkspaceSignature(Path root, List<WorkspaceSemanticIndexEntry> entries) {
+        StringBuilder builder = new StringBuilder(root.toString())
+                .append('|')
+                .append(entries.size());
+        for (WorkspaceSemanticIndexEntry entry : entries) {
+            builder.append('\n')
+                    .append(entry.relativePath())
+                    .append('|')
+                    .append(entry.size())
+                    .append('|')
+                    .append(entry.lastModified());
         }
         return DigestUtil.sha256Hex(builder.toString());
     }

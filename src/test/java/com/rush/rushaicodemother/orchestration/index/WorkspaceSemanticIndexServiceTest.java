@@ -103,6 +103,51 @@ class WorkspaceSemanticIndexServiceTest {
         }
     }
 
+    @Test
+    void terminalInvalidationMustReleaseEveryIndexBelowTheExecutionEpoch() throws Exception {
+        Path epochRoot = createTempWorkspace();
+        try {
+            Path vueRoot = Files.createDirectories(epochRoot.resolve("vue"));
+            Path backendRoot = Files.createDirectories(epochRoot.resolve("backend-project"));
+            write(vueRoot, "src/App.vue", "<template>app</template>");
+            write(backendRoot, "backend/Main.java", "class Main {}");
+            service.loadOrBuild(vueRoot);
+            service.loadOrBuild(backendRoot);
+            assertEquals(2, service.estimatedCacheSize());
+
+            service.invalidateUnder(epochRoot);
+
+            assertEquals(0, service.estimatedCacheSize());
+        } finally {
+            cleanup(epochRoot);
+        }
+    }
+
+    @Test
+    void incrementalRefreshMustReadOnlySelectedFilesWithoutScanningOrRewritingSnapshot() throws Exception {
+        Path tempDir = createTempWorkspace();
+        WorkspaceFileSystemService fileSystemService = spy(WorkspaceFileSystemTestFactory.create());
+        WorkspaceSemanticIndexService incrementalService = new WorkspaceSemanticIndexService(fileSystemService);
+        try {
+            write(tempDir, "src/App.vue", "<template>before</template>");
+            write(tempDir, "src/Stable.vue", "<template>stable</template>");
+            incrementalService.loadOrBuild(tempDir);
+            clearInvocations(fileSystemService);
+            write(tempDir, "src/App.vue", "<template>after-marker</template>");
+
+            incrementalService.refreshFileIndex(tempDir, "src/App.vue");
+
+            assertTrue(incrementalService.suggestFilesFromSnapshot(
+                    incrementalService.cachedSnapshot(tempDir), "after-marker", 5)
+                    .contains("src/App.vue"));
+            verify(fileSystemService, never()).scanProject(any(Path.class));
+            verify(fileSystemService, never()).writeUtf8Atomically(
+                    any(Path.class), any(String.class), any(String.class));
+        } finally {
+            cleanup(tempDir);
+        }
+    }
+
     private Path createTempWorkspace() throws Exception {
         Path root = Path.of(System.getProperty("java.io.tmpdir"), "ai-code-mother-tests");
         Files.createDirectories(root);

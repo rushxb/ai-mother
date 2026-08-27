@@ -7,7 +7,7 @@ import com.rush.rushaicodemother.ai.tools.FileModifyTool;
 import com.rush.rushaicodemother.ai.tools.FileReadTool;
 import com.rush.rushaicodemother.ai.tools.FileWriteTool;
 import com.rush.rushaicodemother.ai.tools.ReadMultipleFilesTool;
-import com.rush.rushaicodemother.orchestration.tool.ToolReadResultEvidence;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -73,14 +73,20 @@ class ToolRoundPathExtractorTest {
                             + "；ToolRoundPathExtractor 必须同步更新");
 
             // 用协议里真实的参数名合成调用，等价于模型实际会发出的报文。
-            ToolRoundPathExtractor.ExtractedPaths extracted =
-                    ReadMultipleFilesTool.class.equals(contract.toolClass())
-                            ? extractBatchRead(
-                                    spec.name(),
-                                    sampleArguments(contract.expectedPathProperty()),
-                                    List.of("src/a.ts")
-                            )
-                            : extract(spec.name(), sampleArguments(contract.expectedPathProperty()));
+            ToolRoundPathExtractor.ExtractedPaths extracted = switch (contract.expectedEffect()) {
+                case READ -> ReadMultipleFilesTool.class.equals(contract.toolClass())
+                        ? extractBatchRead(
+                                spec.name(),
+                                sampleArguments(contract.expectedPathProperty()),
+                                List.of("src/a.ts")
+                        )
+                        : extract(spec.name(), sampleArguments(contract.expectedPathProperty()));
+                case MUTATE, DELETE -> extractWorkspaceMutation(
+                        spec.name(),
+                        sampleArguments(contract.expectedPathProperty()),
+                        List.of("src/a.ts")
+                );
+            };
 
             assertEquals(List.of("src/a.ts"), extracted.paths(),
                     "提取表未覆盖工具 " + spec.name() + "，折叠摘要会静默丢失该工具的文件路径");
@@ -99,9 +105,12 @@ class ToolRoundPathExtractorTest {
 
     @Test
     void batchToolsMustExtractEveryPathNotOnlyTheFirst() {
-        assertEquals(List.of("src/a.ts", "src/b.ts"), extract("writeFiles",
+        assertEquals(List.of("src/a.ts", "src/b.ts"), extractWorkspaceMutation(
+                "writeFiles",
                 "{\"files\":[{\"relativeFilePath\":\"src/a.ts\",\"content\":\"x\"},"
-                        + "{\"relativeFilePath\":\"src/b.ts\",\"content\":\"y\"}]}").paths());
+                        + "{\"relativeFilePath\":\"src/b.ts\",\"content\":\"y\"}]}",
+                List.of("src/a.ts", "src/b.ts")
+        ).paths());
 
         assertEquals(List.of("src/a.ts", "src/b.ts"), extractBatchRead(
                 "readMultipleFiles",
@@ -120,6 +129,93 @@ class ToolRoundPathExtractorTest {
 
         assertTrue(extracted.paths().isEmpty(),
                 "持久化证据不得注入本次工具请求之外的路径事实");
+    }
+
+    @Test
+    void mutationEvidenceMustBeLimitedToCanonicalPathsInTheOriginalRequest() {
+        ToolRoundPathExtractor.ExtractedPaths polluted = extractWorkspaceMutation(
+                "writeFile",
+                "{\"relativeFilePath\":\"src/requested.ts\",\"content\":\"x\"}",
+                List.of("src/foreign.ts")
+        );
+        ToolRoundPathExtractor.ExtractedPaths canonical = extractWorkspaceMutation(
+                "writeFile",
+                "{\"relativeFilePath\":\"src\\\\App.vue\",\"content\":\"x\"}",
+                List.of("src/App.vue")
+        );
+
+        assertTrue(polluted.paths().isEmpty(),
+                "持久化证据不得注入本次工具请求之外的 mutation 路径");
+        assertEquals(ToolRoundPathExtractor.MutationEvidenceState.UNKNOWN,
+                polluted.mutationEvidenceState(),
+                "证据与请求不相交时只能标记为未知，不能伪装成已确认 no-op");
+        assertEquals(List.of("src/App.vue"), canonical.paths(),
+                "请求与执行结果必须使用同一套相对路径规范化规则后再取交集");
+        assertEquals(ToolRoundPathExtractor.MutationEvidenceState.CONFIRMED_PATHS,
+                canonical.mutationEvidenceState());
+    }
+
+    @Test
+    void legacyMutationResultWithoutEvidenceMustFailClosed() {
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .id("legacy-write")
+                .name("writeFile")
+                .arguments("{\"relativeFilePath\":\"src/legacy.ts\",\"content\":\"x\"}")
+                .build();
+
+        ToolRoundPathExtractor.ExtractedPaths extracted = extractor.extract(
+                request,
+                ToolExecutionResultMessage.from(request.id(), request.name(), "旧格式成功文本")
+        );
+
+        assertTrue(extracted.paths().isEmpty(),
+                "旧消息没有平台变更证据时不能从请求参数猜测已落盘事实");
+        assertEquals(ToolRoundPathExtractor.MutationEvidenceState.UNKNOWN,
+                extracted.mutationEvidenceState(),
+                "缺失证据与明确 no-op 必须保持不同状态，折叠后仍需提示核验");
+    }
+
+    @Test
+    void explicitNoOpAndNonMutatingPackageActionsMustKeepDistinctStates() {
+        ToolRoundPathExtractor.ExtractedPaths noOp = extractWorkspaceMutation(
+                "writeFile",
+                "{\"relativeFilePath\":\"src/App.vue\",\"content\":\"same\"}",
+                List.of()
+        );
+        ToolRoundPathExtractor.ExtractedPaths packageQuery = extract(
+                "managePackageJson",
+                "{\"action\":\"getPackageJson\"}",
+                "package.json 内容"
+        );
+        ToolRoundPathExtractor.ExtractedPaths deferredInstall = extract(
+                "managePackageJson",
+                "{\"action\":\"installDependencies\"}",
+                "依赖安装已移交构建阶段"
+        );
+
+        assertEquals(ToolRoundPathExtractor.MutationEvidenceState.CONFIRMED_NOOP,
+                noOp.mutationEvidenceState());
+        assertEquals(ToolRoundPathExtractor.MutationEvidenceState.NOT_APPLICABLE,
+                packageQuery.mutationEvidenceState());
+        assertEquals(ToolRoundPathExtractor.MutationEvidenceState.NOT_APPLICABLE,
+                deferredInstall.mutationEvidenceState());
+    }
+
+    @Test
+    void packageManagerMayOnlyReportItsTwoResolvedPackageJsonLocations() {
+        ToolRoundPathExtractor.ExtractedPaths frontendPackage = extractWorkspaceMutation(
+                "managePackageJson",
+                "{\"action\":\"addDependency\",\"packageName\":\"marked\"}",
+                List.of("frontend/package.json")
+        );
+        ToolRoundPathExtractor.ExtractedPaths polluted = extractWorkspaceMutation(
+                "managePackageJson",
+                "{\"action\":\"addDependency\",\"packageName\":\"marked\"}",
+                List.of("src/foreign.json")
+        );
+
+        assertEquals(List.of("frontend/package.json"), frontendPackage.paths());
+        assertTrue(polluted.paths().isEmpty());
     }
 
     @Test
@@ -170,7 +266,19 @@ class ToolRoundPathExtractorTest {
         return extract(
                 tool,
                 arguments,
-                ToolReadResultEvidence.successfulReads("批量读取完成", successfulPaths)
+                ToolResultEvidence.successfulReads("批量读取完成", successfulPaths)
+        );
+    }
+
+    private ToolRoundPathExtractor.ExtractedPaths extractWorkspaceMutation(
+            String tool,
+            String arguments,
+            List<String> effectivePaths
+    ) {
+        return extract(
+                tool,
+                arguments,
+                ToolResultEvidence.effectiveMutations("工作区操作完成", effectivePaths)
         );
     }
 
@@ -194,7 +302,7 @@ class ToolRoundPathExtractorTest {
                 .resultContents(List.of(resultContent))
                 .build();
         ToolExecutionResultMessage result =
-                ToolReadResultEvidence.toMessage(request, executionResult);
+                ToolResultEvidence.toMessage(request, executionResult);
         return extractor.extract(request, result);
     }
 

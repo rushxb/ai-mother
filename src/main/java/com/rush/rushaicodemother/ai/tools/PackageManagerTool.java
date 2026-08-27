@@ -11,12 +11,15 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import dev.langchain4j.data.message.TextContent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -60,7 +63,7 @@ public class PackageManagerTool extends BaseTool {
  * @return 处理后的依赖包管理器工具文本
  */
     @Tool("管理 package.json 的依赖和 scripts；依赖安装由后续构建校验流水线统一执行。")
-    public String managePackageJson(
+    public TextContent managePackageJson(
             @P("操作类型：getPackageJson、addDependency、updateDependency、removeDependency、setScript、removeScript、installDependencies（仅移交构建阶段）")
             String action,
             @P("依赖名称；依赖操作时必填")
@@ -90,8 +93,9 @@ public class PackageManagerTool extends BaseTool {
             }
             JSONObject packageJson = JSONUtil.parseObj(workspaceFileService.readUtf8(packageJsonFile));
             String normalizedAction = StrUtil.blankToDefault(action, "getPackageJson");
-            return switch (normalizedAction) {
-                case "getPackageJson" -> JSONUtil.toJsonPrettyStr(packageJson);
+            PackageOperationResult operationResult = switch (normalizedAction) {
+                case "getPackageJson" -> PackageOperationResult.queryResult(
+                        JSONUtil.toJsonPrettyStr(packageJson));
                 case "addDependency", "updateDependency" ->
                 handleUpsertDependency(appId, packageJsonFile, packageJson, normalizedAction, packageName, version,
                                 dependencyType, runInstall, reason);
@@ -101,9 +105,15 @@ public class PackageManagerTool extends BaseTool {
                         handleSetScript(appId, packageJsonFile, packageJson, scriptName, scriptCommand, runInstall);
                 case "removeScript" ->
                         handleRemoveScript(appId, packageJsonFile, packageJson, scriptName, runInstall);
-                case "installDependencies" -> deferredInstallMessage();
+                case "installDependencies" ->
+                        PackageOperationResult.queryResult(deferredInstallMessage());
                 default -> throw toolFailure("错误：不支持的操作类型 - " + normalizedAction);
             };
+            return operationResult.mutationAttempt()
+                    ? ToolResultEvidence.effectiveMutations(
+                            operationResult.displayResult(),
+                            operationResult.effectivePaths())
+                    : TextContent.from(operationResult.displayResult());
         } catch (ToolPublicFailureException publicFailure) {
             throw publicFailure;
         } catch (ToolInputException e) {
@@ -129,7 +139,7 @@ public class PackageManagerTool extends BaseTool {
     }
 
     /** 处理{@code Upsert}依赖。 */
-    private String handleUpsertDependency(Long appId,
+    private PackageOperationResult handleUpsertDependency(Long appId,
                                           ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
                                           JSONObject packageJson,
                                           String action,
@@ -149,9 +159,12 @@ public class PackageManagerTool extends BaseTool {
         }
         String oldVersion = section.getStr(packageName);
         section.set(packageName, version);
-        writePackageJson(appId, packageJsonFile, packageJson, action);
+        List<String> effectivePaths = writePackageJson(
+                appId, packageJsonFile, packageJson, action);
         StringBuilder builder = new StringBuilder();
-        builder.append(action.equals("addDependency") ? "已添加依赖" : "已更新依赖")
+        builder.append(effectivePaths.isEmpty()
+                        ? "依赖已是目标状态，无需重复修改"
+                        : action.equals("addDependency") ? "已添加依赖" : "已更新依赖")
                 .append(": ")
                 .append(packageName)
                 .append(" -> ")
@@ -170,11 +183,11 @@ public class PackageManagerTool extends BaseTool {
             builder.append("（旧版本: ").append(oldVersion).append("）");
         }
         appendDeferredInstallIfRequested(builder, runInstall);
-        return builder.toString();
+        return new PackageOperationResult(builder.toString(), effectivePaths);
     }
 
     /** 处理{@code Remove}依赖。 */
-    private String handleRemoveDependency(Long appId,
+    private PackageOperationResult handleRemoveDependency(Long appId,
                                           ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
                                           JSONObject packageJson,
                                           String packageName,
@@ -186,17 +199,19 @@ public class PackageManagerTool extends BaseTool {
         String sectionName = dependencyPolicyService.normalizeDependencyType(dependencyType);
         JSONObject section = packageJson.getJSONObject(sectionName);
         if (section == null || !section.containsKey(packageName)) {
-            return "提示：在 " + sectionName + " 中未找到依赖 - " + packageName;
+            return PackageOperationResult.confirmedNoMutation(
+                    "提示：在 " + sectionName + " 中未找到依赖 - " + packageName);
         }
         section.remove(packageName);
-        writePackageJson(appId, packageJsonFile, packageJson, "removeDependency");
+        List<String> effectivePaths = writePackageJson(
+                appId, packageJsonFile, packageJson, "removeDependency");
         StringBuilder builder = new StringBuilder("已删除依赖: " + packageName + "（" + sectionName + "）");
         appendDeferredInstallIfRequested(builder, runInstall);
-        return builder.toString();
+        return new PackageOperationResult(builder.toString(), effectivePaths);
     }
 
     /** 处理集合{@code Script}。 */
-    private String handleSetScript(Long appId,
+    private PackageOperationResult handleSetScript(Long appId,
                                    ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
                                    JSONObject packageJson,
                                    String scriptName,
@@ -213,18 +228,22 @@ public class PackageManagerTool extends BaseTool {
         }
         String oldCommand = scripts.getStr(scriptName);
         scripts.set(scriptName, scriptCommand);
-        writePackageJson(appId, packageJsonFile, packageJson, "setScript");
+        List<String> effectivePaths = writePackageJson(
+                appId, packageJsonFile, packageJson, "setScript");
         StringBuilder builder = new StringBuilder();
-        builder.append("已设置脚本: ").append(scriptName).append(" -> ").append(scriptCommand);
+        builder.append(effectivePaths.isEmpty()
+                        ? "脚本已是目标状态，无需重复修改: "
+                        : "已设置脚本: ")
+                .append(scriptName).append(" -> ").append(scriptCommand);
         if (StrUtil.isNotBlank(oldCommand)) {
             builder.append("（旧命令: ").append(oldCommand).append("）");
         }
         appendDeferredInstallIfRequested(builder, runInstall);
-        return builder.toString();
+        return new PackageOperationResult(builder.toString(), effectivePaths);
     }
 
     /** 处理{@code Remove}{@code Script}。 */
-    private String handleRemoveScript(Long appId,
+    private PackageOperationResult handleRemoveScript(Long appId,
                                       ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
                                       JSONObject packageJson,
                                       String scriptName,
@@ -234,13 +253,15 @@ public class PackageManagerTool extends BaseTool {
         }
         JSONObject scripts = packageJson.getJSONObject(SCRIPTS);
         if (scripts == null || !scripts.containsKey(scriptName)) {
-            return "提示：未找到脚本 - " + scriptName;
+            return PackageOperationResult.confirmedNoMutation(
+                    "提示：未找到脚本 - " + scriptName);
         }
         scripts.remove(scriptName);
-        writePackageJson(appId, packageJsonFile, packageJson, "removeScript");
+        List<String> effectivePaths = writePackageJson(
+                appId, packageJsonFile, packageJson, "removeScript");
         StringBuilder builder = new StringBuilder("已删除脚本: " + scriptName);
         appendDeferredInstallIfRequested(builder, runInstall);
-        return builder.toString();
+        return new PackageOperationResult(builder.toString(), effectivePaths);
     }
 
     private void appendDeferredInstallIfRequested(StringBuilder builder, Boolean runInstall) {
@@ -255,10 +276,10 @@ public class PackageManagerTool extends BaseTool {
     }
 
     /** 写入依赖包{@code Json}。 */
-    private void writePackageJson(Long appId,
-                                  ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
-                                  JSONObject packageJson,
-                                  String reason) {
+    private List<String> writePackageJson(Long appId,
+                                          ToolWorkspaceFileService.ToolWorkspaceFile packageJsonFile,
+                                          JSONObject packageJson,
+                                          String reason) {
         PatchApplyResult result = toolExecutionGateway.applyPatch(
                 appId,
                 packageJsonFile.projectRoot(),
@@ -268,7 +289,7 @@ public class PackageManagerTool extends BaseTool {
                 reason
         );
         if ("applied".equals(result.status())) {
-            return;
+            return result.requireEffectiveChangedPaths();
         }
         throw toolFailure("错误：package.json 写入被拒绝 - " + result.reason());
     }
@@ -322,14 +343,30 @@ public class PackageManagerTool extends BaseTool {
  */
     @Override
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
-        return generateToolExecutedResult(arguments) + "\n" + summarizeResult(toolResult, 280);
+        return withActualToolResult(generateToolExecutedResult(arguments), toolResult);
     }
 
-    private String summarizeResult(String toolResult, int maxChars) {
-        if (StrUtil.isBlank(toolResult)) {
-            return "";
+    private record PackageOperationResult(
+            String displayResult,
+            List<String> effectivePaths,
+            boolean mutationAttempt
+    ) {
+
+        private PackageOperationResult {
+            displayResult = StrUtil.blankToDefault(displayResult, "操作完成");
+            effectivePaths = List.copyOf(effectivePaths == null ? List.of() : effectivePaths);
         }
-        String normalized = toolResult.replace("\r", " ").replace("\n", " ").trim();
-        return StrUtil.sub(normalized, 0, Math.min(normalized.length(), maxChars));
+
+        private PackageOperationResult(String displayResult, List<String> effectivePaths) {
+            this(displayResult, effectivePaths, true);
+        }
+
+        private static PackageOperationResult confirmedNoMutation(String displayResult) {
+            return new PackageOperationResult(displayResult, List.of(), true);
+        }
+
+        private static PackageOperationResult queryResult(String displayResult) {
+            return new PackageOperationResult(displayResult, List.of(), false);
+        }
     }
 }

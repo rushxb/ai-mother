@@ -242,7 +242,12 @@ public class PatchWorkspaceFileService {
             throw new PatchWorkspaceException("invalid_path");
         }
         try {
-            Path suppliedPath = Path.of(relativePath.trim().replace('\\', '/'));
+            String sanitizedPath = relativePath.trim().replace('\\', '/');
+            // Windows 会把 D:foo 视为盘符相对路径；同盘符解析时可能落入项目根，必须在写入前显式拒绝。
+            if (hasWindowsDrivePrefix(sanitizedPath)) {
+                throw new PatchWorkspaceException("path_outside_project");
+            }
+            Path suppliedPath = Path.of(sanitizedPath);
             if (suppliedPath.isAbsolute()) {
                 throw new PatchWorkspaceException("path_outside_project");
             }
@@ -259,6 +264,15 @@ public class PatchWorkspaceFileService {
         } catch (InvalidPathException | SecurityException exception) {
             throw new PatchWorkspaceException("invalid_path", exception);
         }
+    }
+
+    private boolean hasWindowsDrivePrefix(String path) {
+        if (path.length() < 2 || path.charAt(1) != ':') {
+            return false;
+        }
+        char driveLetter = path.charAt(0);
+        return (driveLetter >= 'A' && driveLetter <= 'Z')
+                || (driveLetter >= 'a' && driveLetter <= 'z');
     }
 
     /** 验证{@code Existing}{@code Segments}是否符合预期。 */
@@ -334,4 +348,3 @@ public class PatchWorkspaceFileService {
         }
     }
 }
-

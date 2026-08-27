@@ -5,9 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.config.ChatMemoryProperties;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -35,12 +37,10 @@ class CompletedToolCallContextCompactorTest {
                 .messages(List.of(
                         UserMessage.from("生成项目"),
                         AiMessage.from(request),
-                        ToolExecutionResultMessage.builder()
-                                .id("request-1")
-                                .toolName("writeFiles")
-                                .text("批量文件写入成功")
-                                .isError(false)
-                                .build()
+                        mutationResult(
+                                request,
+                                "批量文件写入成功",
+                                List.of("src/App.vue", "src/main.js"))
                 ))
                 .build();
 
@@ -54,7 +54,8 @@ class CompletedToolCallContextCompactorTest {
         assertTrue(compactedArguments.length() * 10 < request.arguments().length());
         assertEquals(2, parsed.get("files").size());
         assertEquals("src/App.vue", parsed.get("files").get(0).get("relativeFilePath").textValue());
-        assertTrue(parsed.get("files").get(0).get("content").textValue().contains("已写入工作区"));
+        assertTrue(parsed.get("files").get(0).get("content").textValue()
+                .contains("目标内容已在工作区确认"));
         assertTrue(request.arguments().contains(sourceSecret));
     }
 
@@ -138,12 +139,7 @@ class CompletedToolCallContextCompactorTest {
                 .messages(List.of(
                         UserMessage.from("第一次"),
                         AiMessage.from(completed),
-                        ToolExecutionResultMessage.builder()
-                                .id("request-1")
-                                .toolName("writeFile")
-                                .text("成功")
-                                .isError(false)
-                                .build(),
+                        mutationResult(completed, "成功", List.of("src/Old.vue")),
                         UserMessage.from("第二次"),
                         AiMessage.from(unresolved)
                 ))
@@ -154,6 +150,74 @@ class CompletedToolCallContextCompactorTest {
 
         assertEquals(unresolved.arguments(),
                 unresolvedAssistant.toolExecutionRequests().getFirst().arguments());
+    }
+
+    @Test
+    void unrelatedMutationEvidenceMustNotAuthorizeSourceCompaction() {
+        String source = "request-source-must-remain ".repeat(1_000);
+        ToolExecutionRequest request = request("writeFile",
+                "{\"relativeFilePath\":\"src/App.vue\",\"content\":\""
+                        + source + "\"}");
+        ChatRequest original = ChatRequest.builder()
+                .messages(List.of(
+                        UserMessage.from("生成"),
+                        AiMessage.from(request),
+                        mutationResult(request, "成功", List.of("src/foreign.vue"))
+                ))
+                .build();
+
+        ChatRequest compacted = compactor(1_024).compact(original);
+
+        assertSame(original, compacted);
+        AiMessage assistant = (AiMessage) compacted.messages().get(1);
+        assertTrue(assistant.toolExecutionRequests().getFirst().arguments().contains(source));
+    }
+
+    @Test
+    void mismatchedOrMalformedResultToolNameMustNotAuthorizeSourceCompaction() {
+        String source = "request-source-must-remain ".repeat(1_000);
+        ToolExecutionRequest request = request("writeFile",
+                "{\"relativeFilePath\":\"src/App.vue\",\"content\":\""
+                        + source + "\"}");
+
+        for (String reportedToolName : List.of("modifyFile", " writeFile ")) {
+            ChatRequest original = ChatRequest.builder()
+                    .messages(List.of(
+                            UserMessage.from("生成"),
+                            AiMessage.from(request),
+                            mutationResult(
+                                    request,
+                                    reportedToolName,
+                                    "成功",
+                                    List.of("src/App.vue"))
+                    ))
+                    .build();
+
+            assertSame(original, compactor(1_024).compact(original));
+        }
+    }
+
+    @Test
+    void explicitNoOpEvidenceMustAuthorizeSourceCompaction() {
+        String source = "confirmed-source-no-longer-needed ".repeat(1_000);
+        ToolExecutionRequest request = request("writeFile",
+                "{\"relativeFilePath\":\"src/App.vue\",\"content\":\""
+                        + source + "\"}");
+        ChatRequest original = ChatRequest.builder()
+                .messages(List.of(
+                        UserMessage.from("生成"),
+                        AiMessage.from(request),
+                        mutationResult(request, "目标状态已满足", List.of())
+                ))
+                .build();
+
+        ChatRequest compacted = compactor(1_024).compact(original);
+        AiMessage assistant = (AiMessage) compacted.messages().get(1);
+        String compactedArguments = assistant.toolExecutionRequests().getFirst().arguments();
+
+        assertNotSame(original, compacted);
+        assertFalse(compactedArguments.contains(source));
+        assertTrue(compactedArguments.contains("目标内容已在工作区确认"));
     }
 
     private CompletedToolCallContextCompactor compactor(int maximumArgumentsChars) {
@@ -167,6 +231,37 @@ class CompletedToolCallContextCompactorTest {
                 .id(name.equals("readFile") ? "request-2" : "request-1")
                 .name(name)
                 .arguments(arguments)
+                .build();
+    }
+
+    private ToolExecutionResultMessage mutationResult(
+            ToolExecutionRequest request,
+            String resultText,
+            List<String> effectivePaths
+    ) {
+        return mutationResult(request, request.name(), resultText, effectivePaths);
+    }
+
+    private ToolExecutionResultMessage mutationResult(
+            ToolExecutionRequest request,
+            String reportedToolName,
+            String resultText,
+            List<String> effectivePaths
+    ) {
+        TextContent content = ToolResultEvidence.effectiveMutations(
+                resultText, effectivePaths);
+        ToolExecutionResult result = ToolExecutionResult.builder()
+                .result(content)
+                .resultContents(List.of(content))
+                .isError(false)
+                .build();
+        ToolExecutionResultMessage evidenced = ToolResultEvidence.toMessage(request, result);
+        return ToolExecutionResultMessage.builder()
+                .id(evidenced.id())
+                .toolName(reportedToolName)
+                .text(evidenced.text())
+                .isError(evidenced.isError())
+                .attributes(evidenced.attributes())
                 .build();
     }
 }

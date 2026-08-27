@@ -7,6 +7,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import dev.langchain4j.data.message.TextContent;
 import lombok.extern.slf4j.Slf4j;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
@@ -16,11 +17,13 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionConte
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import cn.hutool.crypto.digest.DigestUtil;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * 文件删除工具
@@ -55,7 +58,7 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
  * @return 处理后的文件文本
  */
     @Tool("删除指定路径的文件")
-    public String deleteFile(
+    public TextContent deleteFile(
             @P("文件的相对路径")
             String relativeFilePath,
             @ToolMemoryId Long appId
@@ -66,7 +69,10 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
                     workspaceFileService.resolveFile(appId, relativeFilePath);
             String normalizedPath = file.relativePath();
             if (!workspaceFileService.exists(file)) {
-                return "警告：文件不存在，无需删除 - " + normalizedPath;
+                return ToolResultEvidence.effectiveMutations(
+                        "警告：文件不存在，无需删除 - " + normalizedPath,
+                        List.of()
+                );
             }
             if (!workspaceFileService.isRegularFile(file)) {
                 throw toolFailure("错误：指定路径不是文件，无法删除 - " + normalizedPath);
@@ -83,8 +89,14 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
                     PatchOperation.delete(normalizedPath)
             );
             if ("applied".equals(result.status())) {
-                log.info("成功删除文件: {}", file.absolutePath());
-                return "文件删除成功: " + normalizedPath;
+                List<String> effectivePaths = result.requireEffectiveChangedPaths();
+                if (!effectivePaths.isEmpty()) {
+                    log.info("成功删除文件: {}", file.absolutePath());
+                }
+                String displayResult = effectivePaths.isEmpty()
+                        ? "文件已不存在，无需重复删除: " + normalizedPath
+                        : "文件删除成功: " + normalizedPath;
+                return ToolResultEvidence.effectiveMutations(displayResult, effectivePaths);
             }
             throw toolFailure("删除文件失败: " + normalizedPath + ", 原因: " + result.reason());
         } catch (ToolInputException e) {
@@ -215,5 +227,10 @@ public class FileDeleteTool extends BaseTool implements ApprovalGatedTool {
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");
         return String.format(" [工具调用] %s %s", getDisplayName(), relativeFilePath);
+    }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
+        return withActualToolResult(generateToolExecutedResult(arguments), toolResult);
     }
 }

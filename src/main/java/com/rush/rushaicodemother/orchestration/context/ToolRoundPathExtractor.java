@@ -2,17 +2,16 @@ package com.rush.rushaicodemother.orchestration.context;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rush.rushaicodemother.orchestration.tool.ToolReadResultEvidence;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * 从工具调用参数中提取受影响的文件路径。
@@ -28,19 +27,42 @@ public class ToolRoundPathExtractor {
         READ, MUTATE, DELETE
     }
 
+    /** mutation 结果的可信状态；UNKNOWN 与明确 no-op 必须保持可区分。 */
+    public enum MutationEvidenceState {
+        NOT_APPLICABLE,
+        CONFIRMED_PATHS,
+        CONFIRMED_NOOP,
+        UNKNOWN
+    }
+
     /** 单个文件路径字段的工具。 */
     private static final String SINGLE_PATH_FIELD = "relativeFilePath";
 
     /** 工具名 -> (作用类别, 提取器)。 */
     private static final Map<String, ExtractorSpec> EXTRACTORS = Map.of(
-            "readFile", new ExtractorSpec(PathEffect.READ, (node, result) -> singlePath(node)),
-            "readMultipleFiles", new ExtractorSpec(
+            "readFile", ExtractorSpec.read(
+                    PathEffect.READ,
+                    (node, result) -> canonicalRequestedPaths(singlePath(node))),
+            "readMultipleFiles", ExtractorSpec.read(
                     PathEffect.READ, ToolRoundPathExtractor::successfulBatchReadPaths),
-            "writeFile", new ExtractorSpec(PathEffect.MUTATE, (node, result) -> singlePath(node)),
-            "modifyFile", new ExtractorSpec(PathEffect.MUTATE, (node, result) -> singlePath(node)),
-            "writeFiles", new ExtractorSpec(
-                    PathEffect.MUTATE, (node, result) -> arrayOfObjectPaths(node, "files")),
-            "deleteFile", new ExtractorSpec(PathEffect.DELETE, (node, result) -> singlePath(node))
+            "writeFile", ExtractorSpec.mutation(
+                    PathEffect.MUTATE,
+                    (node, result) -> effectiveMutationPaths(singlePath(node), result)),
+            "modifyFile", ExtractorSpec.mutation(
+                    PathEffect.MUTATE,
+                    (node, result) -> effectiveMutationPaths(singlePath(node), result)),
+            "writeFiles", ExtractorSpec.mutation(
+                    PathEffect.MUTATE,
+                    (node, result) -> effectiveMutationPaths(
+                            arrayOfObjectPaths(node, "files"), result)),
+            "deleteFile", ExtractorSpec.mutation(
+                    PathEffect.DELETE,
+                    (node, result) -> effectiveMutationPaths(singlePath(node), result)),
+            "managePackageJson", ExtractorSpec.conditionalMutation(
+                    PathEffect.MUTATE,
+                    (node, result) -> effectiveMutationPaths(
+                            List.of("package.json", "frontend/package.json"), result),
+                    ToolRoundPathExtractor::packageActionMutatesWorkspace)
     );
 
     private final ObjectMapper objectMapper;
@@ -57,26 +79,78 @@ public class ToolRoundPathExtractor {
      * @return 作用类别与路径列表；无法提取时返回空结果
      */
     public ExtractedPaths extract(ToolExecutionRequest request, ToolExecutionResultMessage result) {
-        if (request == null
-                || request.name() == null
-                || result == null
-                || Boolean.TRUE.equals(result.isError())) {
+        if (request == null || request.name() == null) {
             return ExtractedPaths.empty();
         }
         ExtractorSpec spec = EXTRACTORS.get(request.name());
-        if (spec == null || request.arguments() == null || request.arguments().isBlank()) {
+        if (spec == null) {
             return ExtractedPaths.empty();
+        }
+        if (result == null || !Objects.equals(request.name(), result.toolName())) {
+            return unknownMutationOrEmpty(spec.effect());
+        }
+        if (Boolean.TRUE.equals(result.isError())) {
+            return ExtractedPaths.notApplicable(spec.effect());
+        }
+        if (request.arguments() == null || request.arguments().isBlank()) {
+            return unknownMutationOrEmpty(spec.effect());
         }
         try {
             JsonNode parsed = objectMapper.readTree(request.arguments());
             if (!parsed.isObject()) {
-                return ExtractedPaths.empty();
+                return unknownMutationOrEmpty(spec.effect());
             }
-            return new ExtractedPaths(spec.effect(), spec.extractor().apply(parsed, result));
+            if (spec.effect() != PathEffect.READ
+                    && !spec.mutationApplicable().test(parsed)) {
+                return ExtractedPaths.notApplicable(spec.effect());
+            }
+            List<String> paths = spec.extractor().apply(parsed, result);
+            return new ExtractedPaths(
+                    spec.effect(),
+                    paths,
+                    mutationEvidenceState(spec.effect(), paths, result)
+            );
         } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException malformed) {
-            // 参数不可解析时降级为「无路径」，折叠摘要宁可少一条也不能中断生成。
-            return ExtractedPaths.empty();
+            // mutation 参数损坏时保留 UNKNOWN，避免把可能已发生的副作用伪装成只读历史。
+            return unknownMutationOrEmpty(spec.effect());
         }
+    }
+
+    private static MutationEvidenceState mutationEvidenceState(
+            PathEffect effect,
+            List<String> paths,
+            ToolExecutionResultMessage result
+    ) {
+        if (effect == PathEffect.READ) {
+            return MutationEvidenceState.NOT_APPLICABLE;
+        }
+        if (ToolResultEvidence.confirmsNoMutation(result)) {
+            return MutationEvidenceState.CONFIRMED_NOOP;
+        }
+        return paths.isEmpty()
+                ? MutationEvidenceState.UNKNOWN
+                : MutationEvidenceState.CONFIRMED_PATHS;
+    }
+
+    private static ExtractedPaths unknownMutationOrEmpty(PathEffect effect) {
+        return effect == PathEffect.READ
+                ? ExtractedPaths.empty()
+                : ExtractedPaths.unknown(effect);
+    }
+
+    /** package 查询与延迟安装不直接修改工作区，不应被误计为证据未知的 mutation。 */
+    private static boolean packageActionMutatesWorkspace(JsonNode node) {
+        JsonNode actionNode = node.get("action");
+        if (actionNode == null || (actionNode.isTextual() && actionNode.textValue().isBlank())) {
+            return false;
+        }
+        if (!actionNode.isTextual()) {
+            return true;
+        }
+        return switch (actionNode.textValue().trim()) {
+            case "getPackageJson", "installDependencies" -> false;
+            default -> true;
+        };
     }
 
     private static List<String> singlePath(JsonNode node) {
@@ -110,14 +184,24 @@ public class ToolRoundPathExtractor {
             JsonNode node,
             ToolExecutionResultMessage result
     ) {
-        Set<String> requestedPaths = new LinkedHashSet<>(
-                arrayOfStrings(node, "relativeFilePaths"));
-        if (requestedPaths.isEmpty()) {
-            return List.of();
-        }
-        return ToolReadResultEvidence.successfulPaths(result).stream()
-                .filter(requestedPaths::contains)
-                .toList();
+        return ToolResultEvidence.retainRequestedPaths(
+                arrayOfStrings(node, "relativeFilePaths"),
+                ToolResultEvidence.successfulReadPaths(result)
+        );
+    }
+
+    private static List<String> effectiveMutationPaths(
+            List<String> requestedPaths,
+            ToolExecutionResultMessage result
+    ) {
+        return ToolResultEvidence.retainRequestedPaths(
+                requestedPaths,
+                ToolResultEvidence.effectiveMutationPaths(result)
+        );
+    }
+
+    private static List<String> canonicalRequestedPaths(List<String> requestedPaths) {
+        return ToolResultEvidence.retainRequestedPaths(requestedPaths, requestedPaths);
     }
 
     private static List<String> arrayOfObjectPaths(JsonNode node, String field) {
@@ -136,21 +220,73 @@ public class ToolRoundPathExtractor {
     }
 
     /** 提取结果。 */
-    public record ExtractedPaths(PathEffect effect, List<String> paths) {
+    public record ExtractedPaths(
+            PathEffect effect,
+            List<String> paths,
+            MutationEvidenceState mutationEvidenceState
+    ) {
 
         public ExtractedPaths {
+            effect = Objects.requireNonNull(effect, "路径作用类别不能为空");
             paths = List.copyOf(Objects.requireNonNullElse(paths, List.of()));
+            mutationEvidenceState = Objects.requireNonNull(
+                    mutationEvidenceState, "mutation 证据状态不能为空");
+            if (mutationEvidenceState == MutationEvidenceState.CONFIRMED_PATHS
+                    && paths.isEmpty()) {
+                throw new IllegalArgumentException("已确认 mutation 路径不能为空");
+            }
+            if ((mutationEvidenceState == MutationEvidenceState.CONFIRMED_NOOP
+                    || mutationEvidenceState == MutationEvidenceState.UNKNOWN)
+                    && !paths.isEmpty()) {
+                throw new IllegalArgumentException("no-op 或未知 mutation 不能携带已确认路径");
+            }
         }
 
         public static ExtractedPaths empty() {
-            return new ExtractedPaths(PathEffect.READ, List.of());
+            return notApplicable(PathEffect.READ);
+        }
+
+        public static ExtractedPaths notApplicable(PathEffect effect) {
+            return new ExtractedPaths(
+                    effect, List.of(), MutationEvidenceState.NOT_APPLICABLE);
+        }
+
+        public static ExtractedPaths unknown(PathEffect effect) {
+            if (effect == PathEffect.READ) {
+                return empty();
+            }
+            return new ExtractedPaths(
+                    effect, List.of(), MutationEvidenceState.UNKNOWN);
         }
     }
 
     /** 一个工具的作用类别与参数提取函数。 */
     private record ExtractorSpec(
             PathEffect effect,
-            java.util.function.BiFunction<JsonNode, ToolExecutionResultMessage, List<String>> extractor
+            java.util.function.BiFunction<JsonNode, ToolExecutionResultMessage, List<String>> extractor,
+            Predicate<JsonNode> mutationApplicable
     ) {
+
+        private static ExtractorSpec read(
+                PathEffect effect,
+                java.util.function.BiFunction<JsonNode, ToolExecutionResultMessage, List<String>> extractor
+        ) {
+            return new ExtractorSpec(effect, extractor, node -> false);
+        }
+
+        private static ExtractorSpec mutation(
+                PathEffect effect,
+                java.util.function.BiFunction<JsonNode, ToolExecutionResultMessage, List<String>> extractor
+        ) {
+            return conditionalMutation(effect, extractor, node -> true);
+        }
+
+        private static ExtractorSpec conditionalMutation(
+                PathEffect effect,
+                java.util.function.BiFunction<JsonNode, ToolExecutionResultMessage, List<String>> extractor,
+                Predicate<JsonNode> mutationApplicable
+        ) {
+            return new ExtractorSpec(effect, extractor, mutationApplicable);
+        }
     }
 }

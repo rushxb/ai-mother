@@ -144,6 +144,8 @@ public class AgentConversationFolder {
         Set<String> mutatedPaths = new LinkedHashSet<>();
         Set<String> deletedPaths = new LinkedHashSet<>();
         List<String> unresolvedErrors = new ArrayList<>();
+        int confirmedNoMutationCount = 0;
+        int unknownMutationCount = 0;
 
         for (Round round : folded) {
             if (!(round.head() instanceof AiMessage aiMessage) || !aiMessage.hasToolExecutionRequests()) {
@@ -159,6 +161,13 @@ public class AgentConversationFolder {
                     continue;
                 }
                 ToolRoundPathExtractor.ExtractedPaths extracted = pathExtractor.extract(request, result);
+                switch (extracted.mutationEvidenceState()) {
+                    case CONFIRMED_NOOP -> confirmedNoMutationCount++;
+                    case UNKNOWN -> unknownMutationCount++;
+                    case NOT_APPLICABLE, CONFIRMED_PATHS -> {
+                        // 路径事实由下方 effect 分栏收集，这里只累计无路径状态。
+                    }
+                }
                 switch (extracted.effect()) {
                     case READ -> readPaths.addAll(extracted.paths());
                     case MUTATE -> mutatedPaths.addAll(extracted.paths());
@@ -173,6 +182,8 @@ public class AgentConversationFolder {
                 limit(readPaths, "读取"),
                 limit(mutatedPaths, "改动"),
                 limit(deletedPaths, "删除"),
+                confirmedNoMutationCount,
+                unknownMutationCount,
                 List.copyOf(unresolvedErrors)
         );
     }

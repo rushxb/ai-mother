@@ -14,6 +14,8 @@ import java.util.Objects;
  * @param readPaths     已读取过的文件路径
  * @param mutatedPaths  已写入或修改过的文件路径
  * @param deletedPaths  已删除的文件路径
+ * @param confirmedNoMutationCount 已确认目标状态、无需变更的工作区操作数
+ * @param unknownMutationCount 成功返回但缺失可信结果证据、需要重新核验的工作区操作数
  * @param unresolvedErrors 尚未解决的失败工具证据（工具名 + 首行错误）
  */
 public record AgentToolRoundSummary(
@@ -21,6 +23,8 @@ public record AgentToolRoundSummary(
         List<String> readPaths,
         List<String> mutatedPaths,
         List<String> deletedPaths,
+        int confirmedNoMutationCount,
+        int unknownMutationCount,
         List<String> unresolvedErrors
 ) {
 
@@ -31,12 +35,15 @@ public record AgentToolRoundSummary(
         readPaths = List.copyOf(Objects.requireNonNullElse(readPaths, List.of()));
         mutatedPaths = List.copyOf(Objects.requireNonNullElse(mutatedPaths, List.of()));
         deletedPaths = List.copyOf(Objects.requireNonNullElse(deletedPaths, List.of()));
+        confirmedNoMutationCount = Math.max(0, confirmedNoMutationCount);
+        unknownMutationCount = Math.max(0, unknownMutationCount);
         unresolvedErrors = List.copyOf(Objects.requireNonNullElse(unresolvedErrors, List.of()));
     }
 
     /** 空摘要，表示无历史可折叠。 */
     public static AgentToolRoundSummary none() {
-        return new AgentToolRoundSummary(0, List.of(), List.of(), List.of(), List.of());
+        return new AgentToolRoundSummary(
+                0, List.of(), List.of(), List.of(), 0, 0, List.of());
     }
 
     /**
@@ -49,6 +56,8 @@ public record AgentToolRoundSummary(
                 && readPaths.isEmpty()
                 && mutatedPaths.isEmpty()
                 && deletedPaths.isEmpty()
+                && confirmedNoMutationCount <= 0
+                && unknownMutationCount <= 0
                 && unresolvedErrors.isEmpty();
     }
 
@@ -67,6 +76,14 @@ public record AgentToolRoundSummary(
         appendPaths(text, "已读取文件", readPaths);
         appendPaths(text, "已写入或修改文件", mutatedPaths);
         appendPaths(text, "已删除文件", deletedPaths);
+        if (confirmedNoMutationCount > 0) {
+            text.append("\n已确认无需变更的工作区操作：")
+                    .append(confirmedNoMutationCount).append(" 次");
+        }
+        if (unknownMutationCount > 0) {
+            text.append("\n结果未知的工作区操作：")
+                    .append(unknownMutationCount).append(" 次");
+        }
         if (!unresolvedErrors.isEmpty()) {
             text.append("\n未解决的失败证据：");
             unresolvedErrors.forEach(error -> text.append("\n- ").append(error));
@@ -82,14 +99,37 @@ public record AgentToolRoundSummary(
         boolean hasLandedWorkspaceChanges = !mutatedPaths.isEmpty() || !deletedPaths.isEmpty();
         if (hasLandedWorkspaceChanges) {
             text.append("\n以上列出的成功改动已落盘，请勿重复执行；");
+            if (unknownMutationCount > 0) {
+                text.append("另有工作区操作结果未知，请先读取相关目标核验，禁止盲目重放；");
+            }
             if (!unresolvedErrors.isEmpty()) {
                 text.append("未解决的失败操作尚未落盘，请修正后重试；");
             }
             text.append("需要原文时调用读取工具。");
             return;
         }
+        if (unknownMutationCount > 0) {
+            text.append("\n结果未知的工作区操作不得视为已落盘或未执行，")
+                    .append("请先读取相关目标核验，禁止盲目重放；");
+            if (confirmedNoMutationCount > 0) {
+                text.append("其余已确认无需变更的操作请勿重复执行；");
+            }
+            if (!unresolvedErrors.isEmpty()) {
+                text.append("失败操作尚未落盘，请修正后重试；");
+            }
+            text.append("需要原文时调用读取工具。");
+            return;
+        }
         if (!unresolvedErrors.isEmpty()) {
+            if (confirmedNoMutationCount > 0) {
+                text.append("\n已确认无需变更的操作请勿重复执行；");
+            }
             text.append("\n上述失败操作尚未落盘，请根据失败证据修正后重试；")
+                    .append("需要原文时调用读取工具。");
+            return;
+        }
+        if (confirmedNoMutationCount > 0) {
+            text.append("\n以上工作区操作已确认目标状态，无需重复执行；")
                     .append("需要原文时调用读取工具。");
             return;
         }

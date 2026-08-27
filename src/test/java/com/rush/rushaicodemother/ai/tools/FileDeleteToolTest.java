@@ -12,6 +12,12 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionConte
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.Content;
+import dev.langchain4j.data.message.TextContent;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +26,9 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -90,12 +98,30 @@ class FileDeleteToolTest {
                         9L, "task-delete", file.projectRoot().toString(), 1,
                         List.of("src/obsolete.ts")));
 
-        String result = tool.deleteFile("src/obsolete.ts", 9L);
+        Object result = tool.deleteFile("src/obsolete.ts", 9L);
 
-        assertEquals("文件删除成功: src/obsolete.ts", result);
+        TextContent content = assertInstanceOf(TextContent.class, result);
+        assertEquals("文件删除成功: src/obsolete.ts", content.text());
+        assertEquals(List.of("src/obsolete.ts"), effectivePaths(result));
         verify(gateway).applyPatch(
                 eq(9L), eq(file.projectRoot()), any(PatchOperation.class),
                 eq("tool-delete-file"), eq("delete_file"));
+    }
+
+    @Test
+    void missingFileMustBeSuccessfulNoOpWithoutDeleteEvidence() {
+        ToolWorkspaceFileService.ToolWorkspaceFile file = file("src/missing.ts");
+        when(workspaceFileService.resolveFile(9L, "src/missing.ts")).thenReturn(file);
+        when(workspaceFileService.exists(file)).thenReturn(false);
+
+        Object result = tool.deleteFile("src/missing.ts", 9L);
+
+        TextContent content = assertInstanceOf(TextContent.class, result,
+                "不存在的文件也必须通过统一结果 carrier 明确表达 no-op");
+        assertTrue(content.text().contains("无需删除"));
+        assertTrue(effectivePaths(result).isEmpty());
+        verify(gateway, never()).applyPatch(
+                any(), any(), any(PatchOperation.class), any(), any());
     }
 
     @Test
@@ -131,5 +157,22 @@ class FileDeleteToolTest {
                 relativePath,
                 new PatchWorkspaceTarget(root, relativePath, root.resolve(relativePath).normalize())
         );
+    }
+
+    private List<String> effectivePaths(Object result) {
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .id("delete-result")
+                .name("deleteFile")
+                .arguments("{\"relativeFilePath\":\"src/obsolete.ts\"}")
+                .build();
+        Content content = result instanceof Content resultContent
+                ? resultContent
+                : TextContent.from(String.valueOf(result));
+        ToolExecutionResult executionResult = ToolExecutionResult.builder()
+                .result(result)
+                .resultContents(List.of(content))
+                .build();
+        ToolExecutionResultMessage message = ToolResultEvidence.toMessage(request, executionResult);
+        return ToolResultEvidence.effectiveMutationPaths(message);
     }
 }

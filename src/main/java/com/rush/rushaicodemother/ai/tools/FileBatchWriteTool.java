@@ -8,9 +8,11 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.model.output.structured.Description;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -49,7 +51,7 @@ public class FileBatchWriteTool extends BaseTool {
  * @return 处理后的文件文本
  */
     @Tool("原子批量写入多个项目文件。需要写入两个或更多文件时优先使用；任一文件不合法时不会写入任何文件。")
-    public String writeFiles(
+    public TextContent writeFiles(
             @P("待写入文件列表，顺序即补丁执行顺序") List<FileWrite> files,
             @ToolMemoryId Long appId
     ) {
@@ -63,7 +65,11 @@ public class FileBatchWriteTool extends BaseTool {
                     "write_files"
             );
             if ("applied".equals(result.status())) {
-                return "批量文件写入成功：共 " + result.appliedOperationCount() + " 个文件";
+                List<String> effectivePaths = result.requireEffectiveChangedPaths();
+                String displayResult = effectivePaths.isEmpty()
+                        ? "批量文件内容均已是目标状态，无需重复写入"
+                        : "批量文件写入成功：共 " + effectivePaths.size() + " 个文件";
+                return ToolResultEvidence.effectiveMutations(displayResult, effectivePaths);
             }
             throw toolFailure("批量文件写入失败：" + result.reason());
         } catch (ToolInputException exception) {
@@ -160,8 +166,12 @@ public class FileBatchWriteTool extends BaseTool {
     public String generateToolExecutedResult(JSONObject arguments) {
         Object files = arguments == null ? null : arguments.get("files");
         int fileCount = files instanceof Collection<?> collection ? collection.size() : 0;
-        return "[工具调用] " + getDisplayName() + " " + fileCount
-                + " 个文件（内容已写入工作区，可在代码面板查看）";
+        return "[工具调用] " + getDisplayName() + " " + fileCount + " 个文件";
+    }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
+        return withActualToolResult(generateToolExecutedResult(arguments), toolResult);
     }
 
     public record FileWrite(

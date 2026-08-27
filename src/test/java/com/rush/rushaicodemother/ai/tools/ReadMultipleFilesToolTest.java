@@ -5,7 +5,7 @@ import com.rush.rushaicodemother.orchestration.context.AgentConversationFolder;
 import com.rush.rushaicodemother.orchestration.context.ToolRoundPathExtractor;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
-import com.rush.rushaicodemother.orchestration.tool.ToolReadResultEvidence;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -145,7 +145,7 @@ class ReadMultipleFilesToolTest {
                     SystemMessage.from("系统提示"),
                     UserMessage.from("分析项目"),
                     AiMessage.from(batchRequest),
-                    ToolReadResultEvidence.toMessage(batchRequest, executionResult),
+                    ToolResultEvidence.toMessage(batchRequest, executionResult),
                     AiMessage.from(recentRequest),
                     ToolExecutionResultMessage.builder()
                             .id(recentRequest.id())

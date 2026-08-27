@@ -9,14 +9,22 @@ import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.Content;
+import dev.langchain4j.data.message.TextContent;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -65,14 +73,16 @@ class PackageManagerToolTest {
     void managePackageJsonShouldRecordApprovedDependencyReason() throws Exception {
         PackageManagerTool tool = createTool(3L);
 
-        String result = tool.managePackageJson(
+        Object result = tool.managePackageJson(
                 "addDependency", "marked", "^12.0.0", "dependencies", null, null, false, "渲染 markdown", 3L
         );
+        String displayResult = assertInstanceOf(TextContent.class, result).text();
 
-        assertTrue(result.contains("已添加依赖"));
-        assertTrue(result.contains("package: marked"));
-        assertTrue(result.contains("dependencyType: dependencies"));
-        assertTrue(result.contains("reason: 渲染 markdown"));
+        assertTrue(displayResult.contains("已添加依赖"));
+        assertTrue(displayResult.contains("package: marked"));
+        assertTrue(displayResult.contains("dependencyType: dependencies"));
+        assertTrue(displayResult.contains("reason: 渲染 markdown"));
+        assertEquals(List.of("package.json"), effectivePaths(result));
     }
 
     @Test
@@ -81,7 +91,7 @@ class PackageManagerToolTest {
 
         String result = fixture.tool().managePackageJson(
                 "installDependencies", null, null, null, null, null, false, null, 4L
-        );
+        ).text();
 
         assertTrue(result.contains("已移交构建校验流水线"));
         assertTrue(result.contains("不重复执行 pnpm install"));
@@ -95,7 +105,7 @@ class PackageManagerToolTest {
         String result = fixture.tool().managePackageJson(
                 "addDependency", "marked", "^12.0.0", "dependencies",
                 null, null, true, "渲染 markdown", 5L
-        );
+        ).text();
 
         assertTrue(result.contains("已添加依赖"));
         assertTrue(result.contains("已移交构建校验流水线"));
@@ -227,12 +237,15 @@ class PackageManagerToolTest {
     void removingMissingDependencyMustRemainAnIdempotentNoOp() throws Exception {
         PackageToolFixture fixture = createFixture(15L);
 
-        String result = fixture.tool().managePackageJson(
+        Object result = fixture.tool().managePackageJson(
                 "removeDependency", "marked", null, "dependencies",
                 null, null, false, null, 15L
         );
 
-        assertTrue(result.contains("未找到依赖"));
+        TextContent content = assertInstanceOf(TextContent.class, result,
+                "package.json 工具也必须复用统一结果证据协议");
+        assertTrue(content.text().contains("未找到依赖"));
+        assertTrue(effectivePaths(result).isEmpty());
         verifyNoInteractions(fixture.gateway());
     }
 
@@ -249,7 +262,7 @@ class PackageManagerToolTest {
         String result = fixture.tool().managePackageJson(
                 "addDependency", "marked", "^12.0.0", "dependencies",
                 null, null, false, "渲染 markdown", 6L
-        );
+        ).text();
 
         assertTrue(result.contains("已添加依赖"));
         verify(fixture.gateway()).applyPatch(
@@ -321,5 +334,22 @@ class PackageManagerToolTest {
             ToolExecutionGateway gateway,
             Path projectRoot
     ) {
+    }
+
+    private List<String> effectivePaths(Object result) {
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .id("package-result")
+                .name("managePackageJson")
+                .arguments("{\"action\":\"removeDependency\"}")
+                .build();
+        Content content = result instanceof Content resultContent
+                ? resultContent
+                : TextContent.from(String.valueOf(result));
+        ToolExecutionResult executionResult = ToolExecutionResult.builder()
+                .result(result)
+                .resultContents(List.of(content))
+                .build();
+        ToolExecutionResultMessage message = ToolResultEvidence.toMessage(request, executionResult);
+        return ToolResultEvidence.effectiveMutationPaths(message);
     }
 }

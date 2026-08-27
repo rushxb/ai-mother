@@ -5,15 +5,18 @@ import cn.hutool.json.JSONObject;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import dev.langchain4j.data.message.TextContent;
 import lombok.extern.slf4j.Slf4j;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * 文件写入工具
@@ -43,7 +46,7 @@ public class FileWriteTool extends BaseTool {
  * @return 处理后的文件文本
  */
     @Tool("写入文件到指定路径")
-    public String writeFile(
+    public TextContent writeFile(
             @P("文件的相对路径")
             String relativeFilePath,
             @P("要写入文件的内容")
@@ -68,8 +71,14 @@ public class FileWriteTool extends BaseTool {
                     : PatchOperation.add(normalizedPath, content);
             PatchApplyResult result = applyWithGlobalChangePlan(appId, projectRoot, operation);
             if ("applied".equals(result.status())) {
-                log.info("成功写入文件: {}", file.absolutePath());
-                return "文件写入成功: " + normalizedPath;
+                List<String> effectivePaths = result.requireEffectiveChangedPaths();
+                if (!effectivePaths.isEmpty()) {
+                    log.info("成功写入文件: {}", file.absolutePath());
+                }
+                String displayResult = effectivePaths.isEmpty()
+                        ? "文件内容已是目标状态，无需重复写入: " + normalizedPath
+                        : "文件写入成功: " + normalizedPath;
+                return ToolResultEvidence.effectiveMutations(displayResult, effectivePaths);
             }
             throw toolFailure("文件写入失败: " + normalizedPath + ", 原因: " + result.reason());
         } catch (ToolInputException e) {
@@ -118,9 +127,11 @@ public class FileWriteTool extends BaseTool {
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");
-        return String.format(
-                "[工具调用] %s %s（内容已写入工作区，可在代码面板查看）",
-                getDisplayName(), relativeFilePath
-        );
+        return String.format("[工具调用] %s %s", getDisplayName(), relativeFilePath);
+    }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
+        return withActualToolResult(generateToolExecutedResult(arguments), toolResult);
     }
 }

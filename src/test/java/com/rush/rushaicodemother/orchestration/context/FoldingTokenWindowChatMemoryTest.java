@@ -1,15 +1,18 @@
 package com.rush.rushaicodemother.orchestration.context;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import dev.langchain4j.store.memory.chat.InMemoryChatMemoryStore;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -194,10 +197,11 @@ class FoldingTokenWindowChatMemoryTest {
         restored.add(SystemMessage.from("系统提示"));
         restored.add(UserMessage.from("诉求"));
         for (int round = 0; round < 10; round++) {
-            restored.add(AiMessage.from(writeRequest(round, "src/f" + round + ".ts",
-                    "内容\n".repeat(300))));
-            restored.add(ToolExecutionResultMessage.from(
-                    "call-" + round, "writeFile", "写入成功"));
+            String path = "src/f" + round + ".ts";
+            ToolExecutionRequest request = writeRequest(
+                    round, path, "内容\n".repeat(300));
+            restored.add(AiMessage.from(request));
+            restored.add(effectiveMutationResult(request, "写入成功", path));
         }
 
         memory.set(restored);
@@ -244,8 +248,9 @@ class FoldingTokenWindowChatMemoryTest {
     }
 
     private void addToolRoundWriting(ChatMemory memory, int round, String path, String content) {
-        memory.add(AiMessage.from(writeRequest(round, path, content)));
-        memory.add(ToolExecutionResultMessage.from("call-" + round, "writeFile", content));
+        ToolExecutionRequest request = writeRequest(round, path, content);
+        memory.add(AiMessage.from(request));
+        memory.add(effectiveMutationResult(request, content, path));
     }
 
     private static ToolExecutionRequest readRequest(int round) {
@@ -261,6 +266,20 @@ class FoldingTokenWindowChatMemoryTest {
                 .arguments("{\"relativeFilePath\":\"" + path + "\",\"content\":\""
                         + content.replace("\n", "\\n") + "\"}")
                 .build();
+    }
+
+    private static ToolExecutionResultMessage effectiveMutationResult(
+            ToolExecutionRequest request,
+            String resultText,
+            String path
+    ) {
+        TextContent content = ToolResultEvidence.effectiveMutations(
+                resultText, List.of(path));
+        ToolExecutionResult result = ToolExecutionResult.builder()
+                .result(content)
+                .resultContents(List.of(content))
+                .build();
+        return ToolResultEvidence.toMessage(request, result);
     }
 
     /**

@@ -3,16 +3,44 @@ package com.rush.rushaicodemother.orchestration.patch;
 import com.rush.rushaicodemother.config.PatchExecutionProperties;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PatchWorkspaceFileServiceTest {
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "D:src/App.vue",
+            "d:src/App.vue",
+            "D:src\\App.vue",
+            "d:src\\App.vue"
+    })
+    void driveRelativePathMustBeRejectedBeforeAnyWorkspaceMutation(String driveRelativePath) throws Exception {
+        Path root = Files.createTempDirectory(Path.of(".").toAbsolutePath(), "patch-workspace-drive-relative-");
+        PatchWorkspaceFileService service = service(new PatchExecutionProperties());
+        try {
+            PatchWorkspaceException exception = assertThrows(
+                    PatchWorkspaceException.class,
+                    () -> service.writeNewUtf8(service.resolve(root, driveRelativePath), "content")
+            );
+
+            assertEquals("path_outside_project", exception.reason());
+            try (var entries = Files.list(root)) {
+                assertEquals(0L, entries.count(), "非法路径不得创建任何工作区文件或目录");
+            }
+        } finally {
+            deleteRecursively(root);
+        }
+    }
 
     @Test
     void shouldPreserveWhitespaceWhenWritingUtf8() throws Exception {
@@ -155,6 +183,17 @@ class PatchWorkspaceFileServiceTest {
 
     private PatchWorkspaceFileService service(PatchExecutionProperties properties) {
         return new PatchWorkspaceFileService(properties);
+    }
+
+    private void deleteRecursively(Path root) throws IOException {
+        if (!Files.exists(root)) {
+            return;
+        }
+        try (var paths = Files.walk(root)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
     }
 
     private void createSymbolicLinkOrSkip(Path link, Path target) {

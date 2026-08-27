@@ -17,6 +17,7 @@ import org.springframework.stereotype.Repository;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -372,6 +373,8 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
             resultText = resultText.substring(0, MAX_EXECUTION_RESULT_CHARS);
         }
         json.put("resultText", resultText);
+        json.put("mutationEvidencePresent", outcome.mutationEvidencePresent());
+        json.put("effectiveMutationPaths", outcome.effectiveMutationPaths());
         return JSONUtil.toJsonStr(json);
     }
 
@@ -382,14 +385,39 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         }
         try {
             var json = JSONUtil.parseObj(executionResult);
+            boolean mutationEvidencePresent =
+                    Boolean.TRUE.equals(json.getBool("mutationEvidencePresent"));
             return new ToolExecutionOutcome(
                     Boolean.TRUE.equals(json.getBool("error")),
-                    json.getStr("resultText", "")
+                    json.getStr("resultText", ""),
+                    mutationEvidencePresent,
+                    parseEffectiveMutationPaths(json, mutationEvidencePresent)
             );
         } catch (RuntimeException malformedOutcome) {
             throw new BusinessException(
                     ErrorCode.OPERATION_ERROR, "工具执行结果无法解析", malformedOutcome);
         }
+    }
+
+    private List<String> parseEffectiveMutationPaths(
+            cn.hutool.json.JSONObject json,
+            boolean mutationEvidencePresent
+    ) {
+        if (!mutationEvidencePresent) {
+            return List.of();
+        }
+        cn.hutool.json.JSONArray values = json.getJSONArray("effectiveMutationPaths");
+        if (values == null) {
+            throw new IllegalArgumentException("工具执行结果缺少有效变更路径字段");
+        }
+        List<String> paths = new ArrayList<>(values.size());
+        for (Object value : values) {
+            if (!(value instanceof String path)) {
+                throw new IllegalArgumentException("工具执行结果包含非法变更路径");
+            }
+            paths.add(path);
+        }
+        return List.copyOf(paths);
     }
 
     private boolean sameRequest(ToolApprovalRecord left, ToolApprovalRecord right) {

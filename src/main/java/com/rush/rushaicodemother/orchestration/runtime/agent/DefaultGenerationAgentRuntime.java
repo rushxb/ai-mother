@@ -35,12 +35,13 @@ import com.rush.rushaicodemother.orchestration.tool.ToolBatchExecutionPlanner;
 import com.rush.rushaicodemother.orchestration.tool.ToolBatchExecutor;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionOutcome;
-import com.rush.rushaicodemother.orchestration.tool.ToolReadResultEvidence;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import com.rush.rushaicodemother.orchestration.tool.ToolInvocationCheckpoint;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ReturnBehavior;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.invocation.InvocationContext;
@@ -414,7 +415,7 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                                 invocationContext, toolService.toolExecutors(),
                                 request, null, null));
             }
-            memory.add(ToolReadResultEvidence.toMessage(request, result));
+            memory.add(ToolResultEvidence.toMessage(request, result));
             sink.next(toolResultEvent(request, result));
         }
         if (!checkpointResolved) {
@@ -467,9 +468,15 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                 () -> toolService.executeTool(
                         invocationContext, toolService.toolExecutors(), request, null, null)
         );
+        ToolExecutionResultMessage durableResult = ToolResultEvidence.toMessage(request, result);
         ToolApprovalRecord completed = toolApprovalService.completeExecution(
                 execution,
-                new ToolExecutionOutcome(result.isError(), result.resultText())
+                new ToolExecutionOutcome(
+                        result.isError(),
+                        result.resultText(),
+                        ToolResultEvidence.hasEffectiveMutationEvidence(durableResult),
+                        ToolResultEvidence.effectiveMutationPaths(durableResult)
+                )
         );
         return replay(completed);
     }
@@ -478,6 +485,15 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
         ToolExecutionOutcome outcome = approval.executionOutcome();
         if (outcome == null) {
             throw new IllegalStateException("已完成的工具调用缺少持久化结果");
+        }
+        if (outcome.mutationEvidencePresent()) {
+            TextContent content = ToolResultEvidence.effectiveMutations(
+                    outcome.resultText(), outcome.effectiveMutationPaths());
+            return ToolExecutionResult.builder()
+                    .isError(false)
+                    .result(content)
+                    .resultContents(List.of(content))
+                    .build();
         }
         return ToolExecutionResult.builder()
                 .isError(outcome.error())
@@ -616,7 +632,7 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                     for (int index = 0; index < toolRequests.size(); index++) {
                         ToolExecutionRequest toolRequest = toolRequests.get(index);
                         ToolExecutionResult result = results.get(index);
-                        memory.add(ToolReadResultEvidence.toMessage(toolRequest, result));
+                        memory.add(ToolResultEvidence.toMessage(toolRequest, result));
                         sink.next(toolResultEvent(toolRequest, result));
                         anyToolErrored = anyToolErrored || result.isError();
                         returnBehaviors.add(toolService.returnBehavior(toolRequest.name()));

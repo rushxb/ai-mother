@@ -49,6 +49,7 @@ import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionOutcome;
 import com.rush.rushaicodemother.orchestration.tool.ToolInvocationCheckpoint;
 import com.rush.rushaicodemother.orchestration.tool.ToolInvocationCheckpointFactory;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import dev.langchain4j.agent.tool.P;
@@ -58,6 +59,7 @@ import dev.langchain4j.agent.tool.ToolMemoryId;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.memory.ChatMemory;
@@ -433,6 +435,69 @@ class DefaultGenerationAgentRuntimeTest {
     }
 
     @Test
+    void approvedMutationEvidenceMustSurviveDurableOutcomeReplay() {
+        InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
+        ToolExecutionRequest pendingRequest = ToolExecutionRequest.builder()
+                .id("call-delete")
+                .name("deleteFile")
+                .arguments("{\"relativeFilePath\":\"src/obsolete.ts\"}")
+                .build();
+        List<ChatMessage> transcript = List.of(
+                UserMessage.from("delete obsolete file"),
+                AiMessage.builder().toolExecutionRequests(List.of(pendingRequest)).build()
+        );
+        CountingDeleteTool tool = new CountingDeleteTool();
+        ToolManager toolManager = mock(ToolManager.class);
+        when(toolManager.getToolsForCodeGen(CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(new BaseTool[]{tool});
+        StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
+        stubExecutionModel(modelFactory, new CompletingStreamingModel());
+        ToolInvocationCheckpoint checkpoint = new ToolInvocationCheckpoint(
+                ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
+                pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
+                "{\"taskId\":\"task-1\"}", NOW);
+        ToolApprovalRecord approved = approval(
+                ToolApprovalStatus.APPROVED, checkpoint, DestructiveToolAction.FILE_DELETE);
+        ToolApprovalRecord executing = executionApproval(
+                ToolApprovalStatus.EXECUTING, checkpoint, null,
+                DestructiveToolAction.FILE_DELETE);
+        ToolApprovalService approvalService = mock(ToolApprovalService.class);
+        when(approvalService.beginExecution(approved)).thenReturn(executing);
+        when(approvalService.completeExecution(eq(executing), any()))
+                .thenAnswer(invocation -> executionApproval(
+                        ToolApprovalStatus.CONSUMED,
+                        checkpoint,
+                        invocation.getArgument(1),
+                        DestructiveToolAction.FILE_DELETE
+                ));
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
+                memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
+                approvalService, new GenerationToolExecutionContextService(),
+                passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
+        GenerationExecutionContext executionContext = executionContext();
+        assumeWorkspaceMutation(executionContext);
+
+        engine.continueAfterDecision(
+                        approved,
+                        state(executionContext, checkpoint, transcript),
+                        executionContext,
+                        () -> false,
+                        ignored -> { })
+                .blockLast();
+
+        assertEquals(1, tool.executions.get());
+        ToolExecutionResultMessage result = memoryStore.getMessages(11L).stream()
+                .filter(ToolExecutionResultMessage.class::isInstance)
+                .map(ToolExecutionResultMessage.class::cast)
+                .filter(message -> pendingRequest.id().equals(message.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(List.of("src/obsolete.ts"),
+                ToolResultEvidence.effectiveMutationPaths(result),
+                "审批终态重放不能丢失真实删除路径证据");
+    }
+
+    @Test
     void rejectedInvocationMustBecomeToolErrorWithoutExecutingSideEffect() {
         InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
         ToolExecutionRequest pendingRequest = ToolExecutionRequest.builder()
@@ -782,9 +847,17 @@ class DefaultGenerationAgentRuntimeTest {
 
     private ToolApprovalRecord approval(ToolApprovalStatus status,
                                         ToolInvocationCheckpoint checkpoint) {
+        return approval(status, checkpoint, DestructiveToolAction.SNAPSHOT_ROLLBACK);
+    }
+
+    private ToolApprovalRecord approval(
+            ToolApprovalStatus status,
+            ToolInvocationCheckpoint checkpoint,
+            DestructiveToolAction action
+    ) {
         return new ToolApprovalRecord(
                 "a".repeat(64), "task-1", 11L, 7L,
-                DestructiveToolAction.SNAPSHOT_ROLLBACK, "{}", status,
+                action, "{}", status,
                 NOW.minusSeconds(10), NOW.plusSeconds(600),
                 7L, NOW, null, 2L, checkpoint);
     }
@@ -944,9 +1017,19 @@ class DefaultGenerationAgentRuntimeTest {
             ToolInvocationCheckpoint checkpoint,
             ToolExecutionOutcome outcome
     ) {
+        return executionApproval(
+                status, checkpoint, outcome, DestructiveToolAction.SNAPSHOT_ROLLBACK);
+    }
+
+    private ToolApprovalRecord executionApproval(
+            ToolApprovalStatus status,
+            ToolInvocationCheckpoint checkpoint,
+            ToolExecutionOutcome outcome,
+            DestructiveToolAction action
+    ) {
         return new ToolApprovalRecord(
                 "a".repeat(64), "task-1", 11L, 7L,
-                DestructiveToolAction.SNAPSHOT_ROLLBACK, "{}", status,
+                action, "{}", status,
                 NOW.minusSeconds(10), NOW.plusSeconds(600), 7L, NOW,
                 status == ToolApprovalStatus.CONSUMED ? NOW : null,
                 3L, checkpoint, NOW, outcome, 1);
@@ -1081,6 +1164,47 @@ class DefaultGenerationAgentRuntimeTest {
         @Override
         public String generateToolExecutedResult(JSONObject arguments) {
             return "snapshot";
+        }
+    }
+
+    private static final class CountingDeleteTool extends BaseTool {
+        private final AtomicInteger executions = new AtomicInteger();
+
+        @Tool
+        public TextContent deleteFile(
+                @P("relativeFilePath") String relativeFilePath,
+                @ToolMemoryId Long appId
+        ) {
+            executions.incrementAndGet();
+            return ToolResultEvidence.effectiveMutations(
+                    "文件删除成功: " + relativeFilePath,
+                    List.of(relativeFilePath)
+            );
+        }
+
+        @Override
+        public ToolRiskLevel getRiskLevel() {
+            return ToolRiskLevel.DESTRUCTIVE;
+        }
+
+        @Override
+        public boolean canMutateWorkspace() {
+            return true;
+        }
+
+        @Override
+        public String getToolName() {
+            return "deleteFile";
+        }
+
+        @Override
+        public String getDisplayName() {
+            return "delete";
+        }
+
+        @Override
+        public String generateToolExecutedResult(JSONObject arguments) {
+            return "delete";
         }
     }
 

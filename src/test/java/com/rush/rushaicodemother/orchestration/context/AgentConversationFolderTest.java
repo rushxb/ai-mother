@@ -1,12 +1,15 @@
 package com.rush.rushaicodemother.orchestration.context;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -62,11 +65,13 @@ class AgentConversationFolderTest {
         messages.add(SystemMessage.from("系统提示"));
         messages.add(UserMessage.from("生成后台"));
         messages.addAll(toolRound("r1", "writeFile",
-                "{\"relativeFilePath\":\"src/main.ts\"}", "已写入", false));
+                "{\"relativeFilePath\":\"src/main.ts\"}", "已写入", false,
+                List.of("src/main.ts")));
         messages.addAll(toolRound("r2", "readFile",
                 "{\"relativeFilePath\":\"src/App.vue\"}", "文件内容", false));
         messages.addAll(toolRound("r3", "writeFile",
-                "{\"relativeFilePath\":\"src/router.ts\"}", "已写入", false));
+                "{\"relativeFilePath\":\"src/router.ts\"}", "已写入", false,
+                List.of("src/router.ts")));
 
         AgentConversationFolder.FoldResult result = folder.fold(messages, 1);
 
@@ -108,7 +113,8 @@ class AgentConversationFolderTest {
         messages.add(SystemMessage.from("系统提示"));
         messages.add(UserMessage.from("生成后台"));
         messages.addAll(toolRound("r1", "writeFile",
-                "{\"relativeFilePath\":\"src/ok.ts\"}", "已写入", false));
+                "{\"relativeFilePath\":\"src/ok.ts\"}", "已写入", false,
+                List.of("src/ok.ts")));
         messages.addAll(toolRound("r2", "writeFile",
                 "{\"relativeFilePath\":\"src/failed.ts\"}", "写入失败：路径越界", true));
         messages.addAll(toolRound("r3", "readFile",
@@ -137,14 +143,67 @@ class AgentConversationFolderTest {
     }
 
     @Test
+    void legacyMutationWithoutEvidenceMustRequestVerificationInsteadOfClaimingReadOnly() {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from("系统提示"));
+        messages.add(UserMessage.from("修改后台"));
+        messages.addAll(toolRound("legacy-write", "writeFile",
+                "{\"relativeFilePath\":\"src/legacy.ts\",\"content\":\"x\"}",
+                "旧格式成功文本", false));
+        messages.addAll(toolRound("read-after", "readFile",
+                "{\"relativeFilePath\":\"src/keep.ts\"}", "内容", false));
+
+        AgentConversationFolder.FoldResult result = folder.fold(messages, 1);
+
+        String system = assertInstanceOf(
+                SystemMessage.class, result.messages().getFirst()).text();
+        assertTrue(system.contains("结果未知的工作区操作：1 次"),
+                "旧成功消息缺少平台证据时必须保留未知状态:\n" + system);
+        assertTrue(system.contains("请先读取相关目标核验"),
+                "未知物理结果必须先核验，不能盲目重放:\n" + system);
+        assertFalse(system.contains("以上仅为历史读取事实"),
+                "未知写入不能被静默改写成只读历史:\n" + system);
+    }
+
+    @Test
+    void mismatchedResultIdMustLeaveMutationOutcomeUnknown() {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from("系统提示"));
+        messages.add(UserMessage.from("修改后台"));
+        messages.add(AiMessage.builder().toolExecutionRequests(List.of(
+                ToolExecutionRequest.builder()
+                        .id("expected-write")
+                        .name("writeFile")
+                        .arguments("{\"relativeFilePath\":\"src/App.vue\",\"content\":\"x\"}")
+                        .build()
+        )).build());
+        // 结果数量虽相等但 requestId 错配，不能据此把 mutation 轮次视为已确认。
+        messages.add(ToolExecutionResultMessage.from(
+                "foreign-result", "writeFile", "旧格式成功文本"));
+        messages.addAll(toolRound("read-after", "readFile",
+                "{\"relativeFilePath\":\"src/keep.ts\"}", "内容", false));
+
+        AgentConversationFolder.FoldResult result = folder.fold(messages, 1);
+
+        String system = assertInstanceOf(
+                SystemMessage.class, result.messages().getFirst()).text();
+        assertTrue(system.contains("结果未知的工作区操作：1 次"),
+                "requestId 错配的 mutation 必须要求核验:\n" + system);
+        assertTrue(system.contains("禁止盲目重放"));
+        assertFalse(system.contains("以上仅为历史读取事实"));
+    }
+
+    @Test
     void deletedPathMustNotAlsoBeListedAsMutated() {
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(SystemMessage.from("系统提示"));
         messages.add(UserMessage.from("清理无用文件"));
         messages.addAll(toolRound("r1", "writeFile",
-                "{\"relativeFilePath\":\"src/tmp.ts\"}", "已写入", false));
+                "{\"relativeFilePath\":\"src/tmp.ts\"}", "已写入", false,
+                List.of("src/tmp.ts")));
         messages.addAll(toolRound("r2", "deleteFile",
-                "{\"relativeFilePath\":\"src/tmp.ts\"}", "已删除", false));
+                "{\"relativeFilePath\":\"src/tmp.ts\"}", "已删除", false,
+                List.of("src/tmp.ts")));
         messages.addAll(toolRound("r3", "readFile",
                 "{\"relativeFilePath\":\"src/keep.ts\"}", "内容", false));
 
@@ -268,14 +327,35 @@ class AgentConversationFolderTest {
                                                String arguments,
                                                String resultText,
                                                boolean failed) {
+        return toolRound(id, tool, arguments, resultText, failed, List.of());
+    }
+
+    private static List<ChatMessage> toolRound(String id,
+                                               String tool,
+                                               String arguments,
+                                               String resultText,
+                                               boolean failed,
+                                               List<String> effectiveMutationPaths) {
+        ToolExecutionRequest executionRequest = ToolExecutionRequest.builder()
+                .id(id).name(tool).arguments(arguments).build();
         AiMessage request = AiMessage.builder()
-                .toolExecutionRequests(List.of(ToolExecutionRequest.builder()
-                        .id(id).name(tool).arguments(arguments).build()))
+                .toolExecutionRequests(List.of(executionRequest))
                 .build();
-        ToolExecutionResultMessage result = failed
-                ? ToolExecutionResultMessage.builder()
-                        .id(id).toolName(tool).text(resultText).isError(true).build()
-                : ToolExecutionResultMessage.from(id, tool, resultText);
+        ToolExecutionResultMessage result;
+        if (failed) {
+            result = ToolExecutionResultMessage.builder()
+                    .id(id).toolName(tool).text(resultText).isError(true).build();
+        } else if (!effectiveMutationPaths.isEmpty()) {
+            TextContent content = ToolResultEvidence.effectiveMutations(
+                    resultText, effectiveMutationPaths);
+            ToolExecutionResult executionResult = ToolExecutionResult.builder()
+                    .result(content)
+                    .resultContents(List.of(content))
+                    .build();
+            result = ToolResultEvidence.toMessage(executionRequest, executionResult);
+        } else {
+            result = ToolExecutionResultMessage.from(id, tool, resultText);
+        }
         return List.of(request, result);
     }
 }

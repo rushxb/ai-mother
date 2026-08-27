@@ -267,6 +267,37 @@ class JsonMessageStreamHandlerTest {
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
     }
 
+    @Test
+    void failedToolResultWithMalformedArgumentsMustStillReachUser() {
+        ToolManager toolManager = mock(ToolManager.class);
+        BaseTool tool = mock(BaseTool.class);
+        when(toolManager.getTool("modifyFile")).thenReturn(tool);
+        when(tool.getRiskLevel()).thenReturn(ToolRiskLevel.WRITE);
+        when(tool.getDisplayName()).thenReturn("修改文件");
+        JsonMessageStreamHandler handler = new JsonMessageStreamHandler(toolManager);
+        User loginUser = new User();
+        loginUser.setId(1L);
+        GenerationStreamEvent rawResult = GenerationStreamEvent.toolResult(
+                "工具参数不是有效 JSON，文件未修改",
+                Map.of(
+                        "toolName", "modifyFile",
+                        "arguments", "{bad-json",
+                        "requestId", "result-malformed-arguments",
+                        "isError", true
+                )
+        );
+
+        GenerationStreamEvent publicResult = handler.handle(
+                        Flux.just(rawResult), mock(ChatHistoryService.class), 1L, loginUser)
+                .blockFirst();
+
+        assertTrue(publicResult.getText().contains("修改文件失败"));
+        assertTrue(publicResult.getText().contains("文件未修改"));
+        assertEquals(true, publicResult.getData().get("isError"));
+        verify(tool, never()).generateToolExecutedResult(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
     private GenerationStreamEvent toolCall(String requestId, String arguments) {
         return GenerationStreamEvent.toolCall("", Map.of(
                 "toolName", "writeFile",

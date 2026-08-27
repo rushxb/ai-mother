@@ -6,10 +6,12 @@ import com.rush.rushaicodemother.model.entity.GenerationToolApproval;
 import com.rush.rushaicodemother.orchestration.tool.DestructiveToolAction;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalRecord;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalStatus;
+import com.rush.rushaicodemother.orchestration.tool.ToolExecutionOutcome;
 import com.rush.rushaicodemother.orchestration.tool.ToolInvocationCheckpoint;
 import cn.hutool.json.JSONUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -118,6 +120,45 @@ class MyBatisToolApprovalRepositoryTest {
         );
         assertThrows(BusinessException.class, () -> repository.attachInvocationCheckpoint(
                 "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID, conflict));
+    }
+
+    @Test
+    void executionOutcomeEvidenceMustRoundTripAndLegacyJsonMustRemainReadable() {
+        LocalDateTime now = LocalDateTime.ofInstant(NOW, ZoneId.systemDefault());
+        ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
+        when(mapper.completeExecution(
+                org.mockito.ArgumentMatchers.eq("task-1"),
+                org.mockito.ArgumentMatchers.eq("rollbackSnapshot"),
+                org.mockito.ArgumentMatchers.eq(APPROVAL_ID),
+                org.mockito.ArgumentMatchers.eq("call-1"),
+                resultCaptor.capture(),
+                org.mockito.ArgumentMatchers.eq(now))).thenReturn(1);
+
+        ToolExecutionOutcome outcome = new ToolExecutionOutcome(
+                false, "deleted", true, List.of("src/obsolete.ts"));
+        assertTrue(repository.completeExecution(
+                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                APPROVAL_ID, "call-1", outcome, NOW));
+
+        GenerationToolApproval persisted = entity("{}");
+        persisted.setStatus("consumed");
+        persisted.setExecutionResult(resultCaptor.getValue());
+        when(mapper.selectOne("task-1", "rollbackSnapshot", APPROVAL_ID))
+                .thenReturn(persisted);
+
+        ToolExecutionOutcome restored = repository.find(
+                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID)
+                .orElseThrow()
+                .executionOutcome();
+
+        assertEquals(outcome, restored);
+
+        persisted.setExecutionResult("{\"error\":false,\"resultText\":\"legacy\"}");
+        ToolExecutionOutcome legacy = repository.find(
+                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID)
+                .orElseThrow()
+                .executionOutcome();
+        assertEquals(new ToolExecutionOutcome(false, "legacy"), legacy);
     }
 
     @Test

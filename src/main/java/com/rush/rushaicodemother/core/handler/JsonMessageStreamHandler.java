@@ -160,7 +160,6 @@ public class JsonMessageStreamHandler implements GenerationStreamHandlerAdapter 
                 boolean toolFailed = event.getData() != null
                         && Boolean.TRUE.equals(event.getData().get("isError"));
                 clearToolArguments(toolArgumentBuffers, toolId, toolName, null);
-                JSONObject jsonObject = StrUtil.isBlank(arguments) ? new JSONObject() : JSONUtil.parseObj(arguments);
                 // 根据工具名称获取工具实例
                 BaseTool tool = toolManager.getTool(toolName);
                 if (tool == null) {
@@ -179,9 +178,16 @@ public class JsonMessageStreamHandler implements GenerationStreamHandlerAdapter 
                             toolFailed
                     ));
                 }
-                String result = toolFailed
-                        ? failedToolResult(tool, event.getText())
-                        : tool.generateToolExecutedResult(jsonObject, event.getText());
+                String result;
+                if (toolFailed) {
+                    // 失败结果必须优先抵达用户，不能被本就可能损坏的原始参数二次阻断。
+                    result = failedToolResult(tool, event.getText());
+                } else {
+                    JSONObject jsonObject = StrUtil.isBlank(arguments)
+                            ? new JSONObject()
+                            : JSONUtil.parseObj(arguments);
+                    result = tool.generateToolExecutedResult(jsonObject, event.getText());
+                }
                 // 输出前端和要持久化的内容
                 String output = publicToolOutput(result);
                 chatHistoryStringBuilder.append(output);

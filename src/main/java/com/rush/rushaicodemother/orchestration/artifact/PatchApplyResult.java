@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -129,6 +130,65 @@ public record PatchApplyResult(
                 reason,
                 LocalDateTime.now()
         );
+    }
+
+    /**
+     * 投影本次真正落盘的项目相对路径。
+     *
+     * <p>{@code appliedFiles} 的 v1 内部格式为 {@code action:relativePath}；本方法集中
+     * 隔离该格式，避免每个工具 adapter 重复解析。兼容早期直接记录相对路径的结果，
+     * 但任一标签损坏时整体失败关闭，不能向上层制造部分可信事实。</p>
+     */
+    public List<String> effectiveChangedPaths() {
+        LinkedHashSet<String> paths = new LinkedHashSet<>();
+        for (String appliedFile : appliedFiles) {
+            String label = StrUtil.trim(appliedFile);
+            if (label == null || label.isEmpty()) {
+                return List.of();
+            }
+            int separator = label.indexOf(':');
+            String relativePath;
+            if (separator < 0) {
+                relativePath = label;
+            } else {
+                String action = label.substring(0, separator).trim();
+                relativePath = label.substring(separator + 1).trim();
+                if (!isOperationAction(action) || relativePath.isEmpty()) {
+                    return List.of();
+                }
+            }
+            paths.add(relativePath);
+        }
+        return List.copyOf(paths);
+    }
+
+    /**
+     * 返回可供上层声明为事实的有效路径；执行计数与 v1 标签不一致时立即拒绝。
+     */
+    public List<String> requireEffectiveChangedPaths() {
+        if (appliedOperationCount != appliedFiles.size()) {
+            throw new IllegalStateException("补丁执行计数与已应用标签数量不一致");
+        }
+        List<String> effectivePaths = effectiveChangedPaths();
+        if (appliedOperationCount > 0 && effectivePaths.isEmpty()) {
+            throw new IllegalStateException("补丁已发生变更但有效路径证据损坏");
+        }
+        return effectivePaths;
+    }
+
+    private static boolean isOperationAction(String action) {
+        if (action == null || action.isEmpty()) {
+            return false;
+        }
+        for (int index = 0; index < action.length(); index++) {
+            char character = action.charAt(index);
+            if (!Character.isLowerCase(character)
+                    && !Character.isDigit(character)
+                    && character != '_') {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

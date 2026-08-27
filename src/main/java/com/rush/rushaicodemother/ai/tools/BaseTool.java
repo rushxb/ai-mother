@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.ai.tools;
 import cn.hutool.json.JSONObject;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.infrastructure.diagnostic.PublicDiagnosticSanitizer;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 
@@ -11,6 +12,8 @@ import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
  * 定义所有工具的通用接口
  */
 public abstract class BaseTool {
+
+    private static final int MAX_PUBLIC_TOOL_RESULT_LENGTH = 320;
 
     /**
      * 输出经过显式安全标记的输入校验错误。
@@ -107,5 +110,17 @@ public abstract class BaseTool {
      */
     public String generateToolExecutedResult(JSONObject arguments, String toolResult) {
         return generateToolExecutedResult(arguments);
+    }
+
+    /**
+     * 在工具标题后追加经过脱敏和长度限制的真实执行结果。
+     *
+     * <p>写工具不能只凭请求参数渲染“已落盘”；真实结果可能是幂等 no-op。</p>
+     */
+    protected final String withActualToolResult(String title, String toolResult) {
+        String safeTitle = title == null ? "[工具调用] 执行完成" : title;
+        String summary = PublicDiagnosticSanitizer.sanitizeSingleLine(
+                toolResult, MAX_PUBLIC_TOOL_RESULT_LENGTH);
+        return summary.isBlank() ? safeTitle : safeTitle + "\n" + summary;
     }
 } 

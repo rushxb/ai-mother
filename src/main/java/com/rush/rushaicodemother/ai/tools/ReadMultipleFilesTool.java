@@ -2,7 +2,7 @@ package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
-import com.rush.rushaicodemother.orchestration.tool.ToolReadResultEvidence;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
@@ -90,7 +90,7 @@ public class ReadMultipleFilesTool extends BaseTool {
         if (successfulReadPaths.isEmpty()) {
             throw toolFailure("错误：批量读取失败，没有成功读取任何文件");
         }
-        return ToolReadResultEvidence.successfulReads(
+        return ToolResultEvidence.successfulReads(
                 StrUtil.trim(builder.toString()),
                 successfulReadPaths
         );

@@ -7,10 +7,14 @@ import com.rush.rushaicodemother.ai.tools.FileModifyTool;
 import com.rush.rushaicodemother.ai.tools.FileReadTool;
 import com.rush.rushaicodemother.ai.tools.FileWriteTool;
 import com.rush.rushaicodemother.ai.tools.ReadMultipleFilesTool;
+import com.rush.rushaicodemother.orchestration.tool.ToolReadResultEvidence;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.agent.tool.ToolSpecifications;
+import dev.langchain4j.data.message.TextContent;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -69,8 +73,14 @@ class ToolRoundPathExtractorTest {
                             + "；ToolRoundPathExtractor 必须同步更新");
 
             // 用协议里真实的参数名合成调用，等价于模型实际会发出的报文。
-            ToolRoundPathExtractor.ExtractedPaths extracted = extract(
-                    spec.name(), sampleArguments(contract.expectedPathProperty()));
+            ToolRoundPathExtractor.ExtractedPaths extracted =
+                    ReadMultipleFilesTool.class.equals(contract.toolClass())
+                            ? extractBatchRead(
+                                    spec.name(),
+                                    sampleArguments(contract.expectedPathProperty()),
+                                    List.of("src/a.ts")
+                            )
+                            : extract(spec.name(), sampleArguments(contract.expectedPathProperty()));
 
             assertEquals(List.of("src/a.ts"), extracted.paths(),
                     "提取表未覆盖工具 " + spec.name() + "，折叠摘要会静默丢失该工具的文件路径");
@@ -93,9 +103,39 @@ class ToolRoundPathExtractorTest {
                 "{\"files\":[{\"relativeFilePath\":\"src/a.ts\",\"content\":\"x\"},"
                         + "{\"relativeFilePath\":\"src/b.ts\",\"content\":\"y\"}]}").paths());
 
-        assertEquals(List.of("src/a.ts", "src/b.ts"), extract("readMultipleFiles",
-                "{\"relativeFilePaths\":[\"src/a.ts\",\"src/b.ts\"],\"maxCharsPerFile\":100}")
-                .paths());
+        assertEquals(List.of("src/a.ts", "src/b.ts"), extractBatchRead(
+                "readMultipleFiles",
+                "{\"relativeFilePaths\":[\"src/a.ts\",\"src/b.ts\"],\"maxCharsPerFile\":100}",
+                List.of("src/a.ts", "src/b.ts")
+        ).paths());
+    }
+
+    @Test
+    void batchReadEvidenceMustBeLimitedToPathsInTheOriginalRequest() {
+        ToolRoundPathExtractor.ExtractedPaths extracted = extractBatchRead(
+                "readMultipleFiles",
+                "{\"relativeFilePaths\":[\"src/requested.ts\"],\"maxCharsPerFile\":100}",
+                List.of("src/foreign.ts")
+        );
+
+        assertTrue(extracted.paths().isEmpty(),
+                "持久化证据不得注入本次工具请求之外的路径事实");
+    }
+
+    @Test
+    void legacySuccessWithoutExplicitErrorFlagMustStillBeRecognized() {
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .id("legacy-1")
+                .name("readFile")
+                .arguments("{\"relativeFilePath\":\"src/legacy.ts\"}")
+                .build();
+
+        ToolRoundPathExtractor.ExtractedPaths extracted = extractor.extract(
+                request,
+                ToolExecutionResultMessage.from(request.id(), request.name(), "legacy-content")
+        );
+
+        assertEquals(List.of("src/legacy.ts"), extracted.paths());
     }
 
     @Test
@@ -111,13 +151,51 @@ class ToolRoundPathExtractorTest {
         assertTrue(extract("writeFiles", "{\"files\":{}}").paths().isEmpty());
         assertTrue(extract("someUnregisteredTool", "{\"relativeFilePath\":\"a.ts\"}")
                 .paths().isEmpty());
-        assertTrue(extractor.extract(null).paths().isEmpty());
+        assertTrue(extractor.extract(
+                null,
+                ToolExecutionResultMessage.from("call-1", "readFile", "成功")
+        ).paths().isEmpty());
         assertTrue(extract(null, "{\"relativeFilePath\":\"a.ts\"}").paths().isEmpty());
     }
 
     private ToolRoundPathExtractor.ExtractedPaths extract(String tool, String arguments) {
-        return extractor.extract(ToolExecutionRequest.builder()
-                .id("call-1").name(tool).arguments(arguments).build());
+        return extract(tool, arguments, "成功");
+    }
+
+    private ToolRoundPathExtractor.ExtractedPaths extractBatchRead(
+            String tool,
+            String arguments,
+            List<String> successfulPaths
+    ) {
+        return extract(
+                tool,
+                arguments,
+                ToolReadResultEvidence.successfulReads("批量读取完成", successfulPaths)
+        );
+    }
+
+    private ToolRoundPathExtractor.ExtractedPaths extract(
+            String tool,
+            String arguments,
+            String resultText
+    ) {
+        return extract(tool, arguments, TextContent.from(resultText));
+    }
+
+    private ToolRoundPathExtractor.ExtractedPaths extract(
+            String tool,
+            String arguments,
+            TextContent resultContent
+    ) {
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .id("call-1").name(tool).arguments(arguments).build();
+        ToolExecutionResult executionResult = ToolExecutionResult.builder()
+                .result(resultContent)
+                .resultContents(List.of(resultContent))
+                .build();
+        ToolExecutionResultMessage result =
+                ToolReadResultEvidence.toMessage(request, executionResult);
+        return extractor.extract(request, result);
     }
 
     /** 走 LangChain4j 的真实推导链路取协议定义，而非复制一份工具名字面量。 */

@@ -35,6 +35,7 @@ import com.rush.rushaicodemother.orchestration.tool.ToolBatchExecutionPlanner;
 import com.rush.rushaicodemother.orchestration.tool.ToolBatchExecutor;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionFailurePolicy;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionOutcome;
+import com.rush.rushaicodemother.orchestration.tool.ToolReadResultEvidence;
 import com.rush.rushaicodemother.orchestration.tool.ToolInvocationCheckpoint;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ReturnBehavior;
@@ -413,7 +414,7 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                                 invocationContext, toolService.toolExecutors(),
                                 request, null, null));
             }
-            memory.add(toResultMessage(request, result));
+            memory.add(ToolReadResultEvidence.toMessage(request, result));
             sink.next(toolResultEvent(request, result));
         }
         if (!checkpointResolved) {
@@ -615,7 +616,7 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                     for (int index = 0; index < toolRequests.size(); index++) {
                         ToolExecutionRequest toolRequest = toolRequests.get(index);
                         ToolExecutionResult result = results.get(index);
-                        memory.add(toResultMessage(toolRequest, result));
+                        memory.add(ToolReadResultEvidence.toMessage(toolRequest, result));
                         sink.next(toolResultEvent(toolRequest, result));
                         anyToolErrored = anyToolErrored || result.isError();
                         returnBehaviors.add(toolService.returnBehavior(toolRequest.name()));
@@ -820,17 +821,6 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
             }
         }
         return completed;
-    }
-
-    private ToolExecutionResultMessage toResultMessage(ToolExecutionRequest request,
-                                                       ToolExecutionResult result) {
-        return ToolExecutionResultMessage.builder()
-                .id(request.id())
-                .toolName(request.name())
-                .contents(result.resultContents())
-                .isError(result.isError())
-                .attributes(result.attributes())
-                .build();
     }
 
     private GenerationStreamEvent toolCallEvent(ToolExecutionRequest request, int index) {

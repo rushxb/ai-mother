@@ -2,15 +2,18 @@ package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.tool.ToolReadResultEvidence;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import dev.langchain4j.data.message.TextContent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -39,7 +42,7 @@ public class ReadMultipleFilesTool extends BaseTool {
  * @return 处理后的{@code Multiple}文件文本
  */
     @Tool("一次读取多个文件内容，适合在修改前批量获取项目上下文。")
-    public String readMultipleFiles(
+    public TextContent readMultipleFiles(
             @P("要读取的相对文件路径列表")
             List<String> relativeFilePaths,
             @P("每个文件最多返回的字符数，建议 8000 以内")
@@ -56,7 +59,7 @@ public class ReadMultipleFilesTool extends BaseTool {
         int requestedCharLimit = maxCharsPerFile == null ? DEFAULT_MAX_CHARS : maxCharsPerFile;
         int charLimit = Math.max(1, Math.min(requestedCharLimit, MAX_CHARS_LIMIT));
         StringBuilder builder = new StringBuilder();
-        int successfulReadCount = 0;
+        List<String> successfulReadPaths = new ArrayList<>();
         // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (String relativeFilePath : relativeFilePaths) {
             try {
@@ -68,7 +71,7 @@ public class ReadMultipleFilesTool extends BaseTool {
                     continue;
                 }
                 String content = workspaceFileService.readUtf8(file);
-                successfulReadCount++;
+                successfulReadPaths.add(file.relativePath());
                 builder.append("[文件] ").append(file.relativePath()).append('\n')
                         .append("```").append(resolveFenceLanguage(file.fileName())).append('\n')
                         .append(truncate(content, charLimit))
@@ -84,10 +87,13 @@ public class ReadMultipleFilesTool extends BaseTool {
                         .append("错误：文件读取失败，请稍后重试\n\n");
             }
         }
-        if (successfulReadCount == 0) {
+        if (successfulReadPaths.isEmpty()) {
             throw toolFailure("错误：批量读取失败，没有成功读取任何文件");
         }
-        return StrUtil.trim(builder.toString());
+        return ToolReadResultEvidence.successfulReads(
+                StrUtil.trim(builder.toString()),
+                successfulReadPaths
+        );
     }
 
     /** 按资源上限截断{@code Read}{@code Multiple}文件工具。 */

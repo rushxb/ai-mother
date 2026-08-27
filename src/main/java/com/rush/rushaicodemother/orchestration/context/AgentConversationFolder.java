@@ -151,7 +151,6 @@ public class AgentConversationFolder {
             }
             Map<String, ToolExecutionResultMessage> resultsById = resultsById(round);
             for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
-                ToolRoundPathExtractor.ExtractedPaths extracted = pathExtractor.extract(request);
                 ToolExecutionResultMessage result = resultsById.get(request.id());
                 boolean failed = result != null && Boolean.TRUE.equals(result.isError());
                 if (failed) {
@@ -159,6 +158,7 @@ public class AgentConversationFolder {
                     // 失败的写操作未落盘，不能宣称已改动，否则模型会跳过必要的重试。
                     continue;
                 }
+                ToolRoundPathExtractor.ExtractedPaths extracted = pathExtractor.extract(request, result);
                 switch (extracted.effect()) {
                     case READ -> readPaths.addAll(extracted.paths());
                     case MUTATE -> mutatedPaths.addAll(extracted.paths());

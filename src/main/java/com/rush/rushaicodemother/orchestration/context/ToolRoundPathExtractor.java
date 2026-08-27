@@ -2,13 +2,17 @@ package com.rush.rushaicodemother.orchestration.context;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rush.rushaicodemother.orchestration.tool.ToolReadResultEvidence;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 从工具调用参数中提取受影响的文件路径。
@@ -29,14 +33,14 @@ public class ToolRoundPathExtractor {
 
     /** 工具名 -> (作用类别, 提取器)。 */
     private static final Map<String, ExtractorSpec> EXTRACTORS = Map.of(
-            "readFile", new ExtractorSpec(PathEffect.READ, ToolRoundPathExtractor::singlePath),
+            "readFile", new ExtractorSpec(PathEffect.READ, (node, result) -> singlePath(node)),
             "readMultipleFiles", new ExtractorSpec(
-                    PathEffect.READ, node -> arrayOfStrings(node, "relativeFilePaths")),
-            "writeFile", new ExtractorSpec(PathEffect.MUTATE, ToolRoundPathExtractor::singlePath),
-            "modifyFile", new ExtractorSpec(PathEffect.MUTATE, ToolRoundPathExtractor::singlePath),
+                    PathEffect.READ, ToolRoundPathExtractor::successfulBatchReadPaths),
+            "writeFile", new ExtractorSpec(PathEffect.MUTATE, (node, result) -> singlePath(node)),
+            "modifyFile", new ExtractorSpec(PathEffect.MUTATE, (node, result) -> singlePath(node)),
             "writeFiles", new ExtractorSpec(
-                    PathEffect.MUTATE, node -> arrayOfObjectPaths(node, "files")),
-            "deleteFile", new ExtractorSpec(PathEffect.DELETE, ToolRoundPathExtractor::singlePath)
+                    PathEffect.MUTATE, (node, result) -> arrayOfObjectPaths(node, "files")),
+            "deleteFile", new ExtractorSpec(PathEffect.DELETE, (node, result) -> singlePath(node))
     );
 
     private final ObjectMapper objectMapper;
@@ -49,10 +53,14 @@ public class ToolRoundPathExtractor {
      * 提取一次工具调用涉及的路径。
      *
      * @param request 工具调用请求，允许为空
+     * @param result 已完成的工具结果；明确失败的结果不能产生路径事实
      * @return 作用类别与路径列表；无法提取时返回空结果
      */
-    public ExtractedPaths extract(ToolExecutionRequest request) {
-        if (request == null || request.name() == null) {
+    public ExtractedPaths extract(ToolExecutionRequest request, ToolExecutionResultMessage result) {
+        if (request == null
+                || request.name() == null
+                || result == null
+                || Boolean.TRUE.equals(result.isError())) {
             return ExtractedPaths.empty();
         }
         ExtractorSpec spec = EXTRACTORS.get(request.name());
@@ -64,7 +72,7 @@ public class ToolRoundPathExtractor {
             if (!parsed.isObject()) {
                 return ExtractedPaths.empty();
             }
-            return new ExtractedPaths(spec.effect(), spec.extractor().apply(parsed));
+            return new ExtractedPaths(spec.effect(), spec.extractor().apply(parsed, result));
         } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException malformed) {
             // 参数不可解析时降级为「无路径」，折叠摘要宁可少一条也不能中断生成。
             return ExtractedPaths.empty();
@@ -90,6 +98,26 @@ public class ToolRoundPathExtractor {
             }
         }
         return List.copyOf(paths);
+    }
+
+    /**
+     * 批量读取只接纳平台记录的成功项，并限制在原始请求集合内。
+     *
+     * <p>attributes 属于持久化边界，可能来自旧数据或损坏数据；与请求取交集后，
+     * 即使证据被污染也不能向摘要注入本轮从未请求的路径。</p>
+     */
+    private static List<String> successfulBatchReadPaths(
+            JsonNode node,
+            ToolExecutionResultMessage result
+    ) {
+        Set<String> requestedPaths = new LinkedHashSet<>(
+                arrayOfStrings(node, "relativeFilePaths"));
+        if (requestedPaths.isEmpty()) {
+            return List.of();
+        }
+        return ToolReadResultEvidence.successfulPaths(result).stream()
+                .filter(requestedPaths::contains)
+                .toList();
     }
 
     private static List<String> arrayOfObjectPaths(JsonNode node, String field) {
@@ -122,7 +150,7 @@ public class ToolRoundPathExtractor {
     /** 一个工具的作用类别与参数提取函数。 */
     private record ExtractorSpec(
             PathEffect effect,
-            java.util.function.Function<JsonNode, List<String>> extractor
+            java.util.function.BiFunction<JsonNode, ToolExecutionResultMessage, List<String>> extractor
     ) {
     }
 }

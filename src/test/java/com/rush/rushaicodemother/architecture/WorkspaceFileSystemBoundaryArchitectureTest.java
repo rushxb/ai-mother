@@ -17,15 +17,18 @@ class WorkspaceFileSystemBoundaryArchitectureTest {
 
     private static final Path JAVA_SOURCE_ROOT = Path.of("src", "main", "java");
 
-    private static final List<String> BOUNDED_FILE_SYSTEM_CONSUMERS = List.of(
+    private static final List<String> DIRECT_FILE_SYSTEM_CONSUMERS = List.of(
             "com/rush/rushaicodemother/orchestration/index/WorkspaceSemanticIndexService.java",
             "com/rush/rushaicodemother/orchestration/codegraph/WorkspaceCodeGraphService.java",
-            "com/rush/rushaicodemother/ai/tools/SnapshotRollbackTool.java",
             "com/rush/rushaicodemother/ai/tools/DiffSummaryTool.java",
             "com/rush/rushaicodemother/orchestration/snapshot/GenerationRollbackPointService.java",
             "com/rush/rushaicodemother/orchestration/snapshot/GenerationRollbackRestoreService.java",
-            "com/rush/rushaicodemother/orchestration/snapshot/GenerationDiffSummaryService.java"
+            "com/rush/rushaicodemother/orchestration/snapshot/GenerationDiffSummaryService.java",
+            "com/rush/rushaicodemother/orchestration/snapshot/GenerationSnapshotWorkspaceService.java"
     );
+
+    private static final String SNAPSHOT_ROLLBACK_TOOL =
+            "com/rush/rushaicodemother/ai/tools/SnapshotRollbackTool.java";
 
     private static final Map<String, String> FORBIDDEN_ACCESS = Map.ofEntries(
             Map.entry("Files.walk(", "unbounded directory traversal"),
@@ -49,7 +52,7 @@ class WorkspaceFileSystemBoundaryArchitectureTest {
 
     @Test
     void consumersMustUseWorkspaceFileSystemService() throws IOException {
-        for (String relativePath : BOUNDED_FILE_SYSTEM_CONSUMERS) {
+        for (String relativePath : DIRECT_FILE_SYSTEM_CONSUMERS) {
             Path sourceFile = JAVA_SOURCE_ROOT.resolve(relativePath);
             String source = Files.readString(sourceFile);
             assertTrue(
@@ -66,9 +69,28 @@ class WorkspaceFileSystemBoundaryArchitectureTest {
     }
 
     @Test
+    void snapshotRollbackToolMustUseCanonicalSnapshotBoundary() throws IOException {
+        String source = Files.readString(JAVA_SOURCE_ROOT.resolve(SNAPSHOT_ROLLBACK_TOOL));
+
+        assertTrue(
+                source.contains("GenerationSnapshotWorkspaceService"),
+                "SnapshotRollbackTool must resolve snapshots through GenerationSnapshotWorkspaceService"
+        );
+        assertFalse(
+                source.contains("WorkspaceFileSystemService"),
+                "SnapshotRollbackTool must not bypass the canonical snapshot boundary"
+        );
+        assertNoForbiddenAccess(SNAPSHOT_ROLLBACK_TOOL, source);
+    }
+
+    @Test
     void codeGraphParserMustRemainFileSystemIndependent() throws IOException {
         String relativePath = "com/rush/rushaicodemother/orchestration/codegraph/CodeGraphAstParser.java";
         String source = Files.readString(JAVA_SOURCE_ROOT.resolve(relativePath));
+        assertNoForbiddenAccess(relativePath, source);
+    }
+
+    private void assertNoForbiddenAccess(String relativePath, String source) {
         for (Map.Entry<String, String> forbidden : FORBIDDEN_ACCESS.entrySet()) {
             assertFalse(
                     source.contains(forbidden.getKey()),

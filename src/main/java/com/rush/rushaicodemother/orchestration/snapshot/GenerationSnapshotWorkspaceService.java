@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemSe
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceDirectoryMetadata;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -44,6 +45,7 @@ public class GenerationSnapshotWorkspaceService {
     private final Clock clock;
     private final ReentrantLock[] snapshotLocks;
 
+    @Autowired
     public GenerationSnapshotWorkspaceService(
             CodeStorageProperties storageProperties,
             WorkspaceFileSystemService workspaceFileSystemService,

@@ -8,6 +8,8 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableG
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -87,6 +89,15 @@ public class GenerationTaskRuntimeLifecycleService {
         DurableGenerationTaskRecord queuedTask = safeFind(fence.taskId());
         leaseCoordinator.activate(fence);
         recordInitialDurableQueueWait(queuedTask, clock.instant());
+    }
+
+    /** fallback 进入新 Pipeline 前冻结有效路由，防止恢复后重试旧路由。 */
+    public void rebindEffectiveExecution(
+            GenerationExecutionFence fence,
+            GenerationScenarioDecision effectiveScenario,
+            GenerationExecutionPlan effectiveExecutionPlan) {
+        repository.rebindEffectiveCommand(
+                fence, effectiveScenario, effectiveExecutionPlan, clock.instant());
     }
 
     public Optional<GenerationExecutionFence> reserveQueued(String taskId) {

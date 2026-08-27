@@ -65,6 +65,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -269,6 +270,41 @@ class GenerationPipelineExecutorTest {
         assertEquals("task-fallback", heavyRequest.get().requireExecution().taskId());
         assertSame(request.execution().session(), heavyRequest.get().requireExecution().session());
         assertEquals(GenerationRoute.HEAVY_GENERATION, request.execution().session().route());
+        verify(runtimeLifecycleService).rebindEffectiveExecution(
+                request.execution().executionFence(),
+                heavyRequest.get().scenarioDecision(),
+                heavyRequest.get().executionPlan());
+    }
+
+    @Test
+    void fallbackPersistenceFailureMustPreventHeavyExecution() {
+        GenerationPipelineRequest request = request(
+                "task-fallback-persistence-failure",
+                GenerationMode.LIGHT_EDIT,
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT);
+        AtomicReference<GenerationPipelineRequest> heavyRequest = new AtomicReference<>();
+        GenerationPipeline lightweight = pipeline(
+                GenerationRoute.LIGHTWEIGHT_EDIT,
+                GenerationMode.LIGHT_EDIT,
+                ignored -> GenerationPipelineOutcome.fallback(
+                        GenerationRoute.LIGHTWEIGHT_EDIT, "not_applicable"));
+        GenerationPipeline heavy = pipeline(
+                GenerationRoute.HEAVY_GENERATION,
+                GenerationMode.HEAVY_EXPERT,
+                candidate -> {
+                    heavyRequest.set(candidate);
+                    return GenerationPipelineOutcome.running(GenerationRoute.HEAVY_GENERATION);
+                });
+        doThrow(new IllegalStateException("route cas rejected"))
+                .when(runtimeLifecycleService)
+                .rebindEffectiveExecution(any(), any(), any());
+
+        executor(List.of(lightweight, heavy)).execute(request);
+
+        assertEquals(null, heavyRequest.get());
+        verify(taskFinalizer).finalizeManaged(org.mockito.ArgumentMatchers.argThat(command ->
+                command.status() == GenerationTaskStatus.FAILED
+                        && command.memorySummary().contains(GenerationRoute.LIGHTWEIGHT_EDIT)));
     }
 
     @Test

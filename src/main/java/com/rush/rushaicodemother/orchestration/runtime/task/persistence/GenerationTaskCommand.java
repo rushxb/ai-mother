@@ -420,6 +420,49 @@ public record GenerationTaskCommand(
     }
 
     /**
+     * 保留原始提交身份、SLA、追踪与预检用量，仅重绑已持久化的有效执行决策。
+     */
+    public GenerationTaskCommand withEffectiveScenario(
+            GenerationScenarioDecision effectiveScenario,
+            GenerationExecutionPlan effectiveExecutionPlan) {
+        Objects.requireNonNull(effectiveScenario, "有效场景决策不能为空");
+        if (effectiveScenario.targetType() != codeGenType) {
+            throw new IllegalArgumentException("有效场景决策不得更换工程类型");
+        }
+        GenerationModeDecision decision = effectiveScenario.routeDecision();
+        if (effectiveExecutionPlan != null
+                && !effectiveExecutionPlan.route().equals(decision)) {
+            throw new IllegalArgumentException("有效执行计划与场景路由不一致");
+        }
+        return new GenerationTaskCommand(
+                schemaVersion,
+                taskId,
+                appId,
+                userId,
+                tenantId,
+                userPrompt,
+                codeGenType,
+                decision.mode(),
+                decision.confidence(),
+                decision.reason(),
+                decision.fallbackPolicy(),
+                decision.expectedValidationLevel(),
+                decision.fallbackReason(),
+                decision.decisionCode(),
+                slaEnvelope,
+                traceContext,
+                submittedAt,
+                deadlineAt,
+                effectiveScenario.requiredResources(),
+                effectiveScenario.intentProfile(),
+                effectiveExecutionPlan,
+                planningVariant,
+                effectiveScenario,
+                preflightUsage
+        );
+    }
+
+    /**
  * 返回恢复。
  *
  * @param app 应用

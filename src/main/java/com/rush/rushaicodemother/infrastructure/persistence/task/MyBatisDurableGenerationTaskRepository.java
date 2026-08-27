@@ -10,6 +10,8 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommandCodec;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioDecisionSnapshot;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
@@ -149,6 +151,11 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         if (entity == null) {
             return Optional.empty();
         }
+        return Optional.of(decodeCurrentCommand(entity));
+    }
+
+    /** 解析并校验当前外层调度事实与可恢复命令一致。 */
+    private GenerationTaskCommand decodeCurrentCommand(GenerationTask entity) {
         if (!GenerationTaskCommand.supportsSchemaVersion(entity.getRuntimeSchemaVersion())
                 || entity.getRuntimePayloadJson() == null
                 || entity.getRuntimePayloadJson().isBlank()) {
@@ -160,7 +167,7 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
             if (!matchesPersistedCommandIdentity(command, entity)) {
                 throw new IllegalStateException("generation task command identity mismatch");
             }
-            return Optional.of(command);
+            return command;
         } catch (RuntimeException malformed) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
                     "Generation task runtime command is corrupted", malformed);
@@ -291,6 +298,75 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         return mapper.activateOwnedTask(
                 lease.taskId(), lease.leaseOwner(), lease.executionEpoch(),
                 toLocal(now), toLocal(until)) == 1;
+    }
+
+    @Override
+    @Transactional
+    public void rebindEffectiveCommand(GenerationExecutionFence fence,
+                                       GenerationScenarioDecision effectiveScenario,
+                                       GenerationExecutionPlan effectiveExecutionPlan,
+                                       Instant reboundAt) {
+        Objects.requireNonNull(fence, "有效路由重绑必须提供执行围栏");
+        Objects.requireNonNull(effectiveScenario, "有效场景决策不能为空");
+        Objects.requireNonNull(reboundAt, "有效路由重绑时间不能为空");
+
+        GenerationTask current = mapper.selectRuntimeByTaskId(fence.taskId());
+        if (current == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "生成任务不存在");
+        }
+        GenerationTaskCommand currentCommand = decodeCurrentCommand(current);
+        GenerationTaskCommand effectiveCommand = currentCommand.withEffectiveScenario(
+                effectiveScenario, effectiveExecutionPlan);
+        if (currentCommand.equals(effectiveCommand)) {
+            if (matchesCurrentFence(current, fence, reboundAt)) {
+                return;
+            }
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR, "有效生成路由幂等校验被执行围栏拒绝");
+        }
+        GenerationScenarioDecisionSnapshot snapshot =
+                GenerationScenarioDecisionSnapshot.from(effectiveCommand);
+        GenerationTask binding = GenerationTask.builder()
+                .taskId(fence.taskId())
+                .appId(current.getAppId())
+                .leaseOwner(fence.leaseOwner())
+                .executionEpoch(fence.executionEpoch())
+                .route(effectiveCommand.route())
+                .routeDecisionVersion(snapshot.decisionVersion())
+                .routeEvidenceJson(snapshot.evidenceJson())
+                .routeAlternativesJson(snapshot.alternativesJson())
+                .routeReleaseIdentity(snapshot.releaseIdentity())
+                .runtimeSchemaVersion(effectiveCommand.schemaVersion())
+                .runtimePayloadJson(GenerationTaskCommandCodec.toJson(effectiveCommand))
+                .build();
+        long expectedVersion = current.getVersion() == null ? 0L : current.getVersion();
+        if (mapper.rebindEffectiveTaskCommand(
+                binding, expectedVersion, toLocal(reboundAt)) == 1) {
+            return;
+        }
+        GenerationTask latest = mapper.selectRuntimeByTaskId(fence.taskId());
+        if (latest != null
+                && matchesCurrentFence(latest, fence, reboundAt)
+                && effectiveCommand.equals(decodeCurrentCommand(latest))) {
+            return;
+        }
+        throw new BusinessException(
+                ErrorCode.OPERATION_ERROR, "有效生成路由重绑被执行围栏或版本拒绝");
+    }
+
+    private boolean matchesCurrentFence(GenerationTask task,
+                                        GenerationExecutionFence fence,
+                                        Instant now) {
+        if (task == null || fence == null || now == null) {
+            return false;
+        }
+        LocalDateTime leaseUntil = task.getLeaseUntil();
+        return "running".equals(task.getStatus())
+                && Objects.equals(task.getLeaseOwner(), fence.leaseOwner())
+                && Objects.equals(task.getExecutionEpoch(), fence.executionEpoch())
+                && leaseUntil != null
+                && !leaseUntil.isBefore(toLocal(now))
+                && task.getTerminalIntentSchemaVersion() == null;
     }
 
     /**
@@ -749,22 +825,18 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 || !Objects.equals(existing.getTenantId(), task.tenantId())
                 || !Objects.equals(existing.getIdempotencyKeyHash(), task.idempotencyKeyHash())
                 || !Objects.equals(existing.getRequestFingerprint(), task.requestFingerprint())
-                || !Objects.equals(existing.getRoute(), task.route())
                 || !Integer.valueOf(task.command().schemaVersion()).equals(existing.getRuntimeSchemaVersion())
                 || existing.getRuntimePayloadJson() == null) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
                     "Generation task id is occupied by a different request");
         }
-        GenerationTaskCommand existingCommand;
         try {
-            existingCommand = GenerationTaskCommandCodec.fromJson(existing.getRuntimePayloadJson());
+            // route 和执行计划可在受控 fallback 后成为 effective command；
+            // 重复提交的不变身份由上述提交指纹字段负责，此处只校验当前命令本身未损坏。
+            decodeCurrentCommand(existing);
         } catch (RuntimeException malformed) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
                     "Persisted generation task command is corrupted", malformed);
-        }
-        if (!existingCommand.equals(task.command())) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR,
-                    "Generation task id is occupied by a different request");
         }
     }
 

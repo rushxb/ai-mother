@@ -3,6 +3,8 @@ package com.rush.rushaicodemother.orchestration.runtime.task.persistence;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 
 import java.time.Instant;
 import java.util.List;
@@ -34,6 +36,12 @@ public interface DurableGenerationTaskRepository {
                                                 Instant now, Instant leaseUntil);
 
     boolean activate(GenerationTaskLease lease, Instant now, Instant leaseUntil);
+
+    /** 在当前执行围栏内原子持久化 fallback 后的有效路由与可恢复命令。 */
+    void rebindEffectiveCommand(GenerationExecutionFence fence,
+                                GenerationScenarioDecision effectiveScenario,
+                                GenerationExecutionPlan effectiveExecutionPlan,
+                                Instant reboundAt);
 
     boolean releaseClaimToQueue(GenerationTaskLease lease, Instant releasedAt, String reason);
 

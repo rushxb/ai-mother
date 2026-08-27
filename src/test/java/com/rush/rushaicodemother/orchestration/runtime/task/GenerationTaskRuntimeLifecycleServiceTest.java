@@ -8,6 +8,8 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
@@ -86,6 +88,16 @@ class GenerationTaskRuntimeLifecycleServiceTest {
 
         verify(leaseCoordinator).activate(FENCE);
         verify(repository).requestCancellation("task-1", "user_requested", NOW);
+    }
+
+    @Test
+    void effectiveFallbackRouteMustBePersistedThroughCurrentFence() {
+        GenerationScenarioDecision scenario = mock(GenerationScenarioDecision.class);
+        GenerationExecutionPlan plan = mock(GenerationExecutionPlan.class);
+
+        service.rebindEffectiveExecution(FENCE, scenario, plan);
+
+        verify(repository).rebindEffectiveCommand(FENCE, scenario, plan, NOW);
     }
 
     @Test

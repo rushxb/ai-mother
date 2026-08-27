@@ -306,6 +306,31 @@ public interface GenerationTaskRuntimeMapper {
 
     @Update("""
             UPDATE generation_task
+            SET route = #{task.route},
+                routeDecisionVersion = #{task.routeDecisionVersion},
+                routeEvidenceJson = #{task.routeEvidenceJson},
+                routeAlternativesJson = #{task.routeAlternativesJson},
+                routeReleaseIdentity = #{task.routeReleaseIdentity},
+                runtimeSchemaVersion = #{task.runtimeSchemaVersion},
+                runtimePayloadJson = #{task.runtimePayloadJson},
+                version = version + 1,
+                updateTime = #{reboundAt}
+            WHERE taskId = #{task.taskId}
+              AND appId = #{task.appId}
+              AND status = 'running'
+              AND leaseOwner = #{task.leaseOwner}
+              AND executionEpoch = #{task.executionEpoch}
+              AND leaseUntil >= #{reboundAt}
+              AND version = #{expectedVersion}
+              AND terminalIntentSchemaVersion IS NULL
+              AND isDelete = 0
+            """)
+    int rebindEffectiveTaskCommand(@Param("task") GenerationTask task,
+                                   @Param("expectedVersion") long expectedVersion,
+                                   @Param("reboundAt") LocalDateTime reboundAt);
+
+    @Update("""
+            UPDATE generation_task
             SET status = 'queued', stage = 'queued', stageMessage = #{reason},
                 leaseOwner = NULL, leaseUntil = NULL, heartbeatAt = NULL,
                 executionEpoch = executionEpoch + 1,

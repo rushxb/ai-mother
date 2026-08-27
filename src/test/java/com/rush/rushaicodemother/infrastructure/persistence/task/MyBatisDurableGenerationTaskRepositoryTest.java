@@ -58,6 +58,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -145,6 +146,30 @@ class MyBatisDurableGenerationTaskRepositoryTest {
     }
 
     @Test
+    void duplicateSubmissionMustRemainIdempotentAfterEffectiveRouteFallback() {
+        GenerationTaskCommand heavyCommand = command();
+        GenerationModeDecision lightDecision = new GenerationModeDecision(
+                GenerationMode.LIGHT_EDIT,
+                0.9,
+                "light edit",
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
+                ExpectedValidationLevel.BUILD,
+                "");
+        GenerationTaskCommand originalCommand = heavyCommand.withEffectiveScenario(
+                heavyCommand.scenarioDecision().withRoute(lightDecision),
+                heavyCommand.executionPlan().withRoute(lightDecision));
+        GenerationTaskSubmissionRecord originalSubmission = new GenerationTaskSubmissionRecord(
+                "task-1", 1L, 2L, 100L, originalCommand.route(), NOW,
+                NOW.plusSeconds(1_200), "a".repeat(64), "b".repeat(64), originalCommand);
+        GenerationTask effectiveTask = runtimeEntity(GenerationTaskStatus.RUNNING, 2L, false);
+        when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(effectiveTask);
+
+        repository.createSubmitted(originalSubmission);
+
+        verify(mapper, never()).insertSubmittedTask(any());
+    }
+
+    @Test
     void commandRestoreMustRejectOuterAndPayloadSchemaMismatch() {
         GenerationTask mismatched = runtimeEntity(GenerationTaskStatus.QUEUED, 2L, false);
         mismatched.setRuntimePayloadJson(GenerationTaskCommandCodec.toJson(command(8)));
@@ -166,6 +191,71 @@ class MyBatisDurableGenerationTaskRepositoryTest {
                 BusinessException.class, () -> repository.findCommandByTaskId("task-1"));
 
         assertEquals(ErrorCode.OPERATION_ERROR.getCode(), exception.getCode());
+    }
+
+    @Test
+    void fallbackMustAtomicallyRebindRouteAttributionAndRecoverableCommand() {
+        GenerationTaskCommand heavyCommand = command();
+        GenerationModeDecision lightDecision = new GenerationModeDecision(
+                GenerationMode.LIGHT_EDIT,
+                0.9,
+                "light edit",
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
+                ExpectedValidationLevel.BUILD,
+                "",
+                GenerationRoutingDecisionCode.LIGHT_EDIT_SCOPE);
+        GenerationTaskCommand lightCommand = heavyCommand.withEffectiveScenario(
+                heavyCommand.scenarioDecision().withRoute(lightDecision),
+                heavyCommand.executionPlan().withRoute(lightDecision));
+        GenerationTask running = runtimeEntity(GenerationTaskStatus.RUNNING, 2L, false);
+        running.setRoute(lightCommand.route());
+        running.setRuntimePayloadJson(GenerationTaskCommandCodec.toJson(lightCommand));
+        when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(running);
+        when(mapper.rebindEffectiveTaskCommand(any(), eq(3L), eq(toLocal(NOW))))
+                .thenReturn(1);
+
+        repository.rebindEffectiveCommand(
+                FENCE,
+                heavyCommand.scenarioDecision(),
+                heavyCommand.executionPlan(),
+                NOW);
+
+        ArgumentCaptor<GenerationTask> binding = ArgumentCaptor.forClass(GenerationTask.class);
+        verify(mapper).rebindEffectiveTaskCommand(
+                binding.capture(), eq(3L), eq(toLocal(NOW)));
+        assertEquals("heavy_generation", binding.getValue().getRoute());
+        assertEquals("c".repeat(64), binding.getValue().getRouteReleaseIdentity());
+        assertTrue(binding.getValue().getRouteEvidenceJson()
+                .contains("\"selectedRoute\":\"heavy_generation\""));
+        assertEquals(heavyCommand, GenerationTaskCommandCodec.fromJson(
+                binding.getValue().getRuntimePayloadJson()));
+    }
+
+    @Test
+    void staleFenceMustFailClosedBeforeFallbackExecutionCanContinue() {
+        GenerationTaskCommand heavyCommand = command();
+        GenerationModeDecision lightDecision = new GenerationModeDecision(
+                GenerationMode.LIGHT_EDIT,
+                0.9,
+                "light edit",
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT,
+                ExpectedValidationLevel.BUILD,
+                "");
+        GenerationTaskCommand lightCommand = heavyCommand.withEffectiveScenario(
+                heavyCommand.scenarioDecision().withRoute(lightDecision),
+                heavyCommand.executionPlan().withRoute(lightDecision));
+        GenerationTask running = runtimeEntity(GenerationTaskStatus.RUNNING, 2L, false);
+        running.setRoute(lightCommand.route());
+        running.setRuntimePayloadJson(GenerationTaskCommandCodec.toJson(lightCommand));
+        when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(running);
+        when(mapper.rebindEffectiveTaskCommand(any(), eq(3L), eq(toLocal(NOW))))
+                .thenReturn(0);
+
+        assertThrows(BusinessException.class, () -> repository.rebindEffectiveCommand(
+                FENCE,
+                heavyCommand.scenarioDecision(),
+                heavyCommand.executionPlan(),
+                NOW));
     }
 
     @Test

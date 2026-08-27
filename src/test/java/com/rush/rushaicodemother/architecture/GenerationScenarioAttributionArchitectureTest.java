@@ -72,4 +72,26 @@ class GenerationScenarioAttributionArchitectureTest {
         assertTrue(mapper.contains(
                 "GROUP BY intentSignature, profileVersion, decisionVersion, route, releaseIdentity"));
     }
+
+    @Test
+    void fallbackMustAtomicallyRebindEveryEffectiveAttributionFieldBehindTheFence() throws IOException {
+        String mapper = Files.readString(ROOT.resolve(Path.of(
+                "src", "main", "java", "com", "rush", "rushaicodemother",
+                "mapper", "GenerationTaskRuntimeMapper.java")));
+
+        assertTrue(mapper.contains("int rebindEffectiveTaskCommand("));
+        for (String assignment : List.of(
+                "route = #{task.route}",
+                "routeDecisionVersion = #{task.routeDecisionVersion}",
+                "routeEvidenceJson = #{task.routeEvidenceJson}",
+                "routeAlternativesJson = #{task.routeAlternativesJson}",
+                "routeReleaseIdentity = #{task.routeReleaseIdentity}",
+                "runtimePayloadJson = #{task.runtimePayloadJson}")) {
+            assertTrue(mapper.contains(assignment), () -> "fallback 缺少原子重绑字段: " + assignment);
+        }
+        assertTrue(mapper.contains("AND leaseOwner = #{task.leaseOwner}"));
+        assertTrue(mapper.contains("AND executionEpoch = #{task.executionEpoch}"));
+        assertTrue(mapper.contains("AND version = #{expectedVersion}"));
+        assertTrue(mapper.contains("AND terminalIntentSchemaVersion IS NULL"));
+    }
 }

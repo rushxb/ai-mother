@@ -173,29 +173,58 @@ public class GenerationPipelineExecutor {
         String transitionMessage = GenerationRoute.CREATE.equals(failedRoute)
                 ? "CREATE 快速路径未完成，正在切换专家模式..."
                 : "快速生成路径未完成，正在切换专家模式...";
-        generationEventPublisher.publishIdempotently(
-                request.taskRequest(),
-                GenerationEventType.TASK_ROUTE,
-                transitionMessage,
-                Map.of(
-                        "taskId", request.requireExecution().taskId(),
-                        "mode", GenerationMode.HEAVY_EXPERT.name(),
-                        "route", GenerationRoute.HEAVY_GENERATION,
-                        "routerReason", decision.reason(),
-                        "fallbackReason", reason
-                )
+        GenerationPipelineRequest effectiveRequest = request.withModeDecision(
+                decision.withFallback(GenerationMode.HEAVY_EXPERT, reason));
+        generationTaskRuntimeLifecycleService.rebindEffectiveExecution(
+                request.requireExecution().executionFence(),
+                effectiveRequest.scenarioDecision(),
+                effectiveRequest.executionPlan()
         );
-        request.requireExecution().session().emit(GenerationStreamEvent.generationStage(
-                transitionMessage,
-                Map.of(
-                        "stage", "route_fallback",
-                        "taskId", request.requireExecution().taskId(),
-                        "fromRoute", failedRoute,
-                        "route", GenerationRoute.HEAVY_GENERATION,
-                        "reason", reason
-                )
-        ));
-        return request.withModeDecision(decision.withFallback(GenerationMode.HEAVY_EXPERT, reason));
+        publishFallbackTransitionSafely(
+                effectiveRequest, failedRoute, transitionMessage, reason);
+        return effectiveRequest;
+    }
+
+    /** 有效路由已持久化后，通知故障不得逆转或伪造执行事实。 */
+    private void publishFallbackTransitionSafely(
+            GenerationPipelineRequest request,
+            String failedRoute,
+            String transitionMessage,
+            String reason) {
+        try {
+            generationEventPublisher.publishIdempotently(
+                    request.taskRequest(),
+                    GenerationEventType.TASK_ROUTE,
+                    transitionMessage,
+                    Map.of(
+                            "taskId", request.requireExecution().taskId(),
+                            "mode", GenerationMode.HEAVY_EXPERT.name(),
+                            "route", GenerationRoute.HEAVY_GENERATION,
+                            "routerReason", request.modeDecision().reason(),
+                            "fallbackReason", reason
+                    )
+            );
+        } catch (RuntimeException notificationFailure) {
+            log.warn("fallback 持久事件发布失败，不回退已冻结的有效路由，taskId: {}",
+                    request.requireExecution().taskId(),
+                    LogExceptionSanitizer.sanitize(notificationFailure));
+        }
+        try {
+            request.requireExecution().session().emit(GenerationStreamEvent.generationStage(
+                    transitionMessage,
+                    Map.of(
+                            "stage", "route_fallback",
+                            "taskId", request.requireExecution().taskId(),
+                            "fromRoute", failedRoute,
+                            "route", GenerationRoute.HEAVY_GENERATION,
+                            "reason", reason
+                    )
+            ));
+        } catch (RuntimeException notificationFailure) {
+            log.warn("fallback 流事件发布失败，不回退已冻结的有效路由，taskId: {}",
+                    request.requireExecution().taskId(),
+                    LogExceptionSanitizer.sanitize(notificationFailure));
+        }
     }
 
     private String normalizeFallbackReason(String pipelineReason, String failedRoute) {

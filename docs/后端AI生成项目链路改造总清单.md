@@ -157,13 +157,13 @@
 | 领域 | 当前状态 | 已有基础 | 仍未闭环的核心问题 |
 |---|---|---|---|
 | 场景决策 | ✅ E1-E2 / 🟡 E4-E5 | 冻结 `GenerationScenarioDecision`、有界澄清、发布指纹、下游去 Prompt 重解释 | 澄清默认关闭；缺真实中文歧义样本和生产路由准确率 |
-| READ_ONLY | **存在 P0 缺陷** | 独立 Pipeline、只读工具权限、文件引用落地校验 | 语义索引会写工作区；PLAN/空项目被错误强制要求文件引用；上下文未统一走信任边界 |
-| Pipeline 能力与 OCP | **存在 P0 缺陷** | 从真实 Pipeline Bean 构建的 Capability Registry、启动期重复校验、多个 Adapter Registry | HTML/MULTI_FILE 简单 CREATE 会先选 CREATE 后在准入被拒；工作树新增手写 Catalog 会制造第二事实源 |
-| Agent/工具协议 | ✅ E1-E2 / 🚧 | 回合预算、工具暴露、取消传播、失败协议、批量读取逐项事实、有效 mutation | Agent Edit 可能用“期望验证”伪造“实际验证”；Light Edit 成功证据为空；相关修复仍在工作树 |
-| 路由回退归因 | 🚧 | CREATE/LIGHT/AGENT 可回退 HEAVY | 回退后异常仍可能按初始 request 终态化，污染 route、成本、质量记忆和事件归因 |
-| 工作区 Trust/Sandbox | ✅ E1-E2 / 🟡 E3-E5 | 控制文件、生命周期脚本、依赖源、锁文件、环境、网络、registry egress 与执行前复核 | Repository 内容入模的 Prompt Injection/源码密钥边界不统一；真实 OS、资源上限和攻击演练待补 |
+| READ_ONLY | ✅ P0 已闭环 / 🟡 E3-E5 | 独立 Pipeline、零工作区写入、EXPLAIN/AUDIT/PLAN 分证据合同、统一 Repository Context Trust | 待真实恶意仓库样本、内存/并发基线和跨平台验收 |
+| Pipeline 能力与 OCP | ✅ P0 已闭环 | 从真实 Pipeline Bean 构建 Capability Registry，并由决策内核在准入前协商可执行 route | 待真实流量统计，不新增第二份工程类型集合 |
+| Agent/工具协议 | ✅ P0 已闭环 / 🟡 E3-E5 | 回合预算、逐项工具事实、有效 mutation、Observed Validation Evidence 与分场景完成证据 | 待真实 Provider、失败注入和长会话验收 |
+| 路由回退归因 | ✅ P0 已闭环 | CREATE/LIGHT/AGENT 回退后统一使用 effective request 持久化路由、成本、事件和 release identity | 待跨实例压力与真实成本报表验收 |
+| 工作区 Trust/Sandbox | ✅ E1-E2 / 🟡 E3-E5 | 控制文件、生命周期脚本、依赖源、锁文件、环境、网络、registry egress、Repository Context Trust 与执行前复核 | 统一代码边界已落地；真实恶意仓库、OS 资源上限和攻击演练待补 |
 | 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt | 缺 kill/DB/Redis/磁盘/移动窗口故障矩阵；刷新后终态仍过度泛化 |
-| 快照/回滚 | ✅ 基础 / 🚧 P0 | 已建立回滚交换 commit point 与 unknown/invalidation 边界（`850f6e6`） | Manifest、scope/provenance、树摘要、消费者迁移和严格文件类型校验未交付 |
+| 快照/回滚 | ✅ P0 代码闭环 / 🟡 跨平台补证 | UUID 自包含 bundle、Manifest/provenance/tree hash、v2 制品、统一消费者与恢复前 fail-closed | 当前 Windows 有 3 项 symlink 测试因权限跳过，仍需支持环境补证与完整故障矩阵 |
 | 成本/容量 | ✅ E1-E2 / 🟡 E3-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算 | 用户看不到预计上限、实际扣费和退还；缺跨实例公平压测和租户管理员视图 |
 | Benchmark/学习 | ✅ 基础 / 🟡 E4-E5 | Dataset、Runtime Grader、Evidence Provenance、Release Gate、Outcome Promotion、Planning Ablation | 当前 33 条数据仅覆盖 Vue/Backend/Full Stack，无 READ_ONLY，HEAVY 仅 1 条，32 条无显式 expectedRoute |
 | 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
@@ -178,6 +178,10 @@
 - `85edd0e`、`3944404`、`aaabaed`：按质量、尾延迟和单位成功成本约束策略晋级。
 - `b74b074`、`3e94cdf`、`68097a9`、`850f6e6`：发布、对账、回滚不确定性的安全收口。
 - `7488f66`、`647d50e`：工具逐项成功与有效 mutation 成为可信事实。
+- `31cf6fc`、`2835f96`：语义索引缓存资源有界，READ_ONLY 零写及分场景证据合同闭环。
+- `e31082e`、`cac06c0`、`fc86efc`：Observed Validation、统一项目上下文信任边界和 fallback effective request 归因闭环。
+- `1abd79b`：路由从实际 Pipeline Capability Registry 协商可执行能力，不再维护手写 Catalog。
+- `c338e14`、`2874c2e`、`3ace480`：稳定目录指纹、不可变快照身份、自包含 bundle、v2 回滚制品、全部消费者迁移及分层装配约束。
 - 工程类型 Adapter、Template、Recipe、Runtime Validator 的注册化方向应保留，禁止退回大 `switch`。
 
 ### 6.2 关键证据入口
@@ -194,7 +198,7 @@
 - 公共任务状态字段：[GenerationTaskStatusVO.java](../src/main/java/com/rush/rushaicodemother/model/vo/GenerationTaskStatusVO.java)
 - 持久终态泛化投影：[GenerationTerminalStreamEventFactory.java](../src/main/java/com/rush/rushaicodemother/orchestration/eventstream/GenerationTerminalStreamEventFactory.java)
 - 当前 33 条评测数据：[generation-benchmark-dataset-v2.json](../src/main/resources/benchmark/generation-benchmark-dataset-v2.json)
-- 当前快照 Manifest WIP：`src/main/java/com/rush/rushaicodemother/orchestration/snapshot/SnapshotManifest.java`（当前未跟踪，不能作为提交态链接）
+- 快照 Manifest 与读取边界：[SnapshotManifest.java](../src/main/java/com/rush/rushaicodemother/orchestration/snapshot/SnapshotManifest.java)、[GenerationSnapshotWorkspaceService.java](../src/main/java/com/rush/rushaicodemother/orchestration/snapshot/GenerationSnapshotWorkspaceService.java)
 
 ## 7. 方向调整：当前只激活五个高杠杆改造包
 
@@ -204,10 +208,10 @@
 
 | 顺序 | 改造包 | 当前状态 | 为什么先做 | 完成出口 |
 |---|---|---|---|---|
-| P0-1 | READ_ONLY + Repository Context Trust | ⬜/🚧 | 现在既可能写工作区，又会让空项目 PLAN 稳定失败，还存在仓库内容未经统一保护直接入模的问题 | EXPLAIN/AUDIT/PLAN 分契约；工作区指纹零变化；所有项目上下文经过统一保护、来源与 Token 预算可追踪 |
-| P0-2 | Observed Validation Evidence + Fallback Attribution | 🚧 | 当前可能把“应该 BUILD”误写成“BUILD 已通过”，回退后失败又可能归因旧 route，直接污染成功、成本与学习 | Validator observation → evidence → completion 不可伪造；稳定 failure taxonomy；fallback 后终态、SSE、成本、release identity 全部使用 effective request |
-| P0-3 | Capability Negotiation 单一事实源 | 🚧（需调整方向） | HTML/MULTI_FILE CREATE 存在路由/准入断层；新手写 Catalog 会复制类型集合 | 路由从现有 Registry 派生可执行视图并在准入前选定安全 route；删除重复 Catalog；不支持组合零模型调用、零计费拒绝 |
-| P0-4 | Snapshot Provenance 与恢复身份 | 🚧 | 目录快照缺少完整身份可能跨 scope/type 恢复，属于数据破坏风险 | Manifest + payload 自包含发布；绑定 app/type/scope/task/snapshot/tree hash；旧版与损坏制品 fail-closed；全部消费者迁移 |
+| P0-1 | READ_ONLY + Repository Context Trust | ✅ | 已完成零写、分场景证据合同和统一 Context Trust | `31cf6fc`、`2835f96`、`cac06c0`；进入 E3-E5 验收 |
+| P0-2 | Observed Validation Evidence + Fallback Attribution | ✅ | 已完成观察证据、完成门禁和 effective request 归因 | `e31082e`、`fc86efc`；进入故障注入与真实成本验收 |
+| P0-3 | Capability Negotiation 单一事实源 | ✅ | 已删除重复 Catalog，并从 Registry 协商可执行 route | `1abd79b`；不支持组合在模型调用与计费前拒绝 |
+| P0-4 | Snapshot Provenance 与恢复身份 | ✅ 代码 / 🟡 跨平台证据 | 已完成 UUID bundle、Manifest、v2 制品、树摘要与全部消费者迁移 | `c338e14`、`2874c2e`、`3ace480`；尚缺支持 symlink 的环境补证和完整故障矩阵 |
 | P0-5 | 真实交付基线与故障矩阵 | ⬜ | 没有 E3-E5 数据就无法判断继续重构、路由学习或增加 Agent 是否有收益 | 核心场景 Benchmark、真实浏览器/Backend、故障注入、成本与终态体验形成首份可重复基线 |
 
 ### 7.1 并行与文件边界
@@ -326,13 +330,13 @@
 - [x] ✅ Publication Journal、active pointer、回滚与 Reconciler 处理文件系统和数据库非原子窗口。
 - [x] ✅ Terminal Intent/Effect Receipt 支持终态后事件、计费、清理等可重放副作用。
 - [x] ✅ 回滚目录交换把激活作为唯一 commit point；结果未知时失效工作区并禁止盲重试。
-- [ ] **P0** 快照目录改为 `snapshotRoot/{appId}/{snapshotId}/manifest.json + payload/` 等自包含 bundle，名称只作显示或索引，不作身份。
-- [ ] Manifest 至少绑定 `snapshotId/appId/kind/codeGenType/scope/taskId/executionEpoch/copyPolicy/treeHash/fileCount/byteCount/createdAt`。
-- [ ] RollbackPoint/Restore 制品升级到新版本并携带 snapshotId、manifest hash 和 scope；旧版可解析但禁止自动恢复和 Diff。
-- [ ] 快照先复制到 staging，计算树摘要并写 Manifest，外层目录一次原子发布；Manifest 与 payload 不得出现半成品组合。
+- [x] ✅ **P0** 快照目录改为 `snapshotRoot/{appId}/{snapshotId}/manifest.json + payload/` 自包含 bundle，名称只作显示或索引，不作身份。
+- [x] ✅ Manifest 绑定 `snapshotId/appId/kind/codeGenType/scope/taskId/executionEpoch/copyPolicy/treeHash/fileCount/byteCount/createdAt`。
+- [x] ✅ RollbackPoint/Restore 制品升级到 v2 并携带 snapshotId、manifest hash、scope 和 executionEpoch；v1 可解析但禁止自动恢复和 Diff。
+- [x] ✅ 快照先在 staging 构建 payload 与 Manifest、核对 bundle 指纹，再一次原子发布外层 UUID 目录。
 - [ ] 复制与恢复严格拒绝不支持的文件类型和路径逃逸；Windows 跳过的 symlink 测试必须在支持环境补证。
-- [ ] SnapshotRollbackTool 保留调用方相对 scope；Diff、手工回滚、自动回滚、Checkpoint 和 Catalog 全部迁移到同一读取服务。
-- [ ] 缺失、损坏、篡改、旧格式、身份不一致、树摘要不一致均在移动目标目录前 fail-closed。
+- [x] ✅ SnapshotRollbackTool 保留调用方相对 scope；Diff、手工回滚、自动回滚、Checkpoint 和 Catalog 全部迁移到同一读取服务。
+- [x] ✅ 缺失、损坏、篡改、旧格式、身份不一致、树摘要不一致均在移动目标目录前 fail-closed。
 - [ ] 建立故障注入矩阵：模型返回前后、工具写中、验证中、publish prepare/move/pointer/DB commit、terminal outbox、Redis、清理、进程 kill。
 - [ ] 每个故障点验证 task/app/workspace/pointer/credit/event/quality sample 的最终一致性和可重放性。
 
@@ -473,20 +477,17 @@
 
 | WIP | 方向判断 | 当前证据 | 尚缺什么 |
 |---|---|---|---|
-| Snapshot Manifest/Scope/Fingerprint | 方向正确，P0-4 | 跨 scope 拒绝的定向测试已绿；一次定向运行 16 tests、0 failure/error、3 skipped；低层主代码编译有证据 | 所有消费者迁移、bundle 原子发布、RollbackPoint v2、严格文件类型、Legacy/corrupt、Diff、真实 symlink 环境、完整回归、独立提交 |
-| Workspace FileSystem replace/fingerprint | 低层安全边界正确，但仍属 WIP | 预期 fingerprint、失配前拒绝、交换 commit point 等局部实现存在 | 与 Snapshot 端到端身份闭环、聚焦测试重跑、跨平台验证 |
-| Semantic Index 有界缓存 | 性能方向可保留，但未解决 READ_ONLY 写入 | Caffeine、有界容量、锁条带、精确失效等工作树实现 | 把持久索引移出项目工作区、统一 Context Trust、全链零写测试、内存/并发 Benchmark、独立提交 |
-| Agent Edit observed verification | 修复方向正确，P0-2 | `AgentEditVerificationOutcome` 等工作树改动正在传递观察结果 | Light Edit 同步迁移、Completion Gate、失败/取消/Fallback、全链测试与独立提交 |
-| Pipeline effective request | 修复方向正确，P0-2 | 工作树已出现回退后保留 effective request 的修改 | CREATE/LIGHT/AGENT → HEAVY 后失败的终态、SSE、成本、质量记忆、release identity 回归 |
-| 手写 Execution Capability Catalog | **方向错误，应替换** | 能提前识别 CREATE 类型缺口 | 复制了 Registry 中的工程类型事实；应改为 Registry 派生能力查询/协商并删除重复集合 |
-| Terminal Effect Architecture Test 等其他并行修改 | 所有权未核清 | 仅工作树可见 | 与各改造包拆分，不能顺带计入或提交 |
+| Execution preview 状态扩展 | 所有权未核清 | `GenerationExecutionContext/Snapshot/ToolContinuationState` 仍有工作树修改 | 单独核对目标、测试与提交，不计入 P0-1 至 P0-4 |
+| Execution workspace 清理 | 所有权未核清 | `GenerationExecutionWorkspaceService` 及测试仍有工作树修改 | 单独审计生命周期语义，不与已提交 Snapshot 改造混合 |
+| Terminal Effect SQL/Architecture Test | 所有权未核清 | SQL schema 与新 Architecture Test 仍在工作树 | 按终态副作用主题独立验证、独立提交 |
 
-### 11.1 本轮文档交付边界
+### 11.1 本轮交付证据边界
 
-- 本轮只新增这份清单。
-- 不恢复或修改当前已暂存删除的旧蓝图。
-- 不提交 Snapshot、Index、Pipeline、Router、SQL、配置或测试 WIP。
-- 不运行会把当前并行 WIP 误当成基线的全量验收；代码改造重新启动时按改造包先隔离事实。
+- 2026-08-27 完成 P0-1 至 P0-4 的代码闭环，共 9 个独立中文提交：`31cf6fc`、`2835f96`、`e31082e`、`cac06c0`、`fc86efc`、`1abd79b`、`c338e14`、`2874c2e`、`3ace480`。
+- 在 `3ace480` 的独立 detached worktree 上使用 JDK 21 执行 `.\mvnw.cmd test`：3419 tests、0 failure、0 error、42 skipped；该结果不包含当前工作树的并行 WIP。
+- 当前工作树组合回归为 3423 tests、0 failure、0 error、42 skipped，只用于发现文件交互问题，不替代独立提交态证据。
+- 当前 Windows 环境有 3 项快照 symlink 测试因权限跳过；P0-4 的跨平台 E3 证据仍未完成，不能把代码测试写成真实文件系统验收。
+- 未恢复或修改已暂存删除的旧蓝图；未提交 SQL、Execution preview、Execution workspace 等所有权未核清的并行 WIP。
 
 ## 12. 推荐执行顺序
 
@@ -568,4 +569,4 @@
 
 ---
 
-最后更新：2026-08-27。下一次更新应从 P0-1 开始，先补失败测试和事实边界，不直接继续写实现。
+最后更新：2026-08-27。下一轮从 P0-5 开始，先冻结真实交付基线与故障矩阵环境，再执行 E3-E5 验收。

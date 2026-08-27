@@ -23,6 +23,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GenerationPipelineCapabilityRegistryTest {
 
@@ -47,6 +48,25 @@ class GenerationPipelineCapabilityRegistryTest {
 
         assertThrows(GenerationPipelineCapabilityException.class, () -> registry.requireCapability(
                 scenario(IntentOperationType.CREATE, GenerationMode.CREATE)));
+    }
+
+    @Test
+    void readOnlyLookupMustBeDerivedFromRegisteredPipelineDeclarations() {
+        GenerationPipelineCapability capability = writeCapability(
+                "heavy_generation", IntentOperationType.CREATE, GenerationMode.HEAVY_EXPERT);
+        GenerationPipelineCapabilityRegistry registry =
+                new GenerationPipelineCapabilityRegistry(List.of(pipeline(capability)));
+
+        assertSame(capability, registry.requireCapability(
+                IntentOperationType.CREATE,
+                GenerationMutability.WRITE,
+                CodeGenTypeEnum.VUE_PROJECT,
+                GenerationMode.HEAVY_EXPERT));
+        assertTrue(registry.supports(
+                IntentOperationType.CREATE,
+                GenerationMutability.WRITE,
+                CodeGenTypeEnum.VUE_PROJECT,
+                GenerationMode.HEAVY_EXPERT));
     }
 
     @Test

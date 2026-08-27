@@ -1,9 +1,12 @@
 package com.rush.rushaicodemother.architecture;
 
+import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecisionKernel;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipeline;
+import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineCapabilityRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,5 +37,13 @@ class GenerationPipelineCapabilityArchitectureTest {
         assertThat(missingDeclarations)
                 .as("生产 pipeline 必须显式声明 capability，registry 才是可靠能力真相源")
                 .isEmpty();
+    }
+
+    @Test
+    void scenarioDecisionMustNegotiateAgainstThePipelineDerivedRegistry() {
+        assertThat(Arrays.stream(GenerationScenarioDecisionKernel.class.getDeclaredFields())
+                .map(java.lang.reflect.Field::getType))
+                .as("场景冻结必须消费真实 pipeline 派生的唯一能力事实源")
+                .contains(GenerationPipelineCapabilityRegistry.class);
     }
 }

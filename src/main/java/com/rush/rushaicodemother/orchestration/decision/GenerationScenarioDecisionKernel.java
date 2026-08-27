@@ -4,9 +4,18 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationResourceRequirements;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
+import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineCapabilityException;
+import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineCapabilityKey;
+import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineCapabilityRegistry;
 import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentityProvider;
+import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
+import com.rush.rushaicodemother.orchestration.router.GenerationMode;
+import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.router.GenerationRouteSelection;
+import com.rush.rushaicodemother.orchestration.router.GenerationRoutingDecisionCode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeRouter;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.stereotype.Component;
@@ -26,16 +35,20 @@ public class GenerationScenarioDecisionKernel {
     private final GenerationModeRouter generationModeRouter;
     private final GenerationExecutionReleaseIdentityProvider releaseIdentityProvider;
     private final GenerationGuidanceSelector guidanceSelector;
+    private final GenerationPipelineCapabilityRegistry capabilityRegistry;
 
     public GenerationScenarioDecisionKernel(
             GenerationModeRouter generationModeRouter,
             GenerationExecutionReleaseIdentityProvider releaseIdentityProvider,
-            GenerationGuidanceSelector guidanceSelector) {
+            GenerationGuidanceSelector guidanceSelector,
+            GenerationPipelineCapabilityRegistry capabilityRegistry) {
         this.generationModeRouter = Objects.requireNonNull(generationModeRouter, "生成路由器不能为空");
         this.releaseIdentityProvider = Objects.requireNonNull(
                 releaseIdentityProvider, "生成发布身份模块不能为空");
         this.guidanceSelector = Objects.requireNonNull(
                 guidanceSelector, "生成工程指引选择模块不能为空");
+        this.capabilityRegistry = Objects.requireNonNull(
+                capabilityRegistry, "生成管线能力注册表不能为空");
     }
 
     public GenerationScenarioDecision decide(GenerationTaskRequest request,
@@ -80,6 +93,8 @@ public class GenerationScenarioDecisionKernel {
         GenerationMutability mutability = readOnly
                 ? GenerationMutability.READ_ONLY
                 : GenerationMutability.WRITE;
+        GenerationModeDecision effectiveRoute = negotiateCapability(
+                profile, mutability, targetType, selection.decision());
         GenerationResourceRequirements requiredResources = readOnly
                 ? GenerationResourceRequirements.none()
                 : GenerationResourceRequirements.ofDatabaseRequirement(profile.requiresDatabase());
@@ -94,10 +109,59 @@ public class GenerationScenarioDecisionKernel {
                 targetType,
                 mutability,
                 requiredResources,
-                selection.decision(),
+                effectiveRoute,
                 toolPermissions,
                 selection.ruleVersion(),
                 releaseFingerprint);
+    }
+
+    /**
+     * 在场景最终类型冻结后协商执行能力，避免当前类型与升级后类型错配。
+     * 候选路线缺失时只允许降级到 Registry 已声明的 HEAVY 所有者。
+     */
+    private GenerationModeDecision negotiateCapability(
+            IntentProfile profile,
+            GenerationMutability mutability,
+            CodeGenTypeEnum targetType,
+            GenerationModeDecision candidate) {
+        Objects.requireNonNull(candidate, "候选生成路由不能为空");
+        if (capabilityRegistry.supports(
+                profile.operationType(), mutability, targetType, candidate.mode())) {
+            assertFallbackOwner(profile, mutability, targetType, candidate);
+            return candidate;
+        }
+        if (mutability == GenerationMutability.WRITE
+                && candidate.mode() != GenerationMode.HEAVY_EXPERT
+                && capabilityRegistry.supports(
+                        profile.operationType(), mutability, targetType,
+                        GenerationMode.HEAVY_EXPERT)) {
+            return new GenerationModeDecision(
+                    GenerationMode.HEAVY_EXPERT,
+                    candidate.confidence(),
+                    "候选路径未声明当前场景能力，已在提交前选择可执行的专家生成路径",
+                    FallbackPolicy.NONE,
+                    ExpectedValidationLevel.EXPERT,
+                    "capability_negotiated_from_" + candidate.mode().name().toLowerCase(),
+                    profile.operationType() == IntentOperationType.CREATE
+                            ? GenerationRoutingDecisionCode.CREATE_TEMPLATE_COVERAGE_GAP
+                            : GenerationRoutingDecisionCode.FALLBACK_HEAVY_EXPERT);
+        }
+        throw new GenerationPipelineCapabilityException(
+                new GenerationPipelineCapabilityKey(
+                        profile.operationType(), mutability, targetType),
+                candidate.mode());
+    }
+
+    private void assertFallbackOwner(IntentProfile profile,
+                                     GenerationMutability mutability,
+                                     CodeGenTypeEnum targetType,
+                                     GenerationModeDecision candidate) {
+        if (candidate.fallbackPolicy() != FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT
+                || candidate.mode() == GenerationMode.HEAVY_EXPERT) {
+            return;
+        }
+        capabilityRegistry.requireCapability(
+                profile.operationType(), mutability, targetType, GenerationMode.HEAVY_EXPERT);
     }
 
     /**

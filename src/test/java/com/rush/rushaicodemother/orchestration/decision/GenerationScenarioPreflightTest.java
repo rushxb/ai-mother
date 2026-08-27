@@ -15,6 +15,7 @@ import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.intent.IntentResolutionDimension;
 import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
 import com.rush.rushaicodemother.orchestration.intent.IntentValidationRisk;
+import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineCapabilityRegistry;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -95,7 +96,8 @@ class GenerationScenarioPreflightTest {
                         new GenerationGuidanceSelector(
                                 new GenerationRecipeLibrary(),
                                 new GenerationSkillLibrary(List.of(), false)
-                        )
+                        ),
+                        readOnlyCapabilityRegistry()
                 );
 
         GenerationTaskAdmissionService admissionService = mock(GenerationTaskAdmissionService.class);
@@ -167,5 +169,12 @@ class GenerationScenarioPreflightTest {
                                 IntentResolutionDimension.SEMANTIC_COMPLEXITY),
                         false,
                         false));
+    }
+
+    private GenerationPipelineCapabilityRegistry readOnlyCapabilityRegistry() {
+        GenerationPipelineCapabilityRegistry registry =
+                mock(GenerationPipelineCapabilityRegistry.class);
+        when(registry.supports(any(), any(), any(), any())).thenReturn(true);
+        return registry;
     }
 }

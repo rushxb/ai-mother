@@ -1,6 +1,9 @@
 package com.rush.rushaicodemother.orchestration.pipeline;
 
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.decision.GenerationMutability;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import org.springframework.stereotype.Component;
 
@@ -10,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -35,14 +39,40 @@ public class GenerationPipelineCapabilityRegistry {
 
     public GenerationPipelineCapability requireCapability(GenerationScenarioDecision decision) {
         Objects.requireNonNull(decision, "场景决策不能为空");
-        GenerationPipelineCapabilityKey key = GenerationPipelineCapabilityKey.from(decision);
-        GenerationPipelineCapability capability = capabilities
-                .getOrDefault(key, Map.of())
-                .get(decision.routeDecision().mode());
-        if (capability == null) {
-            throw new GenerationPipelineCapabilityException(decision);
-        }
-        return capability;
+        return requireCapability(
+                decision.operation(),
+                decision.mutability(),
+                decision.targetType(),
+                decision.routeDecision().mode());
+    }
+
+    /** 按冻结场景维度查询能力；返回值直接派生自实际 pipeline 声明。 */
+    public Optional<GenerationPipelineCapability> findCapability(
+            IntentOperationType operation,
+            GenerationMutability mutability,
+            CodeGenTypeEnum targetType,
+            GenerationMode mode) {
+        GenerationPipelineCapabilityKey key = new GenerationPipelineCapabilityKey(
+                operation, mutability, targetType);
+        Objects.requireNonNull(mode, "能力模式不能为空");
+        return Optional.ofNullable(capabilities.getOrDefault(key, Map.of()).get(mode));
+    }
+
+    public GenerationPipelineCapability requireCapability(
+            IntentOperationType operation,
+            GenerationMutability mutability,
+            CodeGenTypeEnum targetType,
+            GenerationMode mode) {
+        return findCapability(operation, mutability, targetType, mode)
+                .orElseThrow(() -> new GenerationPipelineCapabilityException(
+                        new GenerationPipelineCapabilityKey(operation, mutability, targetType), mode));
+    }
+
+    public boolean supports(IntentOperationType operation,
+                            GenerationMutability mutability,
+                            CodeGenTypeEnum targetType,
+                            GenerationMode mode) {
+        return findCapability(operation, mutability, targetType, mode).isPresent();
     }
 
     public boolean supports(GenerationScenarioDecision decision) {

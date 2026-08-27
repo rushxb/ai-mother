@@ -105,6 +105,15 @@ public class GeneratedProjectContextService {
     public String buildSelectedFileSections(Path rootDirectory,
                                             List<String> relativePaths,
                                             int usedContextChars) {
+        return buildSelectedFileSections(
+                readSelectedFiles(rootDirectory, relativePaths), usedContextChars);
+    }
+
+    /**
+     * 使用已读取的文件事实组装上下文，避免为了构建来源元数据重复扫描工作区。
+     */
+    public String buildSelectedFileSections(List<ProjectFileContext> fileContexts,
+                                            int usedContextChars) {
         int remainingChars = Math.max(
                 0, properties.getMaxTotalContextChars() - Math.max(0, usedContextChars));
         if (remainingChars == 0) {
@@ -112,7 +121,7 @@ public class GeneratedProjectContextService {
         }
         StringBuilder sections = new StringBuilder();
         // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
-        for (ProjectFileContext fileContext : readSelectedFiles(rootDirectory, relativePaths)) {
+        for (ProjectFileContext fileContext : fileContexts == null ? List.<ProjectFileContext>of() : fileContexts) {
             String separator = sections.isEmpty() ? "" : "\n\n";
             String fence = selectFence(fileContext.content());
             String prefix = "当前文件: " + fileContext.relativePath()

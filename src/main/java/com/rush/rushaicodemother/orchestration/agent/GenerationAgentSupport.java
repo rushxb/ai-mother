@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.context.GeneratedProjectContextService;
+import com.rush.rushaicodemother.orchestration.context.GeneratedProjectContextService.ProjectFileContext;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndex;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticSearchHit;
@@ -221,7 +222,8 @@ public class GenerationAgentSupport {
     ) {
         String intent = inferIntent(userMessage);
         if (rootDir == null || !rootDir.exists() || !rootDir.isDirectory()) {
-            return new ProjectContextPackage(intent, List.of(), 0, 0, List.of(), "empty", "");
+            return new ProjectContextPackage(
+                    intent, List.of(), 0, 0, List.of(), "empty", "", List.of());
         }
         CodeGenTypeEnum resolvedType = codeGenTypeEnum == null ? CodeGenTypeEnum.getEnumByValue(app == null ? null : app.getCodeGenType()) : codeGenTypeEnum;
         if (resolvedType == null) {
@@ -248,6 +250,8 @@ public class GenerationAgentSupport {
         String contextMode = selectedFiles.isEmpty()
                 ? "reuse_index"
                 : "general".equals(intent) ? "type_key_files" : "intent_selected_files";
+        List<ProjectFileContext> projectFiles = generatedProjectContextService.readSelectedFiles(
+                rootDir.toPath(), selectedFiles);
         String projectContext = buildStructuredContext(
                 resolvedType,
                 intent,
@@ -256,9 +260,11 @@ public class GenerationAgentSupport {
                 indexedSymbolCount,
                 indexHits,
                 contextMode,
-                rootDir
+                projectFiles
         );
-        return new ProjectContextPackage(intent, selectedFiles, indexedFileCount, indexedSymbolCount, indexHits, contextMode, projectContext);
+        return new ProjectContextPackage(
+                intent, selectedFiles, indexedFileCount, indexedSymbolCount,
+                indexHits, contextMode, projectContext, projectFiles);
     }
 
     /** 根据当前上下文解析索引快照。 */
@@ -468,7 +474,7 @@ public class GenerationAgentSupport {
                                           int indexedSymbolCount,
                                           List<Map<String, Object>> indexHits,
                                           String contextMode,
-                                          File rootDir) {
+                                          List<ProjectFileContext> projectFiles) {
         List<String> safeSelectedFiles = selectedFiles == null ? List.of() : selectedFiles;
         StringBuilder builder = new StringBuilder();
         builder.append("上下文模式: ").append(contextMode).append('\n');
@@ -482,7 +488,7 @@ public class GenerationAgentSupport {
             builder.append("未选中可复用文件，保留项目级摘要供模型参考。");
         } else {
             builder.append(generatedProjectContextService.buildSelectedFileSections(
-                    rootDir.toPath(), safeSelectedFiles, builder.length()));
+                    projectFiles, builder.length()));
         }
         return compressProjectContext(generatedProjectContextService.boundAssembledContext(
                 builder.toString().trim()));
@@ -645,8 +651,16 @@ public class GenerationAgentSupport {
             int indexedSymbolCount,
             List<Map<String, Object>> indexHits,
             String contextMode,
-            String projectContext
+            String projectContext,
+            List<ProjectFileContext> projectFiles
     ) {
+        public ProjectContextPackage {
+            selectedFiles = selectedFiles == null ? List.of() : List.copyOf(selectedFiles);
+            indexHits = indexHits == null ? List.of() : List.copyOf(indexHits);
+            projectContext = projectContext == null ? "" : projectContext;
+            projectFiles = projectFiles == null ? List.of() : List.copyOf(projectFiles);
+        }
+
     }
 
     public record ProjectIndexRecall(

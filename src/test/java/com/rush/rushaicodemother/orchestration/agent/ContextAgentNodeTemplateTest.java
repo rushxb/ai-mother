@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
+import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
 import com.rush.rushaicodemother.orchestration.dag.GenerationAgentContext;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.template.TemplateServiceTestFixture;
@@ -48,7 +49,8 @@ class ContextAgentNodeTemplateTest {
             context.setTargetType(CodeGenTypeEnum.VUE_PROJECT);
 
             templateAgentNode.execute(context).artifacts().forEach(artifact -> context.putArtifacts(java.util.List.of(artifact)));
-            GenerationArtifact artifact = contextAgentNode.execute(context).artifacts().getFirst();
+            AgentNodeResult contextResult = contextAgentNode.execute(context);
+            GenerationArtifact artifact = contextResult.artifacts().getFirst();
 
             assertEquals("context_summary", artifact.key());
             assertEquals("management", artifact.payload().get("intent"));
@@ -56,6 +58,9 @@ class ContextAgentNodeTemplateTest {
             java.util.List<?> selectedFiles = (java.util.List<?>) artifact.payload().get("selectedFiles");
             assertFalse(selectedFiles.isEmpty());
             assertTrue(String.valueOf(artifact.payload().get("projectContext")).contains(String.valueOf(selectedFiles.getFirst())));
+            assertTrue(String.valueOf(artifact.payload().get("projectContext"))
+                    .contains("BEGIN_UNTRUSTED_REPOSITORY_CONTEXT"));
+            assertTrue((Integer) contextResult.data().get("contextSourceCount") > 0);
         } finally {
             FileUtil.del(outputRoot.toFile());
         }

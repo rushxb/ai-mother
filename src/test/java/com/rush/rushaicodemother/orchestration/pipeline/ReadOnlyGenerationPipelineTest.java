@@ -158,6 +158,7 @@ class ReadOnlyGenerationPipelineTest {
                         List.of(),
                         1_000,
                         3,
+                        9,
                         false,
                         false,
                         ProtectedRepositoryContextEnvelope.PromptInjectionRisk.NONE,

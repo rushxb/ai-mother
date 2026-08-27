@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
+import com.rush.rushaicodemother.orchestration.context.repository.ProtectedRepositoryContextEnvelope;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
@@ -104,7 +105,19 @@ class LightweightEditWorkspaceTransactionTest {
                                 "src/App.vue", "App.vue", "semantic", 100,
                                 "命中首页文件", List.of("首页"))),
                         "project context",
-                        true));
+                        true,
+                        new ProtectedRepositoryContextEnvelope(
+                                "project context",
+                                "workspace-version",
+                                List.of(),
+                                1_000,
+                                4,
+                                15,
+                                false,
+                                false,
+                                ProtectedRepositoryContextEnvelope.PromptInjectionRisk.NONE,
+                                true
+                        )));
         when(aiService.generateManaged(taskId, userMessage, "project context"))
                 .thenReturn(editResult);
         when(operationConverter.convert(editResult.operations())).thenReturn(patchOperations);

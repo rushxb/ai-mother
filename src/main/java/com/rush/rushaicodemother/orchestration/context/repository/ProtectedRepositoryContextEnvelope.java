@@ -9,6 +9,7 @@ public record ProtectedRepositoryContextEnvelope(
         List<SourceEvidence> sources,
         int tokenBudget,
         int estimatedTokens,
+        int sourceChars,
         boolean redacted,
         boolean truncated,
         PromptInjectionRisk promptInjectionRisk,
@@ -23,6 +24,9 @@ public record ProtectedRepositoryContextEnvelope(
         sources = sources == null ? List.of() : List.copyOf(sources);
         if (tokenBudget <= 0 || estimatedTokens < 0 || estimatedTokens > tokenBudget) {
             throw new IllegalArgumentException("项目上下文 Token 用量超出冻结预算");
+        }
+        if (sourceChars < 0) {
+            throw new IllegalArgumentException("项目上下文原始字符数不能为负数");
         }
         promptInjectionRisk = promptInjectionRisk == null
                 ? PromptInjectionRisk.NONE : promptInjectionRisk;

@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.edit;
 
 import com.rush.rushaicodemother.ai.AiCodeEditServiceFactory;
 import com.rush.rushaicodemother.orchestration.GenerationAppStateService;
+import com.rush.rushaicodemother.orchestration.context.repository.RepositoryContextTrustService;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
@@ -25,6 +26,8 @@ class LightweightEditServiceSpringWiringTest {
             .withBean(EditContextPackageBuilder.class, () -> mock(EditContextPackageBuilder.class))
             .withBean(EditValidationPolicyService.class, () -> mock(EditValidationPolicyService.class))
             .withBean(DevServerManager.class, () -> mock(DevServerManager.class))
+            .withBean(RepositoryContextTrustService.class,
+                    () -> mock(RepositoryContextTrustService.class))
             .withBean(GenerationPatchApplyService.class, () -> mock(GenerationPatchApplyService.class))
             .withBean(EditFileSnapshotService.class, () -> mock(EditFileSnapshotService.class))
             .withBean(WorkspaceSemanticIndexService.class, () -> mock(WorkspaceSemanticIndexService.class))

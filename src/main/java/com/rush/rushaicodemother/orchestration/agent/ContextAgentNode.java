@@ -6,6 +6,11 @@ import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.ContextSummaryArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.context.AiContextBoundaryService;
+import com.rush.rushaicodemother.orchestration.context.repository.ProtectedRepositoryContextEnvelope;
+import com.rush.rushaicodemother.orchestration.context.repository.RepositoryContextPurpose;
+import com.rush.rushaicodemother.orchestration.context.repository.RepositoryContextRequest;
+import com.rush.rushaicodemother.orchestration.context.repository.RepositoryContextTrustService;
+import com.rush.rushaicodemother.orchestration.context.repository.RetrievedRepositoryEvidence;
 import com.rush.rushaicodemother.orchestration.decision.GenerationGuidanceSelection;
 import com.rush.rushaicodemother.memory.GenerationWorkingMemoryService;
 import com.rush.rushaicodemother.orchestration.dag.AgentNodeResult;
@@ -26,16 +31,20 @@ import java.util.Set;
 public class ContextAgentNode extends BaseGenerationAgentNode {
 
     private final GenerationAgentSupport support;
-    private final AiContextBoundaryService contextBoundaryService;
+    private final RepositoryContextTrustService repositoryContextTrustService;
     private final GenerationWorkingMemoryService workingMemoryService;
 
     public ContextAgentNode(GenerationAgentSupport support) {
-        this(support, new AiContextBoundaryService(), null);
+        this(
+                support,
+                new RepositoryContextTrustService(new AiContextBoundaryService()),
+                null
+        );
     }
 
     @Autowired
     public ContextAgentNode(GenerationAgentSupport support,
-                            AiContextBoundaryService contextBoundaryService,
+                            RepositoryContextTrustService repositoryContextTrustService,
                             GenerationWorkingMemoryService workingMemoryService) {
         super(
                 "context",
@@ -46,7 +55,7 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                 Set.of(ContextSummaryArtifact.KEY)
         );
         this.support = support;
-        this.contextBoundaryService = contextBoundaryService;
+        this.repositoryContextTrustService = repositoryContextTrustService;
         this.workingMemoryService = workingMemoryService;
     }
 
@@ -72,7 +81,8 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                 0,
                 List.of(),
                 context.getRequest().hasGeneratedCode() ? "empty" : "new_project",
-                ""
+                "",
+                List.of()
         );
         if (app != null && app.getId() != null) {
             File rootDir = support.resolveWorkspaceRoot(app, targetType);
@@ -87,11 +97,22 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                 );
             }
         }
-        AiContextBoundaryService.ProtectedContext protectedContext =
-                contextBoundaryService.protectRepositoryContext(contextPackage.projectContext());
+        ProtectedRepositoryContextEnvelope protectedContext = repositoryContextTrustService.protect(
+                RepositoryContextRequest.forPurpose(
+                        RepositoryContextPurpose.HEAVY,
+                        context.getRequest().userMessage()
+                ),
+                new RetrievedRepositoryEvidence(
+                        contextPackage.projectContext(),
+                        contextPackage.projectFiles().stream()
+                                .map(file -> new RetrievedRepositoryEvidence.FileEvidence(
+                                        file.relativePath(), file.content(), file.truncated()))
+                                .toList()
+                )
+        );
         if (workingMemoryService != null) {
             workingMemoryService.recordContextDigest(
-                    context.getTask().getTaskId(), protectedContext.digest());
+                    context.getTask().getTaskId(), protectedContext.workspaceVersion());
         }
         List<String> normalizedSelectedFiles = support.normalizeSelectedFiles(contextPackage.selectedFiles());
         GenerationArtifact artifact = ContextSummaryArtifact.create(
@@ -105,7 +126,7 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
                         protectedContext.content()
                 ),
                 new ContextSummaryArtifact.ContextProtection(
-                        protectedContext.digest(),
+                        protectedContext.workspaceVersion(),
                         protectedContext.redacted(),
                         protectedContext.truncated(),
                         protectedContext.sourceChars()
@@ -123,13 +144,18 @@ public class ContextAgentNode extends BaseGenerationAgentNode {
         return AgentNodeResult.of(
                 summary,
                 List.of(artifact),
-                Map.of(
-                        "indexedFileCount", contextPackage.indexedFileCount(),
-                        "indexedSymbolCount", contextPackage.indexedSymbolCount(),
-                        "indexHitCount", contextPackage.indexHits().size(),
-                        "selectedFileCount", normalizedSelectedFiles.size(),
-                        "contextMode", contextPackage.contextMode(),
-                        "skillCount", guidanceSelection.skills().size()
+                Map.ofEntries(
+                        Map.entry("indexedFileCount", contextPackage.indexedFileCount()),
+                        Map.entry("indexedSymbolCount", contextPackage.indexedSymbolCount()),
+                        Map.entry("indexHitCount", contextPackage.indexHits().size()),
+                        Map.entry("selectedFileCount", normalizedSelectedFiles.size()),
+                        Map.entry("contextMode", contextPackage.contextMode()),
+                        Map.entry("skillCount", guidanceSelection.skills().size()),
+                        Map.entry("contextSourceCount", protectedContext.sources().size()),
+                        Map.entry("contextPromptInjectionRisk", protectedContext.promptInjectionRisk().name()),
+                        Map.entry("contextTokenBudget", protectedContext.tokenBudget()),
+                        Map.entry("contextEstimatedTokens", protectedContext.estimatedTokens()),
+                        Map.entry("contextOutboundAllowed", protectedContext.outboundAllowed())
                 )
         );
     }

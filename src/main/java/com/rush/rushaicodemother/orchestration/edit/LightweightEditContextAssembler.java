@@ -2,6 +2,11 @@ package com.rush.rushaicodemother.orchestration.edit;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import cn.hutool.core.util.StrUtil;
+import com.rush.rushaicodemother.orchestration.context.repository.ProtectedRepositoryContextEnvelope;
+import com.rush.rushaicodemother.orchestration.context.repository.RepositoryContextPurpose;
+import com.rush.rushaicodemother.orchestration.context.repository.RepositoryContextRequest;
+import com.rush.rushaicodemother.orchestration.context.repository.RepositoryContextTrustService;
+import com.rush.rushaicodemother.orchestration.context.repository.RetrievedRepositoryEvidence;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.service.devserver.DevServerManager;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +30,7 @@ public class LightweightEditContextAssembler {
     private final EditContextPackageBuilder editContextPackageBuilder;
     private final EditValidationPolicyService editValidationPolicyService;
     private final DevServerManager devServerManager;
+    private final RepositoryContextTrustService repositoryContextTrustService;
 
     /**
  * 汇总相关数据并组装轻量编辑上下文{@code Assembler}。
@@ -44,13 +50,18 @@ public class LightweightEditContextAssembler {
         }
         EditContextPackage contextPackage = editContextPackageBuilder.build(workspace, candidates);
         if (contextPackage == null || contextPackage.isEmpty()) {
-            return new LightweightEditContext(candidates, "", false);
+            return new LightweightEditContext(candidates, "", false, null);
         }
-        return new LightweightEditContext(
-                candidates,
-                buildProjectContext(contextPackage, workspace.appId(), userMessage),
-                true
+        String rawProjectContext = buildRawProjectContext(
+                contextPackage, workspace.appId(), userMessage);
+        ProtectedRepositoryContextEnvelope contextEnvelope = repositoryContextTrustService.protect(
+                RepositoryContextRequest.forPurpose(
+                        RepositoryContextPurpose.LIGHT_EDIT, userMessage),
+                RetrievedRepositoryEvidence.fromFileContents(
+                        rawProjectContext, contextPackage.fileContents())
         );
+        return new LightweightEditContext(
+                candidates, contextEnvelope.content(), true, contextEnvelope);
     }
 
     /**
@@ -86,9 +97,9 @@ public class LightweightEditContextAssembler {
     }
 
     /** 构建并返回项目上下文。 */
-    private String buildProjectContext(EditContextPackage contextPackage,
-                                       Long appId,
-                                       String userMessage) {
+    private String buildRawProjectContext(EditContextPackage contextPackage,
+                                          Long appId,
+                                          String userMessage) {
         StringBuilder builder = new StringBuilder();
         String recentDevServerOutput = buildRecentDevServerOutput(appId, userMessage);
         if (StrUtil.isNotBlank(recentDevServerOutput)) {

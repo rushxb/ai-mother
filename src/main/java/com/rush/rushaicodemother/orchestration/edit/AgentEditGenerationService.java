@@ -14,6 +14,7 @@ import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.context.repository.ProtectedRepositoryContextEnvelope;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
@@ -58,6 +59,7 @@ public class AgentEditGenerationService {
     private final EditFileSnapshotService editFileSnapshotService;
     private final EditStatePersistenceService editStatePersistenceService;
     private final GenerationPerformanceMonitorService performanceMonitorService;
+    private final AgentEditRepositoryContextAssembler repositoryContextAssembler;
 
     /** 为统一任务运行时之外的隔离调用者保留旧入口点。 */
     @Deprecated(forRemoval = false)
@@ -142,7 +144,9 @@ public class AgentEditGenerationService {
             }
             AgentEditUnderstanding understanding = understand(request, taskId, readResult);
 
-            String projectContext = buildProjectContext(readResult, understanding);
+            ProtectedRepositoryContextEnvelope contextEnvelope = repositoryContextAssembler.assemble(
+                    readResult, understanding, userMessage);
+            String projectContext = contextEnvelope.content();
             EditResult editResult = editWithAi(
                     taskId, userMessage, projectContext, managedModelCalls);
             List<PatchOperation> patchOperations = planningService.convertToPatchOperations(editResult);
@@ -430,31 +434,6 @@ public class AgentEditGenerationService {
         chatHistoryService.addChatMessage(app.getId(), reason, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
         performanceMonitorService.finishTask(taskId, "failed");
         return new AgentEditResult(taskId, GenerationRoute.AGENT_EDIT, reason, List.of(), "failed", repairRounds);
-    }
-
-    /** 构建并返回项目上下文。 */
-    private String buildProjectContext(AgentEditReadResult readResult, AgentEditUnderstanding understanding) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("AGENT_EDIT Read 结果:\n");
-        builder.append("- intent: ").append(readResult.intent()).append('\n');
-        builder.append("- riskLevel: ").append(readResult.riskLevel()).append('\n');
-        builder.append("- selectedFiles: ").append(readResult.selectedFiles()).append("\n\n");
-        builder.append("Code Graph:\n");
-        builder.append("- importRelations: ").append(readResult.importRelations()).append('\n');
-        builder.append("- referencedBy: ").append(readResult.referencedBy()).append('\n');
-        builder.append("- symbols: ").append(readResult.symbols()).append('\n');
-        builder.append("- diagnostics: ").append(readResult.graphDiagnostics()).append("\n\n");
-        builder.append("AGENT_EDIT Understand 结果:\n");
-        builder.append(understanding.structureSummary()).append("\n\n");
-        EditContextPackage contextPackage = readResult.contextPackage();
-        if (StrUtil.isNotBlank(contextPackage.projectIndex())) {
-            builder.append(contextPackage.projectIndex()).append("\n\n");
-        }
-        for (Map.Entry<String, String> entry : contextPackage.fileContents().entrySet()) {
-            builder.append("文件: ").append(entry.getKey()).append("\n");
-            builder.append("```\n").append(entry.getValue()).append("\n```\n\n");
-        }
-        return builder.toString();
     }
 
     private String buildSuccessSummary(EditResult editResult, EditChangePlan changePlan, ApplyAndVerifyOutcome outcome) {

@@ -95,6 +95,7 @@ public class RepositoryContextTrustService {
                 sources,
                 request.tokenBudget(),
                 estimatedTokens,
+                protectedContext.sourceChars(),
                 protectedContext.redacted() || sourceRedacted,
                 sourceTruncated,
                 overallRisk,

@@ -42,6 +42,7 @@ class RepositoryContextTrustServiceTest {
         assertEquals(ProtectedRepositoryContextEnvelope.Sensitivity.SENSITIVE_REDACTED,
                 envelope.sources().getFirst().sensitivity());
         assertTrue(envelope.estimatedTokens() <= envelope.tokenBudget());
+        assertTrue(envelope.sourceChars() > 0);
         assertTrue(envelope.outboundAllowed());
     }
 

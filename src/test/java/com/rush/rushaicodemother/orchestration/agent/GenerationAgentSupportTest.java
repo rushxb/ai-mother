@@ -64,6 +64,9 @@ class GenerationAgentSupportTest {
                     .anyMatch(hit -> "src/views/Login.vue".equals(hit.get("relativePath"))));
             assertTrue(contextPackage.projectContext().contains("索引命中"));
             assertEquals("intent_selected_files", contextPackage.contextMode());
+            assertTrue(contextPackage.projectFiles().stream()
+                    .anyMatch(file -> "src/views/Login.vue".equals(file.relativePath())
+                            && file.content().contains("submitLoginForm")));
         } finally {
             cleanup(tempDir);
         }

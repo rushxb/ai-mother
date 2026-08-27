@@ -23,7 +23,17 @@ public final class ObservedValidationCompletionEvidenceFactory {
                 || result.patchOperationCount() <= 0) {
             return GenerationCompletionEvidenceSet.empty();
         }
-        int mutationCount = result.patchOperationCount();
+        return forCompletedMutation(result.patchOperationCount(), observation);
+    }
+
+    /** 将一次已成功写入的编辑与 Validator 观测组合为完成证据。 */
+    public static GenerationCompletionEvidenceSet forCompletedMutation(
+            int mutationCount,
+            GenerationValidationObservation observation
+    ) {
+        if (mutationCount <= 0 || observation == null) {
+            return GenerationCompletionEvidenceSet.empty();
+        }
         String source = observation.source();
         List<GenerationCompletionEvidence> evidence = new ArrayList<>();
         evidence.add(GenerationCompletionEvidence.of(

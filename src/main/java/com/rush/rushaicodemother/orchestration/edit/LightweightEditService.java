@@ -10,12 +10,15 @@ import com.rush.rushaicodemother.model.enums.ChatHistoryMessageTypeEnum;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.attempt.completion.ObservedValidationCompletionEvidenceFactory;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
+import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
@@ -183,6 +186,7 @@ public class LightweightEditService {
                 EditValidationPlan validationPlan = verificationPolicy.enforceEditMinimum(
                         editValidationPolicyService.determineValidationPlan(
                                 patchOperations, codeGenType, editResult.validation(), userMessage));
+                GenerationValidationObservation validationObservation = null;
                 boolean editSuccess = applyResult != null && "applied".equals(applyResult.status());
                 if (!runtimeErrorRepair) {
                     editStatePersistenceService.recordEditResult(
@@ -223,6 +227,12 @@ public class LightweightEditService {
                                 projectRoot
                         );
                     }
+                    validationObservation = EditValidationObservationFactory.fromBackgroundValidator(
+                                    workspace,
+                                    validationPlan,
+                                    validationOutcome.validationResult(),
+                                    "lightweight_edit_validator")
+                            .orElse(null);
                     editStatePersistenceService.recordEditResult(
                             app.getId(), taskId, patchOperations, true);
                 } else if (validationPlan.requiresBackgroundValidation() && editSuccess) {
@@ -234,6 +244,12 @@ public class LightweightEditService {
                                 request, app, loginUser, taskId, patchOperations,
                                 validationPlan, validationResult, workspaceTransaction, projectRoot);
                     }
+                    validationObservation = EditValidationObservationFactory.fromBackgroundValidator(
+                                    workspace,
+                                    validationPlan,
+                                    validationResult,
+                                    "lightweight_edit_validator")
+                            .orElse(null);
                 }
 
                 if (!editSuccess) {
@@ -242,7 +258,8 @@ public class LightweightEditService {
                             patchOperations, applyResult, runtimeErrorRepair, workspaceTransaction, projectRoot);
                 }
                 LightweightEditResult result = completeSuccess(
-                        request, app, loginUser, taskId, editResult, applyResult, validationPlan);
+                        request, app, loginUser, taskId, editResult, applyResult,
+                        validationPlan, validationObservation);
                 workspaceTransaction.commit();
                 return result;
             }
@@ -412,7 +429,8 @@ public class LightweightEditService {
                                                   String taskId,
                                                   EditResult editResult,
                                                   PatchApplyResult applyResult,
-                                                  EditValidationPlan validationPlan) {
+                                                  EditValidationPlan validationPlan,
+                                                  GenerationValidationObservation validationObservation) {
         String summaryMessage = buildSummaryMessage(editResult, applyResult, validationPlan);
         chatHistoryService.addChatMessage(
                 app.getId(), summaryMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
@@ -421,7 +439,9 @@ public class LightweightEditService {
                 GenerationEditRouteResult.ROUTE_LIGHTWEIGHT_EDIT,
                 StrUtil.blankToDefault(editResult.summary(), "轻量编辑完成"),
                 applyResult.appliedFiles(),
-                applyResult.status()
+                applyResult.status(),
+                ObservedValidationCompletionEvidenceFactory.forCompletedMutation(
+                        applyResult.appliedOperationCount(), validationObservation)
         );
     }
 

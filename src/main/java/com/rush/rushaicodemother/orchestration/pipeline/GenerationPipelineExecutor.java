@@ -80,6 +80,7 @@ public class GenerationPipelineExecutor {
  */
     public void execute(GenerationPipelineRequest request) {
         GenerationTaskExecution execution = request.requireExecution();
+        GenerationPipelineRequest effectiveRequest = request;
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             generationTaskRuntimeLifecycleService.activate(execution.executionFence());
@@ -93,20 +94,20 @@ public class GenerationPipelineExecutor {
             );
             // 澄清放在路由循环之前：它只调整模型档位，不参与路由回退，
             // 因此每个任务最多执行一次，回退重试不会重复付费。
-            GenerationPipelineRequest currentRequest = intentClarificationStage.apply(request);
-            if (currentRequest != request) {
-                execution.session().rebindRefinedExecutionPlan(currentRequest.executionPlan());
+            effectiveRequest = intentClarificationStage.apply(request);
+            if (effectiveRequest != request) {
+                execution.session().rebindRefinedExecutionPlan(effectiveRequest.executionPlan());
             }
             for (int attempt = 1; attempt <= MAX_ROUTE_ATTEMPTS; attempt++) {
                 execution.session().throwIfCancelled();
-                GenerationPipeline pipeline = findPipeline(currentRequest);
+                GenerationPipeline pipeline = findPipeline(effectiveRequest);
                 execution.session().recordRoute(pipeline.route());
                 GenerationPerformanceMonitorService.SpanTimer routeSpan =
                         generationPerformanceMonitorService.startSpan(
                                 execution.taskId(), "pipeline_route_attempt", GenerationSpanCategory.PIPELINE);
                 GenerationPipelineOutcome outcome;
                 try {
-                    outcome = pipeline.execute(currentRequest);
+                    outcome = pipeline.execute(effectiveRequest);
                     if (outcome == null) {
                         throw new IllegalStateException(
                                 "generation pipeline returned no outcome: " + pipeline.route());
@@ -121,13 +122,14 @@ public class GenerationPipelineExecutor {
                 }
                 switch (outcome.disposition()) {
                     case COMPLETED -> {
-                        completeManagedTask(currentRequest, outcome);
+                        completeManagedTask(effectiveRequest, outcome);
                         return;
                     }
                     case RUNNING -> {
                         return;
                     }
-                    case FALLBACK -> currentRequest = fallback(currentRequest, pipeline, outcome.reason());
+                    case FALLBACK -> effectiveRequest = fallback(
+                            effectiveRequest, pipeline, outcome.reason());
                 }
             }
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成管线路由尝试次数已耗尽");
@@ -135,10 +137,10 @@ public class GenerationPipelineExecutor {
             log.error("生成结果已发布，终态提交等待恢复，taskId: {}",
                     execution.taskId(), LogExceptionSanitizer.sanitize(deferred));
         } catch (RuntimeException failure) {
-            failManagedTask(request, failure);
+            failManagedTask(effectiveRequest, failure);
         } catch (Error fatalFailure) {
             try {
-                failManagedTask(request, fatalFailure);
+                failManagedTask(effectiveRequest, fatalFailure);
             } catch (RuntimeException terminalizationFailure) {
                 fatalFailure.addSuppressed(terminalizationFailure);
             }

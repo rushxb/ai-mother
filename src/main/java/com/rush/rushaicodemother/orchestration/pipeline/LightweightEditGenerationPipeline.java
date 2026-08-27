@@ -94,6 +94,9 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
             }
             assertTaskIdentity(execution.taskId(), editResult.taskId());
             String status = "failed".equals(editResult.validationResult()) ? "failed" : "success";
+            int appliedOperationCount = editResult.appliedOperations() == null
+                    ? 0
+                    : editResult.appliedOperations().size();
             generationPerformanceMonitorService.recordSpan(
                     execution.taskId(),
                     "lightweight_edit",
@@ -131,8 +134,10 @@ public class LightweightEditGenerationPipeline implements GenerationPipeline {
                     "success".equals(status) ? GenerationTaskStatus.SUCCESS : GenerationTaskStatus.FAILED,
                     "success".equals(status) ? null : LIGHTWEIGHT_EDIT_FAILURE_REASON,
                     buildResultSummary("success".equals(status) ? "成功" : "失败", editResult),
-                    GenerationCompletionEvidenceSet.empty(),
-                    editResult.appliedOperations() == null ? null : editResult.appliedOperations().size(),
+                    "success".equals(status)
+                            ? editResult.completionEvidence()
+                            : GenerationCompletionEvidenceSet.empty(),
+                    appliedOperationCount,
                     0
             );
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {

@@ -16,12 +16,14 @@ import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationComp
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidence;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceType;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
+import com.rush.rushaicodemother.orchestration.attempt.completion.ObservedValidationCompletionEvidenceFactory;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.intent.IntentClarificationStage;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -39,6 +41,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskExecut
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceReleaseService;
+import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -50,6 +53,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
@@ -268,6 +272,34 @@ class GenerationPipelineExecutorTest {
     }
 
     @Test
+    void failureAfterFallbackMustBeAttributedToEffectiveHeavyRoute() {
+        GenerationPipelineRequest request = request(
+                "task-fallback-failure",
+                GenerationMode.LIGHT_EDIT,
+                FallbackPolicy.ESCALATE_TO_HEAVY_EXPERT);
+        GenerationPipeline lightweight = pipeline(
+                GenerationRoute.LIGHTWEIGHT_EDIT,
+                GenerationMode.LIGHT_EDIT,
+                ignored -> GenerationPipelineOutcome.fallback(
+                        GenerationRoute.LIGHTWEIGHT_EDIT, "not_applicable"));
+        GenerationPipeline heavy = pipeline(
+                GenerationRoute.HEAVY_GENERATION,
+                GenerationMode.HEAVY_EXPERT,
+                ignored -> {
+                    throw new IllegalStateException("heavy execution failed");
+                });
+
+        executor(List.of(lightweight, heavy)).execute(request);
+
+        verify(outcomeMemoryService).remember(org.mockito.ArgumentMatchers.argThat(memory ->
+                GenerationRoute.HEAVY_GENERATION.equals(memory.orchestrationMode())
+                        && memory.memorySummary().contains(GenerationRoute.HEAVY_GENERATION)));
+        verify(taskFinalizer).finalizeManaged(org.mockito.ArgumentMatchers.argThat(command ->
+                command.status() == GenerationTaskStatus.FAILED
+                        && command.memorySummary().contains(GenerationRoute.HEAVY_GENERATION)));
+    }
+
+    @Test
     void createFallbackMayEscalateFromEmptyWorkspaceWithSanitizedReason() {
         GenerationPipelineRequest request = request(
                 "task-create-fallback", GenerationMode.CREATE,
@@ -453,8 +485,16 @@ class GenerationPipelineExecutorTest {
     }
 
     private GenerationCompletionEvidenceSet successfulCompletionEvidence() {
-        return GenerationCompletionEvidenceSet.successfulMutation(
-                ExpectedValidationLevel.BUILD, "pipeline_executor_test", 1);
+        return ObservedValidationCompletionEvidenceFactory.forCompletedMutation(
+                1,
+                GenerationValidationObservation.passed(
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        "pipeline_executor_test",
+                        Set.of(
+                                GenerationExecutionPlan.ValidationStep.FAST_CHECK,
+                                GenerationExecutionPlan.ValidationStep.BUILD),
+                        Map.of())
+        );
     }
 
     private GenerationCompletionEvidenceSet readOnlyCompletionEvidence() {

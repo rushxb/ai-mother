@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.index.WorkspaceSemanticIndexService;
@@ -209,7 +210,13 @@ public class AgentEditGenerationService {
                         app.getId(), summary, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
                 workspaceTransaction.commit();
                 return new AgentEditResult(
-                        taskId, GenerationRoute.AGENT_EDIT, summary, changedFiles, "success", repairRounds);
+                        taskId,
+                        GenerationRoute.AGENT_EDIT,
+                        summary,
+                        changedFiles,
+                        "success",
+                        repairRounds,
+                        outcome.completionEvidence());
             }
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {
             throw executionPolicyFailure;
@@ -366,11 +373,12 @@ public class AgentEditGenerationService {
                 StrUtil.blankToDefault(applyResult.reason(), "")
         );
         if (!"applied".equals(applyResult.status())) {
-            return new ApplyAndVerifyOutcome(false, applyResult, null);
+            return new ApplyAndVerifyOutcome(
+                    false, applyResult, null, GenerationCompletionEvidenceSet.empty());
         }
 
         Instant verifyStartedAt = Instant.now();
-        BackgroundValidationService.ValidationResult validationResult = verificationService.verify(
+        AgentEditVerificationOutcome verificationOutcome = verificationService.verify(
                 taskId,
                 app.getId(),
                 loginUser,
@@ -380,7 +388,9 @@ public class AgentEditGenerationService {
                 userMessage,
                 verificationPolicy
         );
-        boolean valid = validationResult != null && validationResult.isSuccess();
+        BackgroundValidationService.ValidationResult validationResult =
+                verificationOutcome == null ? null : verificationOutcome.validationResult();
+        boolean valid = verificationOutcome != null && verificationOutcome.success();
         generationEventPublisher.publish(request, GenerationEventType.AGENT_EDIT_VERIFY, "AGENT_EDIT Verify 阶段完成", Map.of(
                 "taskId", taskId,
                 "round", repairRound,
@@ -395,7 +405,13 @@ public class AgentEditGenerationService {
                 Duration.between(verifyStartedAt, Instant.now()),
                 validationResult == null ? "" : validationResult.message()
         );
-        return new ApplyAndVerifyOutcome(valid, applyResult, validationResult);
+        return new ApplyAndVerifyOutcome(
+                valid,
+                applyResult,
+                validationResult,
+                verificationOutcome == null
+                        ? GenerationCompletionEvidenceSet.empty()
+                        : verificationOutcome.completionEvidence());
     }
 
     private AgentEditResult fail(GenerationTaskRequest request,
@@ -488,7 +504,13 @@ public class AgentEditGenerationService {
     private record ApplyAndVerifyOutcome(
             boolean success,
             PatchApplyResult applyResult,
-            BackgroundValidationService.ValidationResult validationResult
+            BackgroundValidationService.ValidationResult validationResult,
+            GenerationCompletionEvidenceSet completionEvidence
     ) {
+        private ApplyAndVerifyOutcome {
+            completionEvidence = completionEvidence == null
+                    ? GenerationCompletionEvidenceSet.empty()
+                    : completionEvidence;
+        }
     }
 }

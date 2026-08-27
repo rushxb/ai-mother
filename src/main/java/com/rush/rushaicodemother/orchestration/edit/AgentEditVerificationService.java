@@ -4,10 +4,12 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import com.rush.rushaicodemother.orchestration.verification.GenerationVerificationPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -34,7 +36,7 @@ public class AgentEditVerificationService {
  * @param userMessage 用户消息
  * @return 智能体编辑{@code Verification}
  */
-    public BackgroundValidationService.ValidationResult verify(String taskId,
+    public AgentEditVerificationOutcome verify(String taskId,
                                                                Long appId,
                                                                User loginUser,
                                                                GenerationWorkspace workspace,
@@ -54,7 +56,7 @@ public class AgentEditVerificationService {
     }
 
     /** 按冻结执行计划的最低门槛执行 AGENT_EDIT 验证。 */
-    public BackgroundValidationService.ValidationResult verify(String taskId,
+    public AgentEditVerificationOutcome verify(String taskId,
                                                                Long appId,
                                                                User loginUser,
                                                                GenerationWorkspace workspace,
@@ -72,34 +74,52 @@ public class AgentEditVerificationService {
         EditValidationPlan synchronousPlan = verificationPolicy.enforceEditMinimum(
                 upgradeForAgentEdit(validationPlan, changePlan));
         // 后端专用验证同样消费统一验证门槛，BUILD 计划必须执行真实 Go 构建。
-        if (workspace.codeGenType() == CodeGenTypeEnum.BACKEND_PROJECT) {
-            return backendValidationService.validate(taskId, workspace, patchOperations, synchronousPlan);
+        BackgroundValidationService.ValidationResult result;
+        List<GenerationValidationObservation> observations = new ArrayList<>();
+        if (workspace.codeGenType() == CodeGenTypeEnum.BACKEND_PROJECT
+                || (workspace.codeGenType() == CodeGenTypeEnum.FULL_STACK_PROJECT
+                && touchesOnlyBackend(patchOperations))) {
+            result = backendValidationService.validate(taskId, workspace, patchOperations, synchronousPlan);
+            EditValidationObservationFactory.fromBackendValidator(
+                            workspace, synchronousPlan, result, "agent_edit_backend_validator")
+                    .ifPresent(observations::add);
+        } else {
+            BackgroundValidationService.ValidationResult frontendResult =
+                    backgroundValidationService.executeValidation(
+                            taskId,
+                            appId,
+                            loginUser == null ? null : loginUser.getId(),
+                            workspace,
+                            patchOperations,
+                            synchronousPlan,
+                            userMessage
+                    );
+            EditValidationObservationFactory.fromBackgroundValidator(
+                            workspace, synchronousPlan, frontendResult, "agent_edit_background_validator")
+                    .ifPresent(observations::add);
+            if (workspace.codeGenType() == CodeGenTypeEnum.FULL_STACK_PROJECT
+                    && touchesBackend(patchOperations)
+                    && frontendResult.isSuccess()) {
+                result = backendValidationService.validate(
+                        taskId, workspace, patchOperations, synchronousPlan);
+                EditValidationObservationFactory.fromBackendValidator(
+                                workspace, synchronousPlan, result, "agent_edit_backend_validator")
+                        .ifPresent(observations::add);
+            } else {
+                result = frontendResult;
+            }
         }
-        if (workspace.codeGenType() == CodeGenTypeEnum.FULL_STACK_PROJECT && touchesOnlyBackend(patchOperations)) {
-            return backendValidationService.validate(taskId, workspace, patchOperations, synchronousPlan);
+        if (result == null) {
+            result = BackgroundValidationService.ValidationResult.failed(
+                    taskId, "验证 implementation 未返回结果");
         }
-        BackgroundValidationService.ValidationResult frontendResult = backgroundValidationService.executeValidation(
-                taskId,
-                appId,
-                loginUser == null ? null : loginUser.getId(),
-                workspace,
-                patchOperations,
+        return AgentEditVerificationOutcome.observed(
+                result,
                 synchronousPlan,
-                userMessage
-        );
-        if (workspace.codeGenType() != CodeGenTypeEnum.FULL_STACK_PROJECT || !touchesBackend(patchOperations)) {
-            return frontendResult;
-        }
-        BackgroundValidationService.ValidationResult backendResult = backendValidationService.validate(
-                taskId,
-                workspace,
-                patchOperations,
-                synchronousPlan
-        );
-        if (!frontendResult.isSuccess()) {
-            return frontendResult;
-        }
-        return backendResult;
+                EditValidationObservationFactory.merge(
+                        workspace.codeGenType(), "agent_edit_validator", observations)
+                        .orElse(null),
+                patchOperations == null ? 0 : patchOperations.size());
     }
 
     /** 返回{@code upgrade}{@code For}智能体编辑。 */

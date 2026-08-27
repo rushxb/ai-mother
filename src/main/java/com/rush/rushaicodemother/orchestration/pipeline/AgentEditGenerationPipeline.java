@@ -135,10 +135,7 @@ public class AgentEditGenerationPipeline implements GenerationPipeline {
                     GenerationTaskStatus.SUCCESS,
                     null,
                     buildResultSummary("成功", editResult),
-                    GenerationCompletionEvidenceSet.successfulMutation(
-                            request.modeDecision().expectedValidationLevel(),
-                            route(),
-                            editResult.changedFiles().size()),
+                    editResult.completionEvidence(),
                     editResult.changedFiles().size(),
                     editResult.repairRounds()
             );

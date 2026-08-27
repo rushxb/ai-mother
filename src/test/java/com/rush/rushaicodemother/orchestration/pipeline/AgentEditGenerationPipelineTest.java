@@ -9,9 +9,14 @@ import com.rush.rushaicodemother.monitor.GenerationPerformanceMonitorService;
 import com.rush.rushaicodemother.monitor.span.GenerationSpanCategory;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceType;
+import com.rush.rushaicodemother.orchestration.attempt.completion.ObservedValidationCompletionEvidenceFactory;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditGenerationService;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditResult;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
+import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
+import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
@@ -28,9 +33,11 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -73,14 +80,50 @@ class AgentEditGenerationPipelineTest {
         AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(service, monitor);
         GenerationPipelineRequest request = request("agent-task-success");
         when(service.execute(eq("agent-task-success"), any(), any(), eq(request.workspace()))).thenReturn(
-                new AgentEditResult("agent-task-success", "agent_edit", "done", List.of("src/App.vue"), "success", 0));
+                new AgentEditResult(
+                        "agent-task-success",
+                        "agent_edit",
+                        "done",
+                        List.of("src/App.vue"),
+                        "success",
+                        0,
+                        observedEvidence(
+                                GenerationExecutionPlan.ValidationStep.FAST_CHECK,
+                                GenerationExecutionPlan.ValidationStep.BUILD)));
 
         GenerationPipelineOutcome outcome = pipeline.execute(request);
 
         assertEquals(GenerationTaskStatus.SUCCESS, outcome.terminalStatus());
         assertTrue(outcome.resultSummary().contains("结果摘要：done"));
         assertTrue(outcome.resultSummary().contains("src/App.vue"));
+        assertTrue(outcome.completionEvidence().contains(
+                GenerationCompletionEvidenceType.BUILD_VALIDATION));
         verify(service).execute(eq("agent-task-success"), any(), any(), eq(request.workspace()));
+    }
+
+    @Test
+    void pipelineMustNotPromoteFastEvidenceToExpectedBuildEvidence() {
+        AgentEditGenerationService service = mock(AgentEditGenerationService.class);
+        AgentEditGenerationPipeline pipeline = new AgentEditGenerationPipeline(
+                service, mock(GenerationPerformanceMonitorService.class));
+        GenerationPipelineRequest request = request("agent-task-fast-only");
+        when(service.execute(eq("agent-task-fast-only"), any(), any(), eq(request.workspace())))
+                .thenReturn(new AgentEditResult(
+                        "agent-task-fast-only",
+                        "agent_edit",
+                        "done",
+                        List.of("src/App.vue"),
+                        "success",
+                        0,
+                        observedEvidence(
+                                GenerationExecutionPlan.ValidationStep.FAST_CHECK)));
+
+        GenerationPipelineOutcome outcome = pipeline.execute(request);
+
+        assertTrue(outcome.completionEvidence().contains(
+                GenerationCompletionEvidenceType.FAST_VALIDATION));
+        assertFalse(outcome.completionEvidence().contains(
+                GenerationCompletionEvidenceType.BUILD_VALIDATION));
     }
 
     @Test
@@ -93,6 +136,21 @@ class AgentEditGenerationPipelineTest {
                 .thenThrow(new GenerationDeadlineExceededException("agent-task-deadline"));
 
         assertThrows(GenerationDeadlineExceededException.class, () -> pipeline.execute(request));
+    }
+
+    private GenerationCompletionEvidenceSet observedEvidence(
+            GenerationExecutionPlan.ValidationStep first,
+            GenerationExecutionPlan.ValidationStep... additional) {
+        java.util.EnumSet<GenerationExecutionPlan.ValidationStep> steps =
+                java.util.EnumSet.of(first, additional);
+        return ObservedValidationCompletionEvidenceFactory.forCompletedMutation(
+                1,
+                GenerationValidationObservation.passed(
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        "agent_edit_validator",
+                        steps,
+                        Map.of())
+        );
     }
 
     private GenerationPipelineRequest request(String taskId) {

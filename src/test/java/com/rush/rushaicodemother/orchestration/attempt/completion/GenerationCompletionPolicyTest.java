@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.attempt.completion;
 
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
@@ -8,11 +9,14 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
+import com.rush.rushaicodemother.orchestration.verification.GenerationValidationObservation;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.EnumSet;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -140,7 +144,22 @@ class GenerationCompletionPolicyTest {
     }
 
     private GenerationCompletionEvidenceSet evidence(ExpectedValidationLevel level) {
-        return GenerationCompletionEvidenceSet.successfulMutation(level, "completion_policy_test", 1);
+        EnumSet<GenerationExecutionPlan.ValidationStep> steps =
+                EnumSet.of(GenerationExecutionPlan.ValidationStep.FAST_CHECK);
+        if (level == ExpectedValidationLevel.BUILD || level == ExpectedValidationLevel.EXPERT) {
+            steps.add(GenerationExecutionPlan.ValidationStep.BUILD);
+        }
+        if (level == ExpectedValidationLevel.EXPERT) {
+            steps.add(GenerationExecutionPlan.ValidationStep.EXPERT_CHECK);
+        }
+        return ObservedValidationCompletionEvidenceFactory.forCompletedMutation(
+                1,
+                GenerationValidationObservation.passed(
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        "completion_policy_test",
+                        steps,
+                        Map.of())
+        );
     }
 
     private GenerationCompletionEvidence item(GenerationCompletionEvidenceType type) {

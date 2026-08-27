@@ -5,6 +5,8 @@ import com.rush.rushaicodemother.orchestration.edit.AgentEditContextCollector;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditReadResult;
 import com.rush.rushaicodemother.orchestration.edit.EditContextPackage;
 import com.rush.rushaicodemother.orchestration.edit.EditFileCandidate;
+import com.rush.rushaicodemother.orchestration.context.AiContextBoundaryService;
+import com.rush.rushaicodemother.orchestration.context.repository.RepositoryContextTrustService;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.junit.jupiter.api.Test;
@@ -26,7 +28,7 @@ import static org.mockito.Mockito.when;
 class ReadOnlyAnalysisServiceTest {
 
     @Test
-    void analysisWithoutCollectedProjectEvidenceMustFailBeforeModelCall() {
+    void auditWithoutCollectedProjectEvidenceMustReturnStructuredNotAuditableResult() {
         AgentEditContextCollector contextCollector = mock(AgentEditContextCollector.class);
         GenerationWorkspace workspace = workspace();
         when(contextCollector.collect(workspace, "审计鉴权链路", CodeGenTypeEnum.VUE_PROJECT))
@@ -40,20 +42,19 @@ class ReadOnlyAnalysisServiceTest {
                     List.of(),
                     "本次请求仅要求审计，因此未修改工作区");
         };
-        ReadOnlyAnalysisService service = new ReadOnlyAnalysisService(contextCollector, model);
+        ReadOnlyAnalysisService service = service(contextCollector, model);
 
-        IllegalStateException failure = assertThrows(
-                IllegalStateException.class,
-                () -> service.analyze(
-                        "read-only-no-evidence", IntentOperationType.AUDIT, "审计鉴权链路",
-                        workspace, CodeGenTypeEnum.VUE_PROJECT));
+        ReadOnlyAnalysisOutcome outcome = service.analyze(
+                "read-only-no-evidence", IntentOperationType.AUDIT, "审计鉴权链路",
+                workspace, CodeGenTypeEnum.VUE_PROJECT);
 
-        assertEquals("只读分析未采集到可引用的项目文件", failure.getMessage());
+        assertEquals(ReadOnlyAnalysisStatus.NOT_AUDITABLE, outcome.status());
+        assertEquals("NO_AUDITABLE_FILES", outcome.unavailableReason());
         assertFalse(modelCalled.get());
     }
 
     @Test
-    void selectedFileWithoutCollectedContentMustFailBeforeModelCall() {
+    void selectedFileWithoutCollectedContentMustNotBecomeAuditableEvidence() {
         AgentEditContextCollector contextCollector = mock(AgentEditContextCollector.class);
         GenerationWorkspace workspace = workspace();
         when(contextCollector.collect(workspace, "审计鉴权链路", CodeGenTypeEnum.VUE_PROJECT))
@@ -69,16 +70,63 @@ class ReadOnlyAnalysisServiceTest {
                             "src/auth.ts", null, "鉴权入口")),
                     "本次请求仅要求审计，因此未修改工作区");
         };
-        ReadOnlyAnalysisService service = new ReadOnlyAnalysisService(contextCollector, model);
+        ReadOnlyAnalysisService service = service(contextCollector, model);
 
-        IllegalStateException failure = assertThrows(
-                IllegalStateException.class,
-                () -> service.analyze(
-                        "read-only-missing-content", IntentOperationType.AUDIT, "审计鉴权链路",
-                        workspace, CodeGenTypeEnum.VUE_PROJECT));
+        ReadOnlyAnalysisOutcome outcome = service.analyze(
+                "read-only-missing-content", IntentOperationType.AUDIT, "审计鉴权链路",
+                workspace, CodeGenTypeEnum.VUE_PROJECT);
 
-        assertEquals("只读分析未采集到可引用的项目文件", failure.getMessage());
+        assertEquals(ReadOnlyAnalysisStatus.NOT_AUDITABLE, outcome.status());
         assertFalse(modelCalled.get());
+    }
+
+    @Test
+    void planWithoutProjectFilesMustUseFrozenRequirementAndKeepReferencesOptional() {
+        AgentEditContextCollector contextCollector = mock(AgentEditContextCollector.class);
+        GenerationWorkspace workspace = workspace();
+        when(contextCollector.collect(workspace, "规划一个订单系统", CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(emptyContextResult());
+        AtomicBoolean modelCalled = new AtomicBoolean(false);
+        ReadOnlyAnalysisModel model = (taskId, request) -> {
+            modelCalled.set(true);
+            assertTrue(request.allowedReferences().isEmpty());
+            assertTrue(request.projectContext().contains("BEGIN_UNTRUSTED_REPOSITORY_CONTEXT"));
+            return new ReadOnlyAnalysisResult(
+                    "建议先建立订单、商品和支付三个边界",
+                    List.of(),
+                    List.of(),
+                    "本次请求仅要求规划，因此未修改工作区");
+        };
+
+        ReadOnlyAnalysisOutcome outcome = service(contextCollector, model).analyze(
+                "read-only-plan", IntentOperationType.PLAN, "规划一个订单系统",
+                workspace, CodeGenTypeEnum.VUE_PROJECT);
+
+        assertTrue(modelCalled.get());
+        assertEquals(ReadOnlyAnalysisStatus.COMPLETED, outcome.status());
+        assertEquals(ReadOnlyEvidenceBasis.USER_REQUIREMENT, outcome.evidenceBasis());
+        assertTrue(outcome.analysis().references().isEmpty());
+    }
+
+    @Test
+    void explainWithoutProjectFilesMustReturnExplicitNoContextInsteadOfFabricatingAnswer() {
+        AgentEditContextCollector contextCollector = mock(AgentEditContextCollector.class);
+        GenerationWorkspace workspace = workspace();
+        when(contextCollector.collect(workspace, "解释当前入口", CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(emptyContextResult());
+        AtomicBoolean modelCalled = new AtomicBoolean(false);
+        ReadOnlyAnalysisModel model = (taskId, request) -> {
+            modelCalled.set(true);
+            throw new AssertionError("无项目事实时不应让模型泛化解释");
+        };
+
+        ReadOnlyAnalysisOutcome outcome = service(contextCollector, model).analyze(
+                "read-only-explain", IntentOperationType.EXPLAIN, "解释当前入口",
+                workspace, CodeGenTypeEnum.VUE_PROJECT);
+
+        assertFalse(modelCalled.get());
+        assertEquals(ReadOnlyAnalysisStatus.NO_PROJECT_CONTEXT, outcome.status());
+        assertTrue(outcome.analysis().summary().contains("没有可解释的项目文件"));
     }
 
     @Test
@@ -89,7 +137,7 @@ class ReadOnlyAnalysisServiceTest {
                 .thenReturn(contextResult());
         ReadOnlyAnalysisModel model = (taskId, request) ->
                 new ReadOnlyAnalysisResult(null, List.of(), List.of(), null);
-        ReadOnlyAnalysisService service = new ReadOnlyAnalysisService(contextCollector, model);
+        ReadOnlyAnalysisService service = service(contextCollector, model);
 
         IllegalStateException failure = assertThrows(
                 IllegalStateException.class,
@@ -117,11 +165,11 @@ class ReadOnlyAnalysisServiceTest {
                                 "../../secrets.txt", 1, "模型臆造的越界文件")),
                 "本次请求仅要求审计，因此未修改工作区"
         );
-        ReadOnlyAnalysisService service = new ReadOnlyAnalysisService(contextCollector, model);
+        ReadOnlyAnalysisService service = service(contextCollector, model);
 
         ReadOnlyAnalysisResult result = service.analyze(
                 "read-only-task", IntentOperationType.AUDIT, "审计鉴权链路",
-                workspace, CodeGenTypeEnum.VUE_PROJECT);
+                workspace, CodeGenTypeEnum.VUE_PROJECT).analysis();
 
         assertEquals(List.of("src/auth.ts"),
                 result.references().stream()
@@ -144,7 +192,7 @@ class ReadOnlyAnalysisServiceTest {
                         "../../secrets.txt", 1, "模型臆造的越界文件")),
                 "本次请求仅要求审计，因此未修改工作区"
         );
-        ReadOnlyAnalysisService service = new ReadOnlyAnalysisService(contextCollector, model);
+        ReadOnlyAnalysisService service = service(contextCollector, model);
 
         IllegalStateException failure = assertThrows(
                 IllegalStateException.class,
@@ -168,11 +216,11 @@ class ReadOnlyAnalysisServiceTest {
                         "src/auth.ts", 999, "鉴权入口")),
                 "本次请求仅要求解释，因此未修改工作区"
         );
-        ReadOnlyAnalysisService service = new ReadOnlyAnalysisService(contextCollector, model);
+        ReadOnlyAnalysisService service = service(contextCollector, model);
 
         ReadOnlyAnalysisResult result = service.analyze(
                 "read-only-task", IntentOperationType.EXPLAIN, "解释鉴权入口",
-                workspace, CodeGenTypeEnum.VUE_PROJECT);
+                workspace, CodeGenTypeEnum.VUE_PROJECT).analysis();
 
         assertEquals(1, result.references().size());
         assertNull(result.references().getFirst().line());
@@ -195,11 +243,11 @@ class ReadOnlyAnalysisServiceTest {
                                 "src/auth.ts", 18, "读取前缺少所有权校验")),
                 "本次请求仅要求审计，因此未修改工作区"
         );
-        ReadOnlyAnalysisService service = new ReadOnlyAnalysisService(contextCollector, model);
+        ReadOnlyAnalysisService service = service(contextCollector, model);
 
         ReadOnlyAnalysisResult result = service.analyze(
                 "read-only-task", IntentOperationType.AUDIT, "审计鉴权实现",
-                workspace, CodeGenTypeEnum.VUE_PROJECT);
+                workspace, CodeGenTypeEnum.VUE_PROJECT).analysis();
 
         assertEquals(List.of(3, 18), result.references().stream()
                 .map(ReadOnlyAnalysisResult.FileReference::line)
@@ -259,6 +307,15 @@ class ReadOnlyAnalysisServiceTest {
     private String authSourceWith18Lines() {
         return "// collected context\n".repeat(17)
                 + "export function getApp(id: number) { return api.get(id); }";
+    }
+
+    private ReadOnlyAnalysisService service(AgentEditContextCollector contextCollector,
+                                            ReadOnlyAnalysisModel model) {
+        return new ReadOnlyAnalysisService(
+                contextCollector,
+                model,
+                new RepositoryContextTrustService(new AiContextBoundaryService())
+        );
     }
 
     private GenerationWorkspace workspace() {

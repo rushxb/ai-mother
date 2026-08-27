@@ -9,6 +9,7 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceType;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
+import com.rush.rushaicodemother.orchestration.context.repository.ProtectedRepositoryContextEnvelope;
 import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
 import com.rush.rushaicodemother.orchestration.intent.IntentDestructiveRisk;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
@@ -17,6 +18,8 @@ import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
 import com.rush.rushaicodemother.orchestration.intent.IntentValidationRisk;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.readonly.ReadOnlyAnalysisResult;
+import com.rush.rushaicodemother.orchestration.readonly.ReadOnlyAnalysisOutcome;
+import com.rush.rushaicodemother.orchestration.readonly.ReadOnlyEvidenceBasis;
 import com.rush.rushaicodemother.orchestration.readonly.ReadOnlyAnalysisService;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
@@ -56,13 +59,13 @@ class ReadOnlyGenerationPipelineTest {
                 eq("read-only-task"), eq(IntentOperationType.AUDIT),
                 eq("审计鉴权链路，不要修改代码"), eq(request.workspace()),
                 eq(CodeGenTypeEnum.VUE_PROJECT)))
-                .thenReturn(new ReadOnlyAnalysisResult(
+                .thenReturn(completed(new ReadOnlyAnalysisResult(
                         "鉴权详情读取缺少所有权校验",
                         List.of(new ReadOnlyAnalysisResult.Finding(
                                 "越权风险", "HIGH", "详情接口允许读取其他用户资源")),
                         List.of(new ReadOnlyAnalysisResult.FileReference(
                                 "src/auth.ts", 18, "详情读取入口")),
-                        "用户只要求审计，本次未修改工作区"));
+                        "用户只要求审计，本次未修改工作区")));
         ReadOnlyGenerationPipeline pipeline = new ReadOnlyGenerationPipeline(
                 mock(GenerationPerformanceMonitorService.class), analysisService);
 
@@ -96,7 +99,8 @@ class ReadOnlyGenerationPipelineTest {
                 eq("read-only-empty-analysis"), eq(IntentOperationType.AUDIT),
                 eq("审计鉴权链路，不要修改代码"), eq(request.workspace()),
                 eq(CodeGenTypeEnum.VUE_PROJECT)))
-                .thenReturn(new ReadOnlyAnalysisResult(null, List.of(), List.of(), null));
+                .thenReturn(completed(new ReadOnlyAnalysisResult(
+                        null, List.of(), List.of(), null)));
         ReadOnlyGenerationPipeline pipeline = new ReadOnlyGenerationPipeline(
                 mock(GenerationPerformanceMonitorService.class), analysisService);
 
@@ -142,5 +146,23 @@ class ReadOnlyGenerationPipelineTest {
                 profile,
                 decision,
                 new GenerationTaskExecution(taskId, session, context, fence, Instant.now()));
+    }
+
+    private ReadOnlyAnalysisOutcome completed(ReadOnlyAnalysisResult result) {
+        return ReadOnlyAnalysisOutcome.completed(
+                result,
+                ReadOnlyEvidenceBasis.REPOSITORY_FACTS,
+                new ProtectedRepositoryContextEnvelope(
+                        "protected",
+                        "workspace-version",
+                        List.of(),
+                        1_000,
+                        3,
+                        false,
+                        false,
+                        ProtectedRepositoryContextEnvelope.PromptInjectionRisk.NONE,
+                        true
+                )
+        );
     }
 }

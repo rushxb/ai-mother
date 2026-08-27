@@ -14,6 +14,7 @@ import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationComp
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceType;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.readonly.ReadOnlyAnalysisResult;
+import com.rush.rushaicodemother.orchestration.readonly.ReadOnlyAnalysisOutcome;
 import com.rush.rushaicodemother.orchestration.readonly.ReadOnlyAnalysisService;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.routing.GenerationRoute;
@@ -90,7 +91,7 @@ public class ReadOnlyGenerationPipeline implements GenerationPipeline {
                 request.modeDecision());
         try {
             session.throwIfCancelled();
-            ReadOnlyAnalysisResult analysis = analysisService.analyze(
+            ReadOnlyAnalysisOutcome outcome = analysisService.analyze(
                     execution.taskId(),
                     request.intentProfile().operationType(),
                     request.taskRequest().message(),
@@ -98,8 +99,9 @@ public class ReadOnlyGenerationPipeline implements GenerationPipeline {
                     request.codeGenType())
                     // 流水线边界再次校验，避免替代实现或恢复数据绕过服务内的不变量。
                     .requireIntentCoverage();
+            ReadOnlyAnalysisResult analysis = outcome.analysis();
             session.throwIfCancelled();
-            GenerationPreparation preparation = createPreparation(request, execution.taskId(), analysis);
+            GenerationPreparation preparation = createPreparation(request, execution.taskId(), outcome);
             session.bindPreparation(preparation);
             String report = analysis.renderMarkdown();
             session.emit(GenerationStreamEvent.aiDelta(report));
@@ -109,7 +111,7 @@ public class ReadOnlyGenerationPipeline implements GenerationPipeline {
                     GenerationTaskStatus.SUCCESS,
                     null,
                     report,
-                    completionEvidence(analysis),
+                    completionEvidence(outcome),
                     0,
                     0);
         } catch (GenerationExecutionPolicyException policyFailure) {
@@ -131,9 +133,10 @@ public class ReadOnlyGenerationPipeline implements GenerationPipeline {
 
     private GenerationPreparation createPreparation(GenerationPipelineRequest request,
                                                      String taskId,
-                                                     ReadOnlyAnalysisResult analysis) {
+                                                     ReadOnlyAnalysisOutcome outcome) {
+        ReadOnlyAnalysisResult analysis = outcome.analysis();
         Map<String, GenerationArtifact> artifacts = new LinkedHashMap<>();
-        Map<String, Object> analysisPayload = new LinkedHashMap<>(analysis.toPayload());
+        Map<String, Object> analysisPayload = new LinkedHashMap<>(outcome.toPayload());
         analysisPayload.put("operationType", request.intentProfile().operationType().name());
         artifacts.put(ANALYSIS_ARTIFACT, GenerationArtifact.of(
                 ANALYSIS_ARTIFACT,
@@ -162,7 +165,7 @@ public class ReadOnlyGenerationPipeline implements GenerationPipeline {
                 taskId);
     }
 
-    private GenerationCompletionEvidenceSet completionEvidence(ReadOnlyAnalysisResult analysis) {
+    private GenerationCompletionEvidenceSet completionEvidence(ReadOnlyAnalysisOutcome outcome) {
         return GenerationCompletionEvidenceSet.of(
                 GenerationCompletionEvidence.of(
                         GenerationCompletionEvidenceType.INTENT_COVERAGE,
@@ -171,10 +174,10 @@ public class ReadOnlyGenerationPipeline implements GenerationPipeline {
                 GenerationCompletionEvidence.of(
                         GenerationCompletionEvidenceType.NO_CHANGE_JUSTIFICATION,
                         route(),
-                        analysis.noChangeJustification()),
+                        outcome.analysis().noChangeJustification()),
                 GenerationCompletionEvidence.of(
                         GenerationCompletionEvidenceType.FAST_VALIDATION,
                         route(),
-                        "分析文件引用已通过采集上下文校验"));
+                        outcome.validationSummary()));
     }
 }

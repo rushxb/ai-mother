@@ -5,6 +5,11 @@ import com.rush.rushaicodemother.orchestration.edit.AgentEditContextCollector;
 import com.rush.rushaicodemother.orchestration.edit.AgentEditReadResult;
 import com.rush.rushaicodemother.orchestration.edit.EditContextPackage;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
+import com.rush.rushaicodemother.orchestration.context.repository.ProtectedRepositoryContextEnvelope;
+import com.rush.rushaicodemother.orchestration.context.repository.RepositoryContextPurpose;
+import com.rush.rushaicodemother.orchestration.context.repository.RepositoryContextRequest;
+import com.rush.rushaicodemother.orchestration.context.repository.RepositoryContextTrustService;
+import com.rush.rushaicodemother.orchestration.context.repository.RetrievedRepositoryEvidence;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.stereotype.Service;
 
@@ -27,31 +32,36 @@ public class ReadOnlyAnalysisService {
 
     private final AgentEditContextCollector contextCollector;
     private final ReadOnlyAnalysisModel analysisModel;
+    private final RepositoryContextTrustService repositoryContextTrustService;
 
     public ReadOnlyAnalysisService(AgentEditContextCollector contextCollector,
-                                   ReadOnlyAnalysisModel analysisModel) {
+                                   ReadOnlyAnalysisModel analysisModel,
+                                   RepositoryContextTrustService repositoryContextTrustService) {
         this.contextCollector = Objects.requireNonNull(contextCollector, "只读上下文采集器不能为空");
         this.analysisModel = Objects.requireNonNull(analysisModel, "只读分析模型不能为空");
+        this.repositoryContextTrustService = Objects.requireNonNull(
+                repositoryContextTrustService, "项目上下文信任服务不能为空");
     }
 
     /** 执行一次有事实依据的只读分析。 */
-    public ReadOnlyAnalysisResult analyze(String taskId,
-                                          IntentOperationType operationType,
-                                          String userPrompt,
-                                          GenerationWorkspace workspace,
-                                          CodeGenTypeEnum codeGenType) {
-        requireReadOnlyOperation(operationType);
+    public ReadOnlyAnalysisOutcome analyze(String taskId,
+                                           IntentOperationType operationType,
+                                           String userPrompt,
+                                           GenerationWorkspace workspace,
+                                           CodeGenTypeEnum codeGenType) {
+        ReadOnlyEvidenceContract contract = ReadOnlyEvidenceContract.resolve(operationType);
         AgentEditReadResult context = contextCollector.collect(workspace, userPrompt, codeGenType);
         Map<String, Integer> allowedReferenceLineCounts = collectReferenceLineCounts(context);
-        if (allowedReferenceLineCounts.isEmpty()) {
-            // 无项目事实时禁止调用模型：泛化结论既无法完成引用校验，也不应产生 provider 成本。
-            throw new IllegalStateException("只读分析未采集到可引用的项目文件");
-        }
         List<String> allowedReferences = List.copyOf(allowedReferenceLineCounts.keySet());
+        ProtectedRepositoryContextEnvelope contextEnvelope = protectContext(
+                context, userPrompt, operationType);
+        if (allowedReferences.isEmpty() && !contract.modelAllowedWithoutRepository()) {
+            return unavailableWithoutRepository(contract, contextEnvelope);
+        }
         ReadOnlyAnalysisRequest request = new ReadOnlyAnalysisRequest(
                 operationType,
                 userPrompt,
-                renderProjectContext(context),
+                contextEnvelope.content(),
                 allowedReferences
         );
         ReadOnlyAnalysisResult rawResult = analysisModel.analyze(taskId, request);
@@ -59,13 +69,26 @@ public class ReadOnlyAnalysisService {
             throw new IllegalStateException("只读分析模型未返回结果");
         }
         rawResult.requireIntentCoverage();
-        return rawResult.withReferences(groundReferences(
-                rawResult.references(), allowedReferenceLineCounts));
+        ReadOnlyAnalysisResult groundedResult = rawResult.withReferences(groundReferences(
+                rawResult.references(),
+                allowedReferenceLineCounts,
+                contract.groundedReferenceRequired()));
+        ReadOnlyEvidenceBasis evidenceBasis = allowedReferences.isEmpty()
+                ? ReadOnlyEvidenceBasis.USER_REQUIREMENT
+                : operationType == IntentOperationType.PLAN
+                        ? ReadOnlyEvidenceBasis.REPOSITORY_AND_REQUIREMENT
+                        : ReadOnlyEvidenceBasis.REPOSITORY_FACTS;
+        return ReadOnlyAnalysisOutcome.completed(
+                groundedResult,
+                evidenceBasis,
+                contextEnvelope
+        );
     }
 
     private List<ReadOnlyAnalysisResult.FileReference> groundReferences(
             List<ReadOnlyAnalysisResult.FileReference> references,
-            Map<String, Integer> allowedReferenceLineCounts) {
+            Map<String, Integer> allowedReferenceLineCounts,
+            boolean groundedReferenceRequired) {
         List<ReadOnlyAnalysisResult.FileReference> grounded = new ArrayList<>();
         Set<ReferenceLocation> seen = new LinkedHashSet<>();
         for (ReadOnlyAnalysisResult.FileReference reference : references) {
@@ -83,7 +106,8 @@ public class ReadOnlyAnalysisService {
                         reference.reason()));
             }
         }
-        if (grounded.isEmpty() && !allowedReferenceLineCounts.isEmpty()) {
+        if (grounded.isEmpty() && groundedReferenceRequired
+                && !allowedReferenceLineCounts.isEmpty()) {
             // 已采集文件不等于模型实际使用了该文件；不得用任意首文件伪造分析依据。
             throw new IllegalStateException("只读分析未返回有效的项目文件依据");
         }
@@ -150,12 +174,44 @@ public class ReadOnlyAnalysisService {
         return rendered.toString();
     }
 
-    private void requireReadOnlyOperation(IntentOperationType operationType) {
-        if (operationType != IntentOperationType.EXPLAIN
-                && operationType != IntentOperationType.AUDIT
-                && operationType != IntentOperationType.PLAN) {
-            throw new IllegalArgumentException("只读分析仅接受 EXPLAIN、AUDIT 或 PLAN 操作");
-        }
+    private ProtectedRepositoryContextEnvelope protectContext(
+            AgentEditReadResult context,
+            String userPrompt,
+            IntentOperationType operationType) {
+        EditContextPackage contextPackage = context == null ? null : context.contextPackage();
+        Map<String, String> fileContents = contextPackage == null || contextPackage.fileContents() == null
+                ? Map.of() : contextPackage.fileContents();
+        RetrievedRepositoryEvidence evidence = RetrievedRepositoryEvidence.fromFileContents(
+                renderProjectContext(context),
+                fileContents
+        );
+        return repositoryContextTrustService.protect(
+                RepositoryContextRequest.forPurpose(
+                        RepositoryContextPurpose.READ_ONLY,
+                        operationType.name() + ":" + userPrompt
+                ),
+                evidence
+        );
+    }
+
+    private ReadOnlyAnalysisOutcome unavailableWithoutRepository(
+            ReadOnlyEvidenceContract contract,
+            ProtectedRepositoryContextEnvelope contextEnvelope) {
+        return switch (contract.emptyRepositoryStatus()) {
+            case NO_PROJECT_CONTEXT -> ReadOnlyAnalysisOutcome.unavailable(
+                    ReadOnlyAnalysisStatus.NO_PROJECT_CONTEXT,
+                    "当前工作区没有可解释的项目文件",
+                    "NO_PROJECT_FILES",
+                    contextEnvelope
+            );
+            case NOT_AUDITABLE -> ReadOnlyAnalysisOutcome.unavailable(
+                    ReadOnlyAnalysisStatus.NOT_AUDITABLE,
+                    "当前工作区没有可审计的项目文件",
+                    "NO_AUDITABLE_FILES",
+                    contextEnvelope
+            );
+            case COMPLETED -> throw new IllegalStateException("只读证据合同缺少空项目失败语义");
+        };
     }
 
     private String normalizePath(String value) {

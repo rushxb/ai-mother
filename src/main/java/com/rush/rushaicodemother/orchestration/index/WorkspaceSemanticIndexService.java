@@ -8,9 +8,6 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
-import cn.hutool.json.JSONArray;
-import cn.hutool.json.JSONObject;
-import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceFileMetadata;
@@ -38,8 +35,6 @@ import java.util.regex.Pattern;
 public class WorkspaceSemanticIndexService {
 
     private static final String SCHEMA_VERSION = "v3";
-    private static final String INDEX_RELATIVE_PATH = ".ai-code-index/semantic-index.json";
-    private static final long MAX_INDEX_FILE_BYTES = 64L * 1024 * 1024;
     private static final int MAX_INDEXED_CONTENT_CHARS = 6000;
     private static final int MAX_TERMS_PER_FILE = 40;
     private static final int MAX_SYMBOLS_PER_FILE = 80;
@@ -113,13 +108,6 @@ public class WorkspaceSemanticIndexService {
                 if (cachedIndex != null && signature.equals(cachedIndex.signature())) {
                     return cachedIndex.index();
                 }
-                WorkspaceSemanticIndex loaded = readIndex(normalizedRoot);
-                if (loaded != null
-                        && SCHEMA_VERSION.equals(loaded.schemaVersion())
-                        && signature.equals(loaded.workspaceSignature())) {
-                    cache.put(cacheKey, new CachedIndex(signature, loaded));
-                    return loaded;
-                }
                 WorkspaceSemanticIndex rebuilt;
                 try {
                     rebuilt = buildIndex(scan, signature);
@@ -131,7 +119,6 @@ public class WorkspaceSemanticIndexService {
                     signature = computeWorkspaceSignature(scan);
                     rebuilt = buildIndex(scan, signature);
                 }
-                writeIndex(normalizedRoot, rebuilt);
                 cache.put(cacheKey, new CachedIndex(signature, rebuilt));
                 return rebuilt;
             } catch (Exception exception) {
@@ -704,108 +691,6 @@ public class WorkspaceSemanticIndexService {
             return preview.substring(0, 260).trim() + "...";
         }
         return StrUtil.blankToDefault(preview, "");
-    }
-
-    /** 写入索引。 */
-    private void writeIndex(Path rootDir, WorkspaceSemanticIndex index) {
-        try {
-            JSONObject payload = toJson(index);
-            workspaceFileSystemService.writeUtf8Atomically(rootDir, INDEX_RELATIVE_PATH, payload.toStringPretty());
-        } catch (IOException exception) {
-            log.debug("工作区索引不可写，跳过持久化，rootDir: {}", rootDir, LogExceptionSanitizer.sanitize(exception));
-        }
-    }
-
-    /** 读取索引。 */
-    private WorkspaceSemanticIndex readIndex(Path rootDir) {
-        try {
-            String persistedIndex = workspaceFileSystemService
-                    .readOptionalUtf8(rootDir, INDEX_RELATIVE_PATH, MAX_INDEX_FILE_BYTES)
-                    .orElse(null);
-            if (StrUtil.isBlank(persistedIndex)) {
-                return null;
-            }
-            JSONObject payload = JSONUtil.parseObj(persistedIndex);
-            if (payload == null || payload.isEmpty()) {
-                return null;
-            }
-            return fromJson(payload);
-        } catch (Exception exception) {
-            log.debug("读取工作区语义索引失败，rootDir: {}", rootDir, LogExceptionSanitizer.sanitize(exception));
-            return null;
-        }
-    }
-
-    /** 将当前对象转换为{@code Json}。 */
-    private JSONObject toJson(WorkspaceSemanticIndex index) {
-        JSONObject payload = new JSONObject();
-        payload.set("schemaVersion", index.schemaVersion());
-        payload.set("rootPath", index.rootPath());
-        payload.set("workspaceSignature", index.workspaceSignature());
-        payload.set("indexedAt", index.indexedAt());
-        payload.set("indexedFileCount", index.indexedFileCount());
-        JSONArray entries = new JSONArray();
-        for (WorkspaceSemanticIndexEntry entry : index.entries()) {
-            JSONObject item = new JSONObject();
-            item.set("relativePath", entry.relativePath());
-            item.set("fileName", entry.fileName());
-            item.set("extension", entry.extension());
-            item.set("size", entry.size());
-            item.set("lastModified", entry.lastModified());
-            item.set("searchableText", entry.searchableText());
-            item.set("contentExcerpt", entry.contentExcerpt());
-            item.set("terms", new JSONArray(entry.terms()));
-            item.set("symbols", new JSONArray(entry.symbols()));
-            entries.add(item);
-        }
-        payload.set("entries", entries);
-        return payload;
-    }
-
-    /** 根据输入数据创建当前对象。 */
-    private WorkspaceSemanticIndex fromJson(JSONObject payload) {
-        JSONArray entriesArray = payload.getJSONArray("entries");
-        List<WorkspaceSemanticIndexEntry> entries = new ArrayList<>();
-        if (entriesArray != null) {
-            for (Object item : entriesArray) {
-                if (!(item instanceof JSONObject entryObject)) {
-                    continue;
-                }
-                entries.add(new WorkspaceSemanticIndexEntry(
-                        entryObject.getStr("relativePath"),
-                        entryObject.getStr("fileName"),
-                        entryObject.getStr("extension"),
-                        entryObject.getLong("size", 0L),
-                        entryObject.getLong("lastModified", 0L),
-                        entryObject.getStr("searchableText"),
-                        entryObject.getStr("contentExcerpt"),
-                        readStringList(entryObject.getJSONArray("terms")),
-                        readStringList(entryObject.getJSONArray("symbols"))
-                ));
-            }
-        }
-        return new WorkspaceSemanticIndex(
-                payload.getStr("schemaVersion", SCHEMA_VERSION),
-                payload.getStr("rootPath"),
-                payload.getStr("workspaceSignature"),
-                payload.getLong("indexedAt", 0L),
-                payload.getInt("indexedFileCount", entries.size()),
-                List.copyOf(entries)
-        );
-    }
-
-    /** 读取{@code String}列表。 */
-    private List<String> readStringList(JSONArray array) {
-        if (array == null || array.isEmpty()) {
-            return List.of();
-        }
-        List<String> values = new ArrayList<>();
-        for (Object value : array) {
-            if (value != null && StrUtil.isNotBlank(String.valueOf(value))) {
-                values.add(String.valueOf(value));
-            }
-        }
-        return List.copyOf(values);
     }
 
     /** 计算工作区签名。 */

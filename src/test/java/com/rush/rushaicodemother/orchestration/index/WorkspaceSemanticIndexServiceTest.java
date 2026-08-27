@@ -7,8 +7,11 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -26,7 +29,7 @@ class WorkspaceSemanticIndexServiceTest {
     );
 
     @Test
-    void shouldPersistAndSearchWorkspaceIndex() throws Exception {
+    void shouldBuildAndSearchWorkspaceIndexWithoutMutatingProjectTree() throws Exception {
         Path tempDir = createTempWorkspace();
         try {
             write(tempDir, "src/views/Login.vue", """
@@ -37,13 +40,15 @@ class WorkspaceSemanticIndexServiceTest {
                     """);
             write(tempDir, "src/components/UserTable.vue", "<template>用户列表分页</template>");
             write(tempDir, "node_modules/ignored/index.js", "login should be ignored");
+            Map<String, String> before = snapshotTree(tempDir);
 
             WorkspaceSemanticIndex index = service.loadOrBuild(tempDir);
             List<WorkspaceSemanticSearchHit> hits = service.search(tempDir, "login token", Set.of("vue"), 10);
             List<WorkspaceSemanticSearchHit> symbolHits = service.search(tempDir, "issueLoginToken", Set.of("vue"), 10);
 
             assertEquals(2, index.indexedFileCount());
-            assertTrue(Files.exists(tempDir.resolve(".ai-code-index/semantic-index.json")));
+            assertEquals(before, snapshotTree(tempDir));
+            assertFalse(Files.exists(tempDir.resolve(".ai-code-index/semantic-index.json")));
             assertTrue(service.countIndexedSymbols(tempDir) > 0);
             assertTrue(index.entries().stream()
                     .flatMap(entry -> entry.symbols().stream())
@@ -168,5 +173,25 @@ class WorkspaceSemanticIndexServiceTest {
             FileUtil.del(path.toFile());
         } catch (Exception ignored) {
         }
+    }
+
+    /** 记录目录结构和文件字节，用于证明索引构建没有写入用户工作区。 */
+    private Map<String, String> snapshotTree(Path root) throws Exception {
+        Map<String, String> snapshot = new TreeMap<>();
+        try (var paths = Files.walk(root)) {
+            for (Path path : paths.toList()) {
+                if (path.equals(root)) {
+                    continue;
+                }
+                String relativePath = root.relativize(path).toString().replace('\\', '/');
+                snapshot.put(
+                        relativePath + (Files.isDirectory(path) ? "/" : ""),
+                        Files.isDirectory(path)
+                                ? "directory"
+                                : Base64.getEncoder().encodeToString(Files.readAllBytes(path))
+                );
+            }
+        }
+        return snapshot;
     }
 }

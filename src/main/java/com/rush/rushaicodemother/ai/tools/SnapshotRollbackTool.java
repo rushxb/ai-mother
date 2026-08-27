@@ -8,6 +8,7 @@ import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceCopyResult;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceDirectoryMetadata;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
 import com.rush.rushaicodemother.orchestration.artifact.ManualSnapshot;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
@@ -18,10 +19,12 @@ import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionConte
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import dev.langchain4j.data.message.TextContent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -56,7 +59,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
  * @return 处理后的快照回滚工具文本
  */
     @Tool("创建项目快照、列出快照、回滚到指定快照、删除快照。进行较大范围改动前建议先创建快照。")
-    public String manageSnapshot(
+    public TextContent manageSnapshot(
             @P("操作类型：createSnapshot、listSnapshots、rollbackSnapshot、deleteSnapshot")
             String action,
             @P("快照名称。createSnapshot 可为空自动生成；rollbackSnapshot、deleteSnapshot 时必填")
@@ -79,13 +82,13 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
                 case "createSnapshot" -> {
                     String normalizedSnapshotName = snapshotNamePolicy.resolveOrCreate(snapshotName, "snapshot");
                     snapshotWorkspaceService.prepareApplicationRoot(appId);
-                    yield createSnapshot(
+                    yield TextContent.from(createSnapshot(
                             resolveProjectPath(appId, relativeProjectPath),
                             normalizedSnapshotName,
                             appId
-                    );
+                    ));
                 }
-                case "listSnapshots" -> listSnapshots(snapshotRoot);
+                case "listSnapshots" -> TextContent.from(listSnapshots(snapshotRoot));
                 case "rollbackSnapshot" -> {
                     String normalizedSnapshotName = validateRequiredSnapshotName(snapshotName, "回滚时必须提供快照名称");
                     yield rollbackSnapshot(
@@ -95,11 +98,11 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
                             approvedInvocationId
                     );
                 }
-                case "deleteSnapshot" -> deleteSnapshot(
+                case "deleteSnapshot" -> TextContent.from(deleteSnapshot(
                         appId,
                         validateRequiredSnapshotName(snapshotName, "删除时必须提供快照名称"),
                         approvedInvocationId
-                );
+                ));
                 default -> throw toolFailure("错误：不支持的操作类型 - " + normalizedAction);
             };
         } catch (ToolPublicFailureException publicFailure) {
@@ -171,10 +174,10 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
     }
 
     /** 返回回滚快照。 */
-    private String rollbackSnapshot(Long appId,
-                                    Path projectPath,
-                                    String normalizedSnapshotName,
-                                    String invocationId) throws Exception {
+    private TextContent rollbackSnapshot(Long appId,
+                                         Path projectPath,
+                                         String normalizedSnapshotName,
+                                         String invocationId) throws Exception {
         Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, normalizedSnapshotName);
         if (!workspaceFileSystemService.isDirectory(snapshotPath)) {
             throw toolFailure("错误：快照不存在 - " + normalizedSnapshotName);
@@ -182,11 +185,33 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
         String backupSnapshotName = snapshotNamePolicy.validateRequired(
                 "pre_rollback_" + DigestUtil.sha256Hex(invocationId).substring(0, 16));
         Path backupSnapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, backupSnapshotName);
+        Runnable continuationCheck = () -> assertCurrentTask(appId);
         if (!workspaceFileSystemService.isDirectory(backupSnapshotPath)) {
-            workspaceFileSystemService.copyDirectory(projectPath, backupSnapshotPath);
+            workspaceFileSystemService.copyDirectory(projectPath, backupSnapshotPath, continuationCheck);
         }
-        workspaceFileSystemService.replaceDirectory(snapshotPath, projectPath);
-        return "已回滚到快照: " + normalizedSnapshotName + "，并自动备份当前版本为: " + backupSnapshotName;
+        // 备份可能耗时，覆盖项目之前必须再次确认执行权，禁止旧 worker 回滚新 owner 的结果。
+        assertCurrentTask(appId);
+        try {
+            workspaceFileSystemService.replaceDirectory(
+                    snapshotPath,
+                    projectPath,
+                    continuationCheck
+            );
+        } catch (WorkspaceFileSystemException exception) {
+            if (exception.reason() != WorkspaceFileSystemException.Reason.REPLACE_OUTCOME_UNKNOWN) {
+                throw exception;
+            }
+            // 物理结果未知时必须以正常工具结果落实审批终态，禁止同一审批被盲目重放。
+            return ToolResultEvidence.workspaceInvalidated(
+                    "回滚结果无法确认：工作区目录交换和原版本恢复均未得到可靠结果。"
+                            + "请勿自动重试，必须重新读取工作区并人工核对保留的 previous 目录。"
+            );
+        }
+        return ToolResultEvidence.workspaceInvalidated(
+                "已回滚到快照: " + normalizedSnapshotName
+                        + "，并自动备份当前版本为: " + backupSnapshotName
+                        + "。回滚前的文件读取、搜索和变更事实均已失效，继续操作前请重新读取目标文件。"
+        );
     }
 
     /** 删除快照。 */

@@ -33,6 +33,8 @@ public class WorkspaceFileSystemException extends IOException {
         FILE_CHANGED,
         TARGET_ALREADY_EXISTS,
         COPY_FAILED,
-        REPLACE_FAILED
+        REPLACE_FAILED,
+        /** 目录已发生位移且无法确认激活或恢复结果，必须人工核对物理工作区。 */
+        REPLACE_OUTCOME_UNKNOWN
     }
 }

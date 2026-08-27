@@ -27,8 +27,10 @@ import java.util.Set;
 @Component
 public class CompletedToolCallContextCompactor {
 
-    private static final String OMITTED_CONTENT =
+    private static final String CURRENT_WORKSPACE_CONTENT =
             "[目标内容已在工作区确认；如需查看请调用读取工具]";
+    private static final String ROLLED_BACK_CONTENT =
+            "历史写入内容已因后续回滚失去当前性；请重新读取确认";
     private static final Set<String> SOURCE_HEAVY_TOOLS = Set.of(
             "writeFile", "writeFiles", "modifyFile"
     );
@@ -77,6 +79,7 @@ public class CompletedToolCallContextCompactor {
         }
         List<ChatMessage> compacted = new ArrayList<>(messages.size());
         boolean changed = false;
+        int lastWorkspaceInvalidationIndex = lastWorkspaceInvalidationIndex(messages);
         // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int messageIndex = 0; messageIndex < messages.size(); messageIndex++) {
             ChatMessage message = messages.get(messageIndex);
@@ -84,13 +87,14 @@ public class CompletedToolCallContextCompactor {
                 compacted.add(message);
                 continue;
             }
-            Map<String, ToolExecutionResultMessage> successfulResults =
+            Map<String, ConfirmedMutationResult> successfulResults =
                     successfulResults(messages, messageIndex + 1);
             List<ToolExecutionRequest> requests = new ArrayList<>(
                     aiMessage.toolExecutionRequests().size());
             boolean messageChanged = false;
             for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
-                ToolExecutionRequest compactedRequest = compactRequest(request, successfulResults);
+                ToolExecutionRequest compactedRequest = compactRequest(
+                        request, successfulResults, lastWorkspaceInvalidationIndex);
                 requests.add(compactedRequest);
                 messageChanged = messageChanged || compactedRequest != request;
             }
@@ -105,11 +109,11 @@ public class CompletedToolCallContextCompactor {
     }
 
     /** 返回携带可信 mutation 事实的成功工具结果。 */
-    private Map<String, ToolExecutionResultMessage> successfulResults(
+    private Map<String, ConfirmedMutationResult> successfulResults(
             List<ChatMessage> messages,
             int resultStartIndex
     ) {
-        Map<String, ToolExecutionResultMessage> results = new HashMap<>();
+        Map<String, ConfirmedMutationResult> results = new HashMap<>();
         for (int index = resultStartIndex; index < messages.size(); index++) {
             if (!(messages.get(index) instanceof ToolExecutionResultMessage result)) {
                 break;
@@ -117,7 +121,7 @@ public class CompletedToolCallContextCompactor {
             if (result.id() != null && !result.id().isBlank()
                     && Boolean.FALSE.equals(result.isError())
                     && ToolResultEvidence.hasEffectiveMutationEvidence(result)) {
-                results.put(result.id(), result);
+                results.put(result.id(), new ConfirmedMutationResult(result, index));
             }
         }
         return results;
@@ -125,7 +129,8 @@ public class CompletedToolCallContextCompactor {
 
     /** 压缩请求以满足资源限制。 */
     private ToolExecutionRequest compactRequest(ToolExecutionRequest request,
-                                                Map<String, ToolExecutionResultMessage> successfulResults) {
+                                                Map<String, ConfirmedMutationResult> successfulResults,
+                                                int lastWorkspaceInvalidationIndex) {
         if (request == null
                 || request.id() == null
                 || !SOURCE_HEAVY_TOOLS.contains(request.name())
@@ -133,12 +138,16 @@ public class CompletedToolCallContextCompactor {
                 || request.arguments().length() <= maximumArgumentsChars) {
             return request;
         }
-        ToolExecutionResultMessage result = successfulResults.get(request.id());
-        if (result == null || !Objects.equals(request.name(), result.toolName())) {
+        ConfirmedMutationResult confirmedResult = successfulResults.get(request.id());
+        if (confirmedResult == null
+                || !Objects.equals(request.name(), confirmedResult.message().toolName())) {
             return request;
         }
+        String omittedContent = confirmedResult.messageIndex() < lastWorkspaceInvalidationIndex
+                ? ROLLED_BACK_CONTENT
+                : CURRENT_WORKSPACE_CONTENT;
         String compactedArguments = compactArguments(
-                request.name(), request.arguments(), result);
+                request.name(), request.arguments(), confirmedResult.message(), omittedContent);
         if (compactedArguments == null || compactedArguments.equals(request.arguments())) {
             return request;
         }
@@ -148,16 +157,17 @@ public class CompletedToolCallContextCompactor {
     /** 压缩参数以满足资源限制。 */
     private String compactArguments(String toolName,
                                     String arguments,
-                                    ToolExecutionResultMessage result) {
+                                    ToolExecutionResultMessage result,
+                                    String omittedContent) {
         try {
             JsonNode parsed = objectMapper.readTree(arguments);
             if (!(parsed instanceof ObjectNode source)) {
                 return null;
             }
             CompactionPlan plan = switch (toolName) {
-                case "writeFile" -> compactWriteFile(source);
-                case "writeFiles" -> compactWriteFiles(source);
-                case "modifyFile" -> compactModifyFile(source);
+                case "writeFile" -> compactWriteFile(source, omittedContent);
+                case "writeFiles" -> compactWriteFiles(source, omittedContent);
+                case "modifyFile" -> compactModifyFile(source, omittedContent);
                 default -> null;
             };
             if (plan == null || !evidenceAuthorizesCompaction(plan.requestedPaths(), result)) {
@@ -191,19 +201,19 @@ public class CompletedToolCallContextCompactor {
         ).isEmpty();
     }
 
-    private CompactionPlan compactWriteFile(ObjectNode source) {
+    private CompactionPlan compactWriteFile(ObjectNode source, String omittedContent) {
         String relativeFilePath = requiredText(source, "relativeFilePath");
         if (relativeFilePath == null || !source.has("content")) {
             return null;
         }
         ObjectNode compacted = objectMapper.createObjectNode();
         compacted.put("relativeFilePath", relativeFilePath);
-        compacted.put("content", OMITTED_CONTENT);
+        compacted.put("content", omittedContent);
         return new CompactionPlan(compacted, List.of(relativeFilePath));
     }
 
     /** 压缩{@code Write}文件以满足资源限制。 */
-    private CompactionPlan compactWriteFiles(ObjectNode source) {
+    private CompactionPlan compactWriteFiles(ObjectNode source, String omittedContent) {
         JsonNode filesNode = source.get("files");
         if (!(filesNode instanceof ArrayNode sourceFiles) || sourceFiles.isEmpty()) {
             return null;
@@ -220,7 +230,7 @@ public class CompletedToolCallContextCompactor {
             }
             ObjectNode compactedFile = objectMapper.createObjectNode();
             compactedFile.put("relativeFilePath", relativeFilePath);
-            compactedFile.put("content", OMITTED_CONTENT);
+            compactedFile.put("content", omittedContent);
             compactedFiles.add(compactedFile);
             requestedPaths.add(relativeFilePath);
         }
@@ -229,15 +239,15 @@ public class CompletedToolCallContextCompactor {
         return new CompactionPlan(compacted, List.copyOf(requestedPaths));
     }
 
-    private CompactionPlan compactModifyFile(ObjectNode source) {
+    private CompactionPlan compactModifyFile(ObjectNode source, String omittedContent) {
         String relativeFilePath = requiredText(source, "relativeFilePath");
         if (relativeFilePath == null || !source.has("oldContent") || !source.has("newContent")) {
             return null;
         }
         ObjectNode compacted = objectMapper.createObjectNode();
         compacted.put("relativeFilePath", relativeFilePath);
-        compacted.put("oldContent", OMITTED_CONTENT);
-        compacted.put("newContent", OMITTED_CONTENT);
+        compacted.put("oldContent", omittedContent);
+        compacted.put("newContent", omittedContent);
         return new CompactionPlan(compacted, List.of(relativeFilePath));
     }
 
@@ -248,7 +258,48 @@ public class CompletedToolCallContextCompactor {
                 : null;
     }
 
+    /**
+     * 定位最后一次可信工作区回滚结果。
+     *
+     * <p>只接受同一工具轮内 requestId 与 toolName 均匹配的结果，
+     * 防止错配或孤儿结果把历史写入误标为已回滚。</p>
+     */
+    private int lastWorkspaceInvalidationIndex(List<ChatMessage> messages) {
+        int lastIndex = -1;
+        for (int messageIndex = 0; messageIndex < messages.size(); messageIndex++) {
+            if (!(messages.get(messageIndex) instanceof AiMessage aiMessage)
+                    || !aiMessage.hasToolExecutionRequests()) {
+                continue;
+            }
+            Map<String, ToolExecutionRequest> requestsById = new HashMap<>();
+            for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
+                if (request != null && request.id() != null) {
+                    requestsById.put(request.id(), request);
+                }
+            }
+            for (int resultIndex = messageIndex + 1; resultIndex < messages.size(); resultIndex++) {
+                if (!(messages.get(resultIndex) instanceof ToolExecutionResultMessage result)) {
+                    break;
+                }
+                ToolExecutionRequest request = requestsById.get(result.id());
+                if (request != null
+                        && Objects.equals(request.name(), result.toolName())
+                        && ToolResultEvidence.confirmsWorkspaceInvalidation(result)) {
+                    lastIndex = resultIndex;
+                }
+            }
+        }
+        return lastIndex;
+    }
+
     /** 已完成参数校验、等待证据授权的压缩计划。 */
     private record CompactionPlan(ObjectNode arguments, List<String> requestedPaths) {
+    }
+
+    /** 成功 mutation 结果及其在上下文中的时序位置。 */
+    private record ConfirmedMutationResult(
+            ToolExecutionResultMessage message,
+            int messageIndex
+    ) {
     }
 }

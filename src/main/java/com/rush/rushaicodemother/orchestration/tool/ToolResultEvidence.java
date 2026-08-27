@@ -29,6 +29,8 @@ public final class ToolResultEvidence {
             "rush.tool.read.successfulPaths.v1";
     private static final String EFFECTIVE_MUTATION_PATHS_ATTRIBUTE =
             "rush.tool.mutation.effectivePaths.v1";
+    private static final String WORKSPACE_INVALIDATED_ATTRIBUTE =
+            "rush.tool.workspace.invalidated.v1";
     private static final int MAX_READ_PATHS = 10;
     private static final int MAX_MUTATION_PATHS = 100;
     private static final int MAX_REQUEST_PATHS = 100;
@@ -66,6 +68,19 @@ public final class ToolResultEvidence {
         return new EvidencedTextContent(
                 requiredDisplayResult,
                 Map.of(EFFECTIVE_MUTATION_PATHS_ATTRIBUTE, normalizedPaths)
+        );
+    }
+
+    /**
+     * 创建携带“此前工作区知识整体失效”事实的结果。
+     *
+     * <p>该事实用于快照回滚、工作区整体替换等 epoch 边界。它刻意不携带文件路径，
+     * 因为下游必须废弃此前全部读取与 mutation 结论，而不能猜测一份不完整的路径集。</p>
+     */
+    public static TextContent workspaceInvalidated(String displayResult) {
+        return new EvidencedTextContent(
+                Objects.requireNonNull(displayResult, "工具展示结果不能为空"),
+                Map.of(WORKSPACE_INVALIDATED_ATTRIBUTE, true)
         );
     }
 
@@ -124,6 +139,14 @@ public final class ToolResultEvidence {
         return paths.isEmpty() || !effectiveMutationPaths(result).isEmpty();
     }
 
+    /** 是否存在平台明确写入的工作区知识整体失效事实。 */
+    public static boolean confirmsWorkspaceInvalidation(ToolExecutionResultMessage result) {
+        return result != null
+                && !Boolean.TRUE.equals(result.isError())
+                && result.attributes() != null
+                && Boolean.TRUE.equals(result.attributes().get(WORKSPACE_INVALIDATED_ATTRIBUTE));
+    }
+
     /**
      * 只保留本次请求集合内的平台结果路径，并统一 Windows/Unix 相对路径写法。
      *
@@ -154,8 +177,11 @@ public final class ToolResultEvidence {
         // 保留键只能由本模块的私有 carrier 产生，普通 executor attributes 不具备事实权限。
         attributes.remove(SUCCESSFUL_READ_PATHS_ATTRIBUTE);
         attributes.remove(EFFECTIVE_MUTATION_PATHS_ATTRIBUTE);
-        if (result.result() instanceof EvidencedTextContent evidencedText) {
-            attributes.putAll(evidencedText.pathEvidence());
+        attributes.remove(WORKSPACE_INVALIDATED_ATTRIBUTE);
+        // 失败结果必须在物理消息层就移除成功事实，避免持久记录出现互相矛盾的状态。
+        if (!Boolean.TRUE.equals(result.isError())
+                && result.result() instanceof EvidencedTextContent evidencedText) {
+            attributes.putAll(evidencedText.trustedEvidence());
         }
         return Collections.unmodifiableMap(attributes);
     }
@@ -241,15 +267,15 @@ public final class ToolResultEvidence {
     /** 仅在进程内携带 attributes；序列化后的消息恢复为普通 {@link TextContent}。 */
     private static final class EvidencedTextContent extends TextContent {
 
-        private final Map<String, List<String>> pathEvidence;
+        private final Map<String, Object> trustedEvidence;
 
-        private EvidencedTextContent(String text, Map<String, List<String>> pathEvidence) {
+        private EvidencedTextContent(String text, Map<String, ?> trustedEvidence) {
             super(text);
-            this.pathEvidence = Map.copyOf(pathEvidence);
+            this.trustedEvidence = Map.copyOf(trustedEvidence);
         }
 
-        private Map<String, List<String>> pathEvidence() {
-            return pathEvidence;
+        private Map<String, Object> trustedEvidence() {
+            return trustedEvidence;
         }
     }
 }

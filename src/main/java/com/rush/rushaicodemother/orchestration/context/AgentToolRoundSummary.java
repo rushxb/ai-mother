@@ -11,6 +11,7 @@ import java.util.Objects;
  * 避免重复劳动和反复修同一处。</p>
  *
  * @param foldedRounds  被折叠的工具循环轮数
+ * @param workspaceInvalidated 折叠区间或其后是否发生了可信工作区回滚
  * @param readPaths     已读取过的文件路径
  * @param mutatedPaths  已写入或修改过的文件路径
  * @param deletedPaths  已删除的文件路径
@@ -20,6 +21,7 @@ import java.util.Objects;
  */
 public record AgentToolRoundSummary(
         int foldedRounds,
+        boolean workspaceInvalidated,
         List<String> readPaths,
         List<String> mutatedPaths,
         List<String> deletedPaths,
@@ -43,7 +45,7 @@ public record AgentToolRoundSummary(
     /** 空摘要，表示无历史可折叠。 */
     public static AgentToolRoundSummary none() {
         return new AgentToolRoundSummary(
-                0, List.of(), List.of(), List.of(), 0, 0, List.of());
+                0, false, List.of(), List.of(), List.of(), 0, 0, List.of());
     }
 
     /**
@@ -53,6 +55,7 @@ public record AgentToolRoundSummary(
      */
     public boolean blank() {
         return foldedRounds <= 0
+                && !workspaceInvalidated
                 && readPaths.isEmpty()
                 && mutatedPaths.isEmpty()
                 && deletedPaths.isEmpty()
@@ -73,6 +76,10 @@ public record AgentToolRoundSummary(
         StringBuilder text = new StringBuilder(HEADING);
         text.append("\n为控制上下文预算，最早 ").append(foldedRounds)
                 .append(" 轮工具循环的原文已移出对话，事实结论如下。");
+        if (workspaceInvalidated) {
+            text.append("\n已确认工作区发生回滚，回滚前的工作区事实已失效；")
+                    .append("以下仅保留最近一次回滚后的事实。");
+        }
         appendPaths(text, "已读取文件", readPaths);
         appendPaths(text, "已写入或修改文件", mutatedPaths);
         appendPaths(text, "已删除文件", deletedPaths);
@@ -133,7 +140,28 @@ public record AgentToolRoundSummary(
                     .append("需要原文时调用读取工具。");
             return;
         }
+        if (workspaceInvalidated && readPaths.isEmpty()) {
+            text.append("\n工作区知识已因回滚失效，继续操作前请重新读取目标文件。");
+            return;
+        }
         text.append("\n以上仅为历史读取事实，未确认工作区改动；需要原文时调用读取工具。");
+    }
+
+    /**
+     * 移除由本模块追加的旧摘要，保留用户配置的系统提示原文。
+     *
+     * <p>工作区回滚会使旧摘要中的路径事实失效，因此不能继续累加。</p>
+     */
+    static String stripPlatformSummary(String systemText) {
+        if (systemText == null || systemText.isEmpty()) {
+            return "";
+        }
+        String separatedHeading = "\n\n" + HEADING;
+        int appendedSummaryStart = systemText.indexOf(separatedHeading);
+        if (appendedSummaryStart >= 0) {
+            return systemText.substring(0, appendedSummaryStart).stripTrailing();
+        }
+        return systemText.startsWith(HEADING) ? "" : systemText;
     }
 
     private void appendPaths(StringBuilder text, String label, List<String> paths) {

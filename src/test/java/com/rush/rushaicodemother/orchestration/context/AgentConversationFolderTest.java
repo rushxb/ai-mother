@@ -217,6 +217,161 @@ class AgentConversationFolderTest {
     }
 
     @Test
+    void trustedRollbackMustStartANewFactEpochInTemporalOrder() {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from("系统提示"));
+        messages.add(UserMessage.from("回滚后继续生成"));
+        messages.addAll(toolRound("old-read", "readFile",
+                "{\"relativeFilePath\":\"src/old-read.ts\"}", "old", false));
+        messages.addAll(toolRound("old-write", "writeFile",
+                "{\"relativeFilePath\":\"src/old-write.ts\",\"content\":\"x\"}",
+                "written", false, List.of("src/old-write.ts")));
+        messages.addAll(toolRound("old-delete", "deleteFile",
+                "{\"relativeFilePath\":\"src/old-delete.ts\"}",
+                "deleted", false, List.of("src/old-delete.ts")));
+        messages.addAll(evidencedNoOpRound("old-noop", "writeFile",
+                "{\"relativeFilePath\":\"src/old-noop.ts\",\"content\":\"same\"}"));
+        messages.addAll(toolRound("old-unknown", "writeFile",
+                "{\"relativeFilePath\":\"src/old-unknown.ts\",\"content\":\"x\"}",
+                "legacy success", false));
+        messages.addAll(toolRound("old-error", "writeFile",
+                "{\"relativeFilePath\":\"src/old-error.ts\",\"content\":\"x\"}",
+                "write failed", true));
+        messages.addAll(workspaceInvalidationRound("rollback"));
+        messages.addAll(toolRound("new-read", "readFile",
+                "{\"relativeFilePath\":\"src/new-read.ts\"}", "new", false));
+        messages.addAll(toolRound("new-write", "writeFile",
+                "{\"relativeFilePath\":\"src/new-write.ts\",\"content\":\"x\"}",
+                "written", false, List.of("src/new-write.ts")));
+        messages.addAll(toolRound("retained", "readFile",
+                "{\"relativeFilePath\":\"src/retained.ts\"}", "retained", false));
+
+        AgentConversationFolder.FoldResult result = folder.fold(messages, 1);
+
+        AgentToolRoundSummary summary = result.summary();
+        assertTrue(summary.workspaceInvalidated());
+        assertEquals(List.of("src/new-read.ts"), summary.readPaths());
+        assertEquals(List.of("src/new-write.ts"), summary.mutatedPaths());
+        assertTrue(summary.deletedPaths().isEmpty());
+        assertEquals(0, summary.confirmedNoMutationCount());
+        assertEquals(0, summary.unknownMutationCount());
+        assertTrue(summary.unresolvedErrors().isEmpty());
+        String rendered = summary.render();
+        assertFalse(rendered.contains("src/old-"),
+                "facts from before the rollback epoch must be discarded:\n" + rendered);
+        assertTrue(rendered.contains("回滚前的工作区事实已失效"));
+    }
+
+    @Test
+    void recreatingADeletedPathMustReflectTheLatestTemporalState() {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from("系统提示"));
+        messages.add(UserMessage.from("重建文件"));
+        messages.addAll(toolRound("delete", "deleteFile",
+                "{\"relativeFilePath\":\"src/recreated.ts\"}",
+                "deleted", false, List.of("src/recreated.ts")));
+        messages.addAll(toolRound("recreate", "writeFile",
+                "{\"relativeFilePath\":\"src/recreated.ts\",\"content\":\"new\"}",
+                "written", false, List.of("src/recreated.ts")));
+        messages.addAll(toolRound("retained", "readFile",
+                "{\"relativeFilePath\":\"src/retained.ts\"}", "retained", false));
+
+        AgentToolRoundSummary summary = folder.fold(messages, 1).summary();
+
+        assertEquals(List.of("src/recreated.ts"), summary.mutatedPaths());
+        assertTrue(summary.deletedPaths().isEmpty(),
+                "delete followed by recreate must report the final existing state");
+    }
+
+    @Test
+    void foldedRollbackMustReplaceOnlyThePreviousPlatformSummary() {
+        String originalSystem = "你是高质量项目生成 Agent";
+        String staleSummary = "【已折叠的历史工具循环】\n"
+                + "已写入或修改文件：src/stale.ts\n以上列出的成功改动已落盘";
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from(originalSystem + "\n\n" + staleSummary));
+        messages.add(UserMessage.from("回滚"));
+        messages.addAll(workspaceInvalidationRound("rollback"));
+        messages.addAll(toolRound("retained", "readFile",
+                "{\"relativeFilePath\":\"src/current.ts\"}", "current", false));
+
+        AgentConversationFolder.FoldResult result = folder.fold(messages, 1);
+
+        String system = assertInstanceOf(SystemMessage.class, result.messages().getFirst()).text();
+        assertTrue(system.startsWith(originalSystem), "system source text must survive reset folding");
+        assertFalse(system.contains("src/stale.ts"),
+                "the previous platform summary belongs to the invalidated epoch");
+        assertEquals(1, occurrences(system, "【已折叠的历史工具循环】"));
+        assertTrue(system.contains("回滚前的工作区事实已失效"));
+    }
+
+    @Test
+    void retainedRollbackMustInvalidateFoldedFactsAndRetireTheOldSummary() {
+        String originalSystem = "保留系统原文";
+        String staleSummary = "【已折叠的历史工具循环】\n"
+                + "已写入或修改文件：src/older-epoch.ts";
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from(originalSystem + "\n\n" + staleSummary));
+        messages.add(UserMessage.from("回滚保留在原文窗口"));
+        messages.addAll(toolRound("folded-write", "writeFile",
+                "{\"relativeFilePath\":\"src/folded.ts\",\"content\":\"x\"}",
+                "written", false, List.of("src/folded.ts")));
+        messages.addAll(workspaceInvalidationRound("retained-rollback"));
+        messages.addAll(toolRound("retained-read", "readFile",
+                "{\"relativeFilePath\":\"src/current.ts\"}", "current", false));
+
+        AgentConversationFolder.FoldResult result = folder.fold(messages, 2);
+
+        assertTrue(result.folded());
+        assertTrue(result.summary().workspaceInvalidated(),
+                "a trusted reset in the retained window still retires all folded facts before it");
+        assertTrue(result.summary().mutatedPaths().isEmpty());
+        String system = assertInstanceOf(SystemMessage.class, result.messages().getFirst()).text();
+        assertTrue(system.startsWith(originalSystem));
+        assertFalse(system.contains("src/older-epoch.ts"));
+        assertFalse(system.contains("src/folded.ts"));
+        assertEquals(1, occurrences(system, "【已折叠的历史工具循环】"));
+    }
+
+    @Test
+    void rollbackMustRetireOldPlatformSummaryEvenWhenConversationIsWithinBudget() {
+        String originalSystem = "原始系统约束";
+        String staleSummary = "【已折叠的历史工具循环】\n"
+                + "已读取文件：src/stale.ts";
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from(originalSystem + "\n\n" + staleSummary));
+        messages.add(UserMessage.from("回滚"));
+        messages.addAll(workspaceInvalidationRound("rollback-within-budget"));
+
+        AgentConversationFolder.FoldResult result = folder.fold(messages, 5);
+
+        assertFalse(result.folded(), "no tool rounds need folding within the configured budget");
+        String system = assertInstanceOf(SystemMessage.class, result.messages().getFirst()).text();
+        assertEquals(originalSystem, system,
+                "trusted rollback must retire old platform facts without erasing system source text");
+        assertEquals(4, result.messages().size(), "raw rollback request and result must remain intact");
+    }
+
+    @Test
+    void mismatchedToolResultMustNotClearFoldedFacts() {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from("系统提示"));
+        messages.add(UserMessage.from("继续生成"));
+        messages.addAll(toolRound("landed-write", "writeFile",
+                "{\"relativeFilePath\":\"src/landed.ts\",\"content\":\"x\"}",
+                "written", false, List.of("src/landed.ts")));
+        messages.addAll(mismatchedWorkspaceInvalidationRound("mismatched-reset"));
+        messages.addAll(toolRound("retained", "readFile",
+                "{\"relativeFilePath\":\"src/current.ts\"}", "current", false));
+
+        AgentToolRoundSummary summary = folder.fold(messages, 1).summary();
+
+        assertFalse(summary.workspaceInvalidated());
+        assertEquals(List.of("src/landed.ts"), summary.mutatedPaths(),
+                "request/result tool-name mismatch must not advance the fact epoch");
+    }
+
+    @Test
     void openRoundMustNeverBeFolded() {
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(SystemMessage.from("系统提示"));
@@ -357,5 +512,64 @@ class AgentConversationFolderTest {
             result = ToolExecutionResultMessage.from(id, tool, resultText);
         }
         return List.of(request, result);
+    }
+
+    private static List<ChatMessage> evidencedNoOpRound(
+            String id,
+            String tool,
+            String arguments
+    ) {
+        return evidencedRound(id, tool, arguments,
+                ToolResultEvidence.effectiveMutations("already satisfied", List.of()));
+    }
+
+    private static List<ChatMessage> workspaceInvalidationRound(String id) {
+        return evidencedRound(
+                id,
+                "manageSnapshot",
+                "{\"action\":\"rollbackSnapshot\",\"snapshotName\":\"safe\"}",
+                ToolResultEvidence.workspaceInvalidated("workspace restored")
+        );
+    }
+
+    private static List<ChatMessage> mismatchedWorkspaceInvalidationRound(String id) {
+        List<ChatMessage> evidenced = workspaceInvalidationRound(id);
+        ToolExecutionResultMessage result = (ToolExecutionResultMessage) evidenced.get(1);
+        ToolExecutionResultMessage mismatched = ToolExecutionResultMessage.builder()
+                .id(result.id())
+                .toolName("anotherTool")
+                .text(result.text())
+                .isError(result.isError())
+                .attributes(result.attributes())
+                .build();
+        return List.of(evidenced.getFirst(), mismatched);
+    }
+
+    private static List<ChatMessage> evidencedRound(
+            String id,
+            String tool,
+            String arguments,
+            TextContent content
+    ) {
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .id(id).name(tool).arguments(arguments).build();
+        ToolExecutionResult executionResult = ToolExecutionResult.builder()
+                .result(content)
+                .resultContents(List.of(content))
+                .build();
+        return List.of(
+                AiMessage.builder().toolExecutionRequests(List.of(request)).build(),
+                ToolResultEvidence.toMessage(request, executionResult)
+        );
+    }
+
+    private static int occurrences(String text, String fragment) {
+        int count = 0;
+        int from = 0;
+        while ((from = text.indexOf(fragment, from)) >= 0) {
+            count++;
+            from += fragment.length();
+        }
+        return count;
     }
 }

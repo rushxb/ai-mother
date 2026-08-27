@@ -91,6 +91,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -498,6 +499,71 @@ class DefaultGenerationAgentRuntimeTest {
     }
 
     @Test
+    void approvedWorkspaceInvalidationMustSurviveDurableOutcomeReplay() {
+        InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
+        ToolExecutionRequest pendingRequest = ToolExecutionRequest.builder()
+                .id("call-rollback")
+                .name("manageSnapshot")
+                .arguments("{\"action\":\"rollbackSnapshot\"}")
+                .build();
+        List<ChatMessage> transcript = List.of(
+                UserMessage.from("rollback to safe"),
+                AiMessage.builder().toolExecutionRequests(List.of(pendingRequest)).build()
+        );
+        CountingInvalidatingSnapshotTool tool = new CountingInvalidatingSnapshotTool();
+        ToolManager toolManager = mock(ToolManager.class);
+        when(toolManager.getToolsForCodeGen(CodeGenTypeEnum.VUE_PROJECT))
+                .thenReturn(new BaseTool[]{tool});
+        StreamingModelFactory modelFactory = mock(StreamingModelFactory.class);
+        stubExecutionModel(modelFactory, new CompletingStreamingModel());
+        ToolInvocationCheckpoint checkpoint = new ToolInvocationCheckpoint(
+                ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
+                pendingRequest.id(), pendingRequest.name(), pendingRequest.arguments(),
+                "{\"taskId\":\"task-1\"}", NOW);
+        ToolApprovalRecord approved = approval(ToolApprovalStatus.APPROVED, checkpoint);
+        ToolApprovalRecord executing = executionApproval(
+                ToolApprovalStatus.EXECUTING, checkpoint, null);
+        ToolApprovalService approvalService = mock(ToolApprovalService.class);
+        when(approvalService.beginExecution(approved)).thenReturn(executing);
+        when(approvalService.completeExecution(eq(executing), any()))
+                .thenAnswer(invocation -> executionApproval(
+                        ToolApprovalStatus.CONSUMED,
+                        checkpoint,
+                        invocation.getArgument(1)
+                ));
+        DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
+                memoryStore, toolManager, modelFactory, mock(ToolExecutionFailurePolicy.class),
+                approvalService, new GenerationToolExecutionContextService(),
+                passthroughPolicy(), modelCallSupervisor, stageAdmissionService());
+        GenerationExecutionContext executionContext = executionContext();
+        assumeWorkspaceMutation(executionContext);
+
+        engine.continueAfterDecision(
+                        approved,
+                        state(executionContext, checkpoint, transcript),
+                        executionContext,
+                        () -> false,
+                        ignored -> { })
+                .blockLast();
+
+        assertEquals(1, tool.executions.get());
+        ArgumentCaptor<ToolExecutionOutcome> outcomeCaptor =
+                ArgumentCaptor.forClass(ToolExecutionOutcome.class);
+        verify(approvalService).completeExecution(eq(executing), outcomeCaptor.capture());
+        assertTrue(outcomeCaptor.getValue().workspaceInvalidated(),
+                "审批终态必须持久化整体失效事实");
+        assertFalse(outcomeCaptor.getValue().mutationEvidencePresent());
+        ToolExecutionResultMessage result = memoryStore.getMessages(11L).stream()
+                .filter(ToolExecutionResultMessage.class::isInstance)
+                .map(ToolExecutionResultMessage.class::cast)
+                .filter(message -> pendingRequest.id().equals(message.id()))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(ToolResultEvidence.confirmsWorkspaceInvalidation(result),
+                "审批执行完成后的重放必须恢复整体失效 carrier");
+    }
+
+    @Test
     void rejectedInvocationMustBecomeToolErrorWithoutExecutingSideEffect() {
         InMemoryChatMemoryStore memoryStore = new InMemoryChatMemoryStore();
         ToolExecutionRequest pendingRequest = ToolExecutionRequest.builder()
@@ -660,7 +726,8 @@ class DefaultGenerationAgentRuntimeTest {
                 "{\"taskId\":\"task-1\"}", NOW);
         ToolApprovalRecord consumed = executionApproval(
                 ToolApprovalStatus.CONSUMED, checkpoint,
-                new ToolExecutionOutcome(false, "already completed"));
+                new ToolExecutionOutcome(
+                        false, "already completed", false, List.of(), true));
         ToolApprovalService approvalService = mock(ToolApprovalService.class);
         when(approvalService.beginExecution(consumed)).thenReturn(consumed);
         DefaultGenerationAgentRuntime engine = new DefaultGenerationAgentRuntime(
@@ -682,6 +749,8 @@ class DefaultGenerationAgentRuntimeTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals("already completed", result.text());
+        assertTrue(ToolResultEvidence.confirmsWorkspaceInvalidation(result),
+                "CONSUMED 直接重放必须恢复工作区失效事实");
     }
 
     @Test
@@ -1144,6 +1213,39 @@ class DefaultGenerationAgentRuntimeTest {
         public String manageSnapshot(@P("action") String action, @ToolMemoryId Long appId) {
             executions.incrementAndGet();
             return action + ":" + appId;
+        }
+
+        @Override
+        public ToolRiskLevel getRiskLevel() {
+            return ToolRiskLevel.DESTRUCTIVE;
+        }
+
+        @Override
+        public String getToolName() {
+            return "manageSnapshot";
+        }
+
+        @Override
+        public String getDisplayName() {
+            return "snapshot";
+        }
+
+        @Override
+        public String generateToolExecutedResult(JSONObject arguments) {
+            return "snapshot";
+        }
+    }
+
+    private static final class CountingInvalidatingSnapshotTool extends BaseTool {
+        private final AtomicInteger executions = new AtomicInteger();
+
+        @Tool
+        public TextContent manageSnapshot(
+                @P("action") String action,
+                @ToolMemoryId Long appId
+        ) {
+            executions.incrementAndGet();
+            return ToolResultEvidence.workspaceInvalidated(action + ":" + appId);
         }
 
         @Override

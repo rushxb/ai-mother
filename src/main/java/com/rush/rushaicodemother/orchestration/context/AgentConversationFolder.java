@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.context;
 
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -64,7 +65,7 @@ public class AgentConversationFolder {
         List<Round> toolRounds = rounds.stream().filter(Round::hasToolRequests).toList();
         int foldableCount = toolRounds.size() - keepRecentRounds;
         if (foldableCount <= 0) {
-            return FoldResult.unchanged(messages);
+            return retireStalePlatformSummary(messages, rounds);
         }
         // 折叠边界取「第 foldableCount 个已闭合工具轮」的结束位置。
         Round boundary = null;
@@ -85,12 +86,58 @@ public class AgentConversationFolder {
         }
 
         int boundaryIndex = indexOfIdentity(rounds, boundary);
-        List<Round> folded = rounds.subList(0, boundaryIndex + 1);
-        AgentToolRoundSummary summary = summarize(folded, foldedRounds);
+        AgentToolRoundSummary summary = summarize(rounds, boundaryIndex, foldedRounds);
         if (summary.blank()) {
             return FoldResult.unchanged(messages);
         }
         return new FoldResult(rebuild(rounds, boundaryIndex, summary), summary, foldedRounds);
+    }
+
+    /**
+     * 即使当前尚未超过折叠预算，新的工作区回滚也必须立即退役旧摘要。
+     */
+    private FoldResult retireStalePlatformSummary(
+            List<ChatMessage> messages,
+            List<Round> rounds
+    ) {
+        if (!containsWorkspaceInvalidation(rounds)) {
+            return FoldResult.unchanged(messages);
+        }
+        int systemIndex = -1;
+        SystemMessage system = null;
+        for (int index = 0; index < messages.size(); index++) {
+            if (messages.get(index) instanceof SystemMessage candidate) {
+                systemIndex = index;
+                system = candidate;
+            }
+        }
+        if (system == null) {
+            return FoldResult.unchanged(messages);
+        }
+        String stripped = AgentToolRoundSummary.stripPlatformSummary(system.text());
+        if (Objects.equals(stripped, system.text())) {
+            return FoldResult.unchanged(messages);
+        }
+        List<ChatMessage> retired = new ArrayList<>(messages);
+        retired.set(systemIndex, SystemMessage.from(stripped));
+        return new FoldResult(List.copyOf(retired), AgentToolRoundSummary.none(), 0);
+    }
+
+    private boolean containsWorkspaceInvalidation(List<Round> rounds) {
+        for (Round round : rounds) {
+            if (!(round.head() instanceof AiMessage aiMessage)
+                    || !aiMessage.hasToolExecutionRequests()) {
+                continue;
+            }
+            Map<String, ToolExecutionResultMessage> resultsById = resultsById(round);
+            for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
+                if (confirmsWorkspaceInvalidation(
+                        request, resultsById.get(request.id()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -119,9 +166,13 @@ public class AgentConversationFolder {
         List<Round> retained = allRounds.subList(boundaryIndex + 1, allRounds.size());
         List<ChatMessage> rebuilt = new ArrayList<>();
         SystemMessage system = lastSystemMessage(allRounds);
-        rebuilt.add(SystemMessage.from(system == null
+        String systemText = system == null ? "" : system.text();
+        if (summary.workspaceInvalidated()) {
+            systemText = AgentToolRoundSummary.stripPlatformSummary(systemText);
+        }
+        rebuilt.add(SystemMessage.from(systemText.isBlank()
                 ? summary.render()
-                : system.text() + "\n\n" + summary.render()));
+                : systemText + "\n\n" + summary.render()));
 
         UserMessage anchor = lastUserMessageBefore(allRounds, boundaryIndex);
         boolean retainedHasUser = retained.stream()
@@ -138,16 +189,28 @@ public class AgentConversationFolder {
         return List.copyOf(rebuilt);
     }
 
-    /** 汇总被折叠轮次中的读取、改动与失败证据。 */
-    private AgentToolRoundSummary summarize(List<Round> folded, int foldedRounds) {
+    /**
+     * 汇总被折叠轮次中的读取、改动与失败证据。
+     *
+     * <p>回滚是一个全局事实 epoch 边界：即使回滚轮仍在保留窗口内，
+     * 它也已经使将被折叠的旧事实失效。因此扫描范围必须覆盖完整对话，
+     * 但只把折叠边界之前的普通事实收入摘要。</p>
+     */
+    private AgentToolRoundSummary summarize(
+            List<Round> allRounds,
+            int boundaryIndex,
+            int foldedRounds
+    ) {
         Set<String> readPaths = new LinkedHashSet<>();
         Set<String> mutatedPaths = new LinkedHashSet<>();
         Set<String> deletedPaths = new LinkedHashSet<>();
         List<String> unresolvedErrors = new ArrayList<>();
         int confirmedNoMutationCount = 0;
         int unknownMutationCount = 0;
+        boolean workspaceInvalidated = false;
 
-        for (Round round : folded) {
+        for (int roundIndex = 0; roundIndex < allRounds.size(); roundIndex++) {
+            Round round = allRounds.get(roundIndex);
             if (!(round.head() instanceof AiMessage aiMessage) || !aiMessage.hasToolExecutionRequests()) {
                 continue;
             }
@@ -155,6 +218,20 @@ public class AgentConversationFolder {
             for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
                 ToolExecutionResultMessage result = resultsById.get(request.id());
                 boolean failed = result != null && Boolean.TRUE.equals(result.isError());
+                if (confirmsWorkspaceInvalidation(request, result)) {
+                    readPaths.clear();
+                    mutatedPaths.clear();
+                    deletedPaths.clear();
+                    unresolvedErrors.clear();
+                    confirmedNoMutationCount = 0;
+                    unknownMutationCount = 0;
+                    workspaceInvalidated = true;
+                    continue;
+                }
+                // 保留窗口内的普通事实仍有原文，不再重复写入折叠摘要。
+                if (roundIndex > boundaryIndex) {
+                    continue;
+                }
                 if (failed) {
                     collectError(unresolvedErrors, request, result);
                     // 失败的写操作未落盘，不能宣称已改动，否则模型会跳过必要的重试。
@@ -170,15 +247,22 @@ public class AgentConversationFolder {
                 }
                 switch (extracted.effect()) {
                     case READ -> readPaths.addAll(extracted.paths());
-                    case MUTATE -> mutatedPaths.addAll(extracted.paths());
-                    case DELETE -> deletedPaths.addAll(extracted.paths());
+                    case MUTATE -> {
+                        mutatedPaths.addAll(extracted.paths());
+                        deletedPaths.removeAll(extracted.paths());
+                        readPaths.removeAll(extracted.paths());
+                    }
+                    case DELETE -> {
+                        deletedPaths.addAll(extracted.paths());
+                        mutatedPaths.removeAll(extracted.paths());
+                        readPaths.removeAll(extracted.paths());
+                    }
                 }
             }
         }
-        // 已删除的文件不应再出现在「已改动」里，避免模型据此认为文件仍然存在。
-        mutatedPaths.removeAll(deletedPaths);
         return new AgentToolRoundSummary(
                 foldedRounds,
+                workspaceInvalidated,
                 limit(readPaths, "读取"),
                 limit(mutatedPaths, "改动"),
                 limit(deletedPaths, "删除"),
@@ -186,6 +270,19 @@ public class AgentConversationFolder {
                 unknownMutationCount,
                 List.copyOf(unresolvedErrors)
         );
+    }
+
+    /**
+     * 全局 epoch 事实与具体工具名解耦，但必须先完成请求/结果身份配对。
+     */
+    private boolean confirmsWorkspaceInvalidation(
+            ToolExecutionRequest request,
+            ToolExecutionResultMessage result
+    ) {
+        return request != null
+                && result != null
+                && Objects.equals(request.name(), result.toolName())
+                && ToolResultEvidence.confirmsWorkspaceInvalidation(result);
     }
 
     private void collectError(List<String> errors,

@@ -91,12 +91,20 @@ public class FoldingTokenWindowChatMemory implements ChatMemory {
      * 因此正常情况下只折叠必要的最少轮次。</p>
      */
     private List<ChatMessage> enforceBudget(List<ChatMessage> messages) {
-        if (messages.isEmpty() || accountant.estimate(messages) <= maxTokens) {
+        if (messages.isEmpty()) {
             return messages;
         }
         int toolRounds = countToolRounds(messages);
+        // epoch 清理不是预算优化：即使当前未超 token 上限，
+        // 可信回滚也必须立即退役上一个工作区 epoch 的平台摘要。
+        AgentConversationFolder.FoldResult epochNormalized = folder.fold(
+                messages, Math.max(toolRounds, MINIMUM_RETAINED_ROUNDS));
+        List<ChatMessage> normalizedMessages = epochNormalized.messages();
+        if (accountant.estimate(normalizedMessages) <= maxTokens) {
+            return normalizedMessages;
+        }
         for (int keep = toolRounds - 1; keep >= MINIMUM_RETAINED_ROUNDS; keep--) {
-            AgentConversationFolder.FoldResult result = folder.fold(messages, keep);
+            AgentConversationFolder.FoldResult result = folder.fold(normalizedMessages, keep);
             if (!result.folded()) {
                 continue;
             }
@@ -108,7 +116,7 @@ public class FoldingTokenWindowChatMemory implements ChatMemory {
                 return result.messages();
             }
         }
-        return messages;
+        return normalizedMessages;
     }
 
     private int countToolRounds(List<ChatMessage> messages) {

@@ -220,6 +220,94 @@ class CompletedToolCallContextCompactorTest {
         assertTrue(compactedArguments.contains("目标内容已在工作区确认"));
     }
 
+    @Test
+    void compactedWritesMustExplainWhetherALaterRollbackCoveredThem() throws Exception {
+        String historicalSource = "historical-source ".repeat(1_000);
+        String currentSource = "current-source ".repeat(1_000);
+        ToolExecutionRequest historicalWrite = request(
+                "historical-write",
+                "writeFile",
+                "{\"relativeFilePath\":\"src/Historical.vue\",\"content\":\""
+                        + historicalSource + "\"}"
+        );
+        ToolExecutionRequest rollback = request(
+                "rollback",
+                "manageSnapshot",
+                "{\"action\":\"rollbackSnapshot\",\"snapshotName\":\"safe\"}"
+        );
+        ToolExecutionRequest currentWrite = request(
+                "current-write",
+                "writeFile",
+                "{\"relativeFilePath\":\"src/Current.vue\",\"content\":\""
+                        + currentSource + "\"}"
+        );
+        ChatRequest original = ChatRequest.builder()
+                .messages(List.of(
+                        UserMessage.from("回滚前后继续修改"),
+                        AiMessage.from(historicalWrite),
+                        mutationResult(historicalWrite, "written", List.of("src/Historical.vue")),
+                        AiMessage.from(rollback),
+                        workspaceInvalidationResult(rollback),
+                        AiMessage.from(currentWrite),
+                        mutationResult(currentWrite, "written", List.of("src/Current.vue"))
+                ))
+                .build();
+
+        ChatRequest compacted = compactor(1_024).compact(original);
+        String historicalArguments = ((AiMessage) compacted.messages().get(1))
+                .toolExecutionRequests().getFirst().arguments();
+        String currentArguments = ((AiMessage) compacted.messages().get(5))
+                .toolExecutionRequests().getFirst().arguments();
+
+        assertFalse(historicalArguments.contains(historicalSource));
+        assertEquals("历史写入内容已因后续回滚失去当前性；请重新读取确认",
+                objectMapper.readTree(historicalArguments).get("content").textValue());
+        assertFalse(currentArguments.contains(currentSource));
+        assertTrue(objectMapper.readTree(currentArguments).get("content").textValue()
+                .contains("目标内容已在工作区确认"));
+    }
+
+    @Test
+    void mismatchedInvalidationResultMustNotMakeEarlierWriteStale() throws Exception {
+        String source = "still-current-source ".repeat(1_000);
+        ToolExecutionRequest write = request(
+                "write",
+                "writeFile",
+                "{\"relativeFilePath\":\"src/Current.vue\",\"content\":\""
+                        + source + "\"}"
+        );
+        ToolExecutionRequest rollback = request(
+                "rollback",
+                "manageSnapshot",
+                "{\"action\":\"rollbackSnapshot\",\"snapshotName\":\"safe\"}"
+        );
+        ToolExecutionResultMessage evidenced = workspaceInvalidationResult(rollback);
+        ToolExecutionResultMessage mismatched = ToolExecutionResultMessage.builder()
+                .id(evidenced.id())
+                .toolName("anotherTool")
+                .text(evidenced.text())
+                .isError(evidenced.isError())
+                .attributes(evidenced.attributes())
+                .build();
+        ChatRequest original = ChatRequest.builder()
+                .messages(List.of(
+                        UserMessage.from("继续修改"),
+                        AiMessage.from(write),
+                        mutationResult(write, "written", List.of("src/Current.vue")),
+                        AiMessage.from(rollback),
+                        mismatched
+                ))
+                .build();
+
+        ChatRequest compacted = compactor(1_024).compact(original);
+        String arguments = ((AiMessage) compacted.messages().get(1))
+                .toolExecutionRequests().getFirst().arguments();
+
+        assertTrue(objectMapper.readTree(arguments).get("content").textValue()
+                .contains("目标内容已在工作区确认"),
+                "tool-name mismatch cannot advance the compaction epoch");
+    }
+
     private CompletedToolCallContextCompactor compactor(int maximumArgumentsChars) {
         ChatMemoryProperties properties = new ChatMemoryProperties();
         properties.setCompletedToolArgumentsMaxChars(maximumArgumentsChars);
@@ -227,11 +315,23 @@ class CompletedToolCallContextCompactorTest {
     }
 
     private ToolExecutionRequest request(String name, String arguments) {
-        return ToolExecutionRequest.builder()
-                .id(name.equals("readFile") ? "request-2" : "request-1")
-                .name(name)
-                .arguments(arguments)
+        return request(name.equals("readFile") ? "request-2" : "request-1", name, arguments);
+    }
+
+    private ToolExecutionRequest request(String id, String name, String arguments) {
+        return ToolExecutionRequest.builder().id(id).name(name).arguments(arguments).build();
+    }
+
+    private ToolExecutionResultMessage workspaceInvalidationResult(
+            ToolExecutionRequest request
+    ) {
+        TextContent content = ToolResultEvidence.workspaceInvalidated("workspace restored");
+        ToolExecutionResult result = ToolExecutionResult.builder()
+                .result(content)
+                .resultContents(List.of(content))
+                .isError(false)
                 .build();
+        return ToolResultEvidence.toMessage(request, result);
     }
 
     private ToolExecutionResultMessage mutationResult(

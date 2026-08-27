@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
 import cn.hutool.core.io.FileUtil;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
 import com.rush.rushaicodemother.orchestration.artifact.ChangePlan;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.RollbackPoint;
@@ -12,17 +14,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doThrow;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class GenerationRollbackRestoreServiceTest {
 
@@ -60,12 +64,12 @@ class GenerationRollbackRestoreServiceTest {
         assertTrue(Files.exists(backupPath.resolve("src/App.vue")));
         assertTrue(Files.exists(backupPath.resolve("src/New.vue")));
         assertFalse(Files.exists(backupPath.resolve("node_modules/pkg/index.js")));
-        verify(fenceGuard, times(2)).assertCurrent("task-11");
+        verify(fenceGuard, atLeast(3)).assertCurrent("task-11");
     }
 
     @Test
-    void leaseLostWhileCreatingBackupMustAbortBeforeProjectReplacement() throws Exception {
-        Path tempDir = cleanTestRoot("lease-lost-during-backup");
+    void leaseLostDuringRestoreStagingMustAbortAndKeepCurrentProject() throws Exception {
+        Path tempDir = cleanTestRoot("lease-lost-during-restore-staging");
         Path codeOutputRoot = tempDir.resolve("code_output");
         Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
         Path projectRoot = codeOutputRoot.resolve("vue_project_21");
@@ -77,9 +81,16 @@ class GenerationRollbackRestoreServiceTest {
         GenerationTaskFenceGuard fenceGuard = mock(GenerationTaskFenceGuard.class);
         GenerationExecutionPolicyException leaseLost =
                 new GenerationExecutionPolicyException("generation task execution fence is no longer current");
-        doNothing()
-                .doThrow(leaseLost)
-                .when(fenceGuard).assertCurrent("task-21");
+        AtomicInteger postBackupFenceChecks = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (hasDirectoryStartingWith(
+                    codeSnapshotRoot.resolve("21"),
+                    "failed_generation_task-21_"
+            ) && postBackupFenceChecks.incrementAndGet() == 4) {
+                throw leaseLost;
+            }
+            return null;
+        }).when(fenceGuard).assertCurrent("task-21");
         GenerationRollbackRestoreService service = SnapshotServiceTestFixture.rollbackRestoreService(
                 codeOutputRoot,
                 codeSnapshotRoot,
@@ -98,7 +109,55 @@ class GenerationRollbackRestoreServiceTest {
 
         assertSame(leaseLost, thrown);
         assertEquals("new-owner-version", Files.readString(projectRoot.resolve("src/App.vue")));
-        verify(fenceGuard, times(2)).assertCurrent("task-21");
+        assertEquals(4, postBackupFenceChecks.get());
+        try (java.util.stream.Stream<Path> children = Files.list(projectRoot.getParent())) {
+            assertTrue(children.noneMatch(path -> path.getFileName().toString()
+                    .startsWith(".vue_project_21.restore-")));
+        }
+    }
+
+    @Test
+    void unknownPhysicalOutcomeMustBePersistedAsDedicatedRollbackFailureReason() throws Exception {
+        Path tempDir = cleanTestRoot("unknown-physical-outcome");
+        Path codeOutputRoot = tempDir.resolve("code_output");
+        Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
+        Path projectRoot = codeOutputRoot.resolve("vue_project_22");
+        Path snapshotRoot = codeSnapshotRoot.resolve("22").resolve("pre_generation_task-22");
+        Files.createDirectories(projectRoot.resolve("src"));
+        Files.writeString(projectRoot.resolve("src/App.vue"), "current-version");
+        Files.createDirectories(snapshotRoot.resolve("src"));
+        Files.writeString(snapshotRoot.resolve("src/App.vue"), "snapshot-version");
+        SnapshotServiceTestFixture.Components components =
+                SnapshotServiceTestFixture.components(codeOutputRoot, codeSnapshotRoot);
+        WorkspaceFileSystemService fileSystemService = mock(WorkspaceFileSystemService.class);
+        when(fileSystemService.isDirectory(any(Path.class))).thenReturn(true);
+        when(fileSystemService.copyDirectory(
+                any(Path.class), any(Path.class), any(Runnable.class)))
+                .thenReturn(new WorkspaceFileSystemService.WorkspaceCopyResult(
+                        codeSnapshotRoot.resolve("backup"), 1, 15));
+        when(fileSystemService.replaceDirectory(
+                any(Path.class), any(Path.class), any(Runnable.class)
+        )).thenThrow(new WorkspaceFileSystemException(
+                WorkspaceFileSystemException.Reason.REPLACE_OUTCOME_UNKNOWN,
+                "physical outcome unknown"
+        ));
+        GenerationRollbackRestoreService service = new GenerationRollbackRestoreService(
+                components.generationWorkspaceService(),
+                components.snapshotWorkspaceService(),
+                fileSystemService,
+                components.snapshotNamePolicy(),
+                mock(GenerationTaskFenceGuard.class)
+        );
+
+        GenerationArtifact artifact = service.restoreIfAllowed(
+                22L,
+                "task-22",
+                snapshotChangePlan(),
+                rollbackPoint(22L, "task-22", "vue_project", snapshotRoot, projectRoot)
+        );
+
+        assertEquals("failed", artifact.payload().get("status"));
+        assertEquals("rollback_restore_outcome_unknown", artifact.payload().get("reason"));
     }
 
     @Test
@@ -259,6 +318,18 @@ class GenerationRollbackRestoreServiceTest {
                 sourceType,
                 1
         ).toArtifact();
+    }
+
+    private boolean hasDirectoryStartingWith(Path root, String prefix) {
+        if (!Files.isDirectory(root)) {
+            return false;
+        }
+        try (java.util.stream.Stream<Path> children = Files.list(root)) {
+            return children.anyMatch(path -> Files.isDirectory(path)
+                    && path.getFileName().toString().startsWith(prefix));
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("failed to inspect generated backup", exception);
+        }
     }
 
     private Path cleanTestRoot(String caseName) {

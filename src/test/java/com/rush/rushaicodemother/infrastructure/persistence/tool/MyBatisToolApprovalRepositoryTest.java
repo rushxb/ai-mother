@@ -19,6 +19,7 @@ import java.time.ZoneId;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -159,6 +160,67 @@ class MyBatisToolApprovalRepositoryTest {
                 .orElseThrow()
                 .executionOutcome();
         assertEquals(new ToolExecutionOutcome(false, "legacy"), legacy);
+    }
+
+    @Test
+    void workspaceInvalidationOutcomeMustRoundTripAsAnOptionalJsonFact() {
+        LocalDateTime now = LocalDateTime.ofInstant(NOW, ZoneId.systemDefault());
+        ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
+        when(mapper.completeExecution(
+                org.mockito.ArgumentMatchers.eq("task-1"),
+                org.mockito.ArgumentMatchers.eq("rollbackSnapshot"),
+                org.mockito.ArgumentMatchers.eq(APPROVAL_ID),
+                org.mockito.ArgumentMatchers.eq("call-1"),
+                resultCaptor.capture(),
+                org.mockito.ArgumentMatchers.eq(now))).thenReturn(1);
+        ToolExecutionOutcome outcome = new ToolExecutionOutcome(
+                false, "workspace restored", false, List.of(), true);
+
+        assertTrue(repository.completeExecution(
+                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                APPROVAL_ID, "call-1", outcome, NOW));
+
+        String persistedJson = resultCaptor.getValue();
+        assertTrue(Boolean.TRUE.equals(
+                JSONUtil.parseObj(persistedJson).getBool("workspaceInvalidated")));
+        GenerationToolApproval persisted = entity("{}");
+        persisted.setStatus("consumed");
+        persisted.setExecutionResult(persistedJson);
+        when(mapper.selectOne("task-1", "rollbackSnapshot", APPROVAL_ID))
+                .thenReturn(persisted);
+
+        ToolExecutionOutcome restored = repository.find(
+                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID)
+                .orElseThrow()
+                .executionOutcome();
+
+        assertEquals(outcome, restored);
+
+        persisted.setExecutionResult("{\"error\":false,\"resultText\":\"tampered\","
+                + "\"workspaceInvalidated\":\"true\"}");
+        assertThrows(BusinessException.class, () -> repository.find(
+                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID),
+                "非布尔类型不能被宽松转换为工作区失效事实");
+    }
+
+    @Test
+    void malformedBooleanFactsMustFailClosedInsteadOfCreatingReplayEvidence() {
+        GenerationToolApproval persisted = entity("{}");
+        persisted.setStatus("consumed");
+        when(mapper.selectOne("task-1", "rollbackSnapshot", APPROVAL_ID))
+                .thenReturn(persisted);
+
+        persisted.setExecutionResult("{\"error\":false,\"resultText\":\"tampered\","
+                + "\"mutationEvidencePresent\":\"true\","
+                + "\"effectiveMutationPaths\":[\"src/forged.ts\"]}");
+        assertThrows(BusinessException.class, () -> repository.find(
+                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID),
+                "字符串 true 不得升级为私有 mutation carrier");
+
+        persisted.setExecutionResult("{\"error\":1,\"resultText\":\"tampered\"}");
+        assertThrows(BusinessException.class, () -> repository.find(
+                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID),
+                "损坏的 error 类型不得把失败结果升级为普通成功");
     }
 
     @Test

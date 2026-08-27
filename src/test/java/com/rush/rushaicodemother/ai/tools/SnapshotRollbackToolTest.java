@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
@@ -11,17 +12,25 @@ import com.rush.rushaicodemother.orchestration.tool.DestructiveToolAction;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
+import com.rush.rushaicodemother.orchestration.tool.ToolResultEvidence;
 import cn.hutool.crypto.digest.DigestUtil;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.TextContent;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
@@ -70,9 +79,11 @@ class SnapshotRollbackToolTest {
     void shouldListEmptySnapshotsWithoutRequiringProjectDirectory() throws Exception {
         when(workspaceFileSystemService.isDirectory(any(Path.class))).thenReturn(false);
 
-        String result = tool.manageSnapshot("listSnapshots", null, null, 9L);
+        TextContent result = tool.manageSnapshot("listSnapshots", null, null, 9L);
 
-        assertEquals("当前没有可用快照", result);
+        assertEquals("当前没有可用快照", result.text());
+        assertFalse(ToolResultEvidence.confirmsWorkspaceInvalidation(
+                durableMessage("listSnapshots", result)));
         verify(workspaceFileService, never()).resolveDirectory(any(), anyString());
         verify(workspaceFileSystemService, never()).ensureDirectory(any(Path.class));
     }
@@ -188,7 +199,172 @@ class SnapshotRollbackToolTest {
 
         assertEquals("错误：快照不存在 - safe", failure.publicMessage());
         verify(fenceGuard).assertCurrent("task-approval");
-        verify(workspaceFileSystemService, never()).replaceDirectory(any(Path.class), any(Path.class));
+        verify(workspaceFileSystemService, never()).replaceDirectory(
+                any(Path.class), any(Path.class), any(Runnable.class));
+    }
+
+    @Test
+    void successfulRollbackMustEmitWorkspaceInvalidationAndRecheckFenceBeforeReplacement()
+            throws Exception {
+        GenerationToolExecutionContextService.ToolInvocationExecution invocation =
+                new GenerationToolExecutionContextService.ToolInvocationExecution(
+                        "task-approval", "call-rollback", "manageSnapshot", "b".repeat(64));
+        Path projectRoot = Path.of("target", "test-projects", "9");
+        when(executionContextService.getContext(9L)).thenReturn(Optional.of(
+                new GenerationToolExecutionContext(9L, "task-approval", "agent_edit", null,
+                        null, false, "test")));
+        when(executionContextService.currentInvocation()).thenReturn(Optional.of(invocation));
+        when(toolApprovalService.isExecutionAuthorized(
+                org.mockito.ArgumentMatchers.eq("task-approval"),
+                org.mockito.ArgumentMatchers.eq(DestructiveToolAction.SNAPSHOT_ROLLBACK),
+                anyString(), org.mockito.ArgumentMatchers.eq(invocation))).thenReturn(true);
+        when(workspaceFileService.resolveDirectory(9L, null)).thenReturn(
+                new ToolWorkspaceFileService.ToolWorkspaceDirectory("", projectRoot, null));
+        when(snapshotWorkspaceService.resolveSnapshot(any(), anyString()))
+                .thenAnswer(call -> Path.of(
+                        "target", "test-snapshots", "9", call.getArgument(1, String.class)));
+        when(workspaceFileSystemService.isDirectory(any(Path.class)))
+                .thenAnswer(call -> "safe".equals(
+                        call.getArgument(0, Path.class).getFileName().toString()));
+        when(workspaceFileSystemService.copyDirectory(
+                org.mockito.ArgumentMatchers.eq(projectRoot),
+                org.mockito.ArgumentMatchers.any(Path.class),
+                org.mockito.ArgumentMatchers.any(Runnable.class)
+        )).thenAnswer(call -> {
+            call.getArgument(2, Runnable.class).run();
+            return new WorkspaceFileSystemService.WorkspaceCopyResult(
+                    call.getArgument(1, Path.class), 1, 1);
+        });
+        when(workspaceFileSystemService.replaceDirectory(
+                org.mockito.ArgumentMatchers.any(Path.class),
+                org.mockito.ArgumentMatchers.any(Path.class),
+                org.mockito.ArgumentMatchers.any(Runnable.class)
+        )).thenAnswer(call -> {
+            call.getArgument(2, Runnable.class).run();
+            return new WorkspaceFileSystemService.WorkspaceCopyResult(projectRoot, 1, 1);
+        });
+
+        TextContent result = tool.manageSnapshot(
+                "rollbackSnapshot", "safe", null, 9L);
+
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .id("call-rollback")
+                .name("manageSnapshot")
+                .arguments("{\"action\":\"rollbackSnapshot\",\"snapshotName\":\"safe\"}")
+                .build();
+        ToolExecutionResult executionResult = ToolExecutionResult.builder()
+                .result(result)
+                .resultContents(List.of(result))
+                .build();
+        ToolExecutionResultMessage message = ToolResultEvidence.toMessage(request, executionResult);
+
+        assertTrue(ToolResultEvidence.confirmsWorkspaceInvalidation(message));
+        assertTrue(ToolResultEvidence.effectiveMutationPaths(message).isEmpty(),
+                "快照回滚不能伪造成若干文件路径 mutation");
+        verify(fenceGuard, org.mockito.Mockito.atLeast(4)).assertCurrent("task-approval");
+        verify(workspaceFileSystemService).copyDirectory(
+                org.mockito.ArgumentMatchers.eq(projectRoot),
+                org.mockito.ArgumentMatchers.any(Path.class),
+                org.mockito.ArgumentMatchers.any(Runnable.class));
+        verify(workspaceFileSystemService).replaceDirectory(
+                org.mockito.ArgumentMatchers.eq(Path.of("target", "test-snapshots", "9", "safe")),
+                org.mockito.ArgumentMatchers.eq(projectRoot),
+                org.mockito.ArgumentMatchers.any(Runnable.class));
+    }
+
+    @Test
+    void leaseLostDuringRollbackStagingMustAbortWithoutPublishingInvalidation() throws Exception {
+        GenerationToolExecutionContextService.ToolInvocationExecution invocation =
+                new GenerationToolExecutionContextService.ToolInvocationExecution(
+                        "task-stale", "call-rollback", "manageSnapshot", "c".repeat(64));
+        GenerationExecutionCancelledException leaseLost =
+                new GenerationExecutionCancelledException("lease_lost_during_backup");
+        Path projectRoot = Path.of("target", "test-projects", "9");
+        when(executionContextService.getContext(9L)).thenReturn(Optional.of(
+                new GenerationToolExecutionContext(9L, "task-stale", "agent_edit", null,
+                        null, false, "test")));
+        when(executionContextService.currentInvocation()).thenReturn(Optional.of(invocation));
+        when(toolApprovalService.isExecutionAuthorized(
+                org.mockito.ArgumentMatchers.eq("task-stale"),
+                org.mockito.ArgumentMatchers.eq(DestructiveToolAction.SNAPSHOT_ROLLBACK),
+                anyString(), org.mockito.ArgumentMatchers.eq(invocation))).thenReturn(true);
+        when(workspaceFileService.resolveDirectory(9L, null)).thenReturn(
+                new ToolWorkspaceFileService.ToolWorkspaceDirectory("", projectRoot, null));
+        when(snapshotWorkspaceService.resolveSnapshot(any(), anyString()))
+                .thenAnswer(call -> Path.of(
+                        "target", "test-snapshots", "9", call.getArgument(1, String.class)));
+        when(workspaceFileSystemService.isDirectory(any(Path.class)))
+                .thenAnswer(call -> "safe".equals(
+                        call.getArgument(0, Path.class).getFileName().toString()));
+        when(workspaceFileSystemService.copyDirectory(
+                org.mockito.ArgumentMatchers.eq(projectRoot),
+                org.mockito.ArgumentMatchers.any(Path.class),
+                org.mockito.ArgumentMatchers.any(Runnable.class)
+        )).thenAnswer(call -> {
+            call.getArgument(2, Runnable.class).run();
+            return new WorkspaceFileSystemService.WorkspaceCopyResult(
+                    call.getArgument(1, Path.class), 1, 1);
+        });
+        when(workspaceFileSystemService.replaceDirectory(
+                org.mockito.ArgumentMatchers.any(Path.class),
+                org.mockito.ArgumentMatchers.any(Path.class),
+                org.mockito.ArgumentMatchers.any(Runnable.class)
+        )).thenAnswer(call -> {
+            call.getArgument(2, Runnable.class).run();
+            return new WorkspaceFileSystemService.WorkspaceCopyResult(projectRoot, 1, 1);
+        });
+        org.mockito.Mockito.doNothing()
+                .doNothing()
+                .doNothing()
+                .doThrow(leaseLost)
+                .when(fenceGuard).assertCurrent("task-stale");
+
+        GenerationExecutionCancelledException thrown = assertThrows(
+                GenerationExecutionCancelledException.class,
+                () -> tool.manageSnapshot("rollbackSnapshot", "safe", null, 9L));
+
+        assertSame(leaseLost, thrown);
+        verify(workspaceFileSystemService).copyDirectory(
+                org.mockito.ArgumentMatchers.eq(projectRoot), any(Path.class), any(Runnable.class));
+        verify(workspaceFileSystemService).replaceDirectory(
+                any(Path.class), any(Path.class), any(Runnable.class));
+    }
+
+    @Test
+    void unknownRollbackOutcomeMustReturnInvalidationFactAndRequireManualReconciliation() throws Exception {
+        GenerationToolExecutionContextService.ToolInvocationExecution invocation =
+                new GenerationToolExecutionContextService.ToolInvocationExecution(
+                        "task-approval", "call-rollback", "manageSnapshot", "d".repeat(64));
+        Path projectRoot = Path.of("target", "test-projects", "9");
+        when(executionContextService.getContext(9L)).thenReturn(Optional.of(
+                new GenerationToolExecutionContext(9L, "task-approval", "agent_edit", null,
+                        null, false, "test")));
+        when(executionContextService.currentInvocation()).thenReturn(Optional.of(invocation));
+        when(toolApprovalService.isExecutionAuthorized(
+                org.mockito.ArgumentMatchers.eq("task-approval"),
+                org.mockito.ArgumentMatchers.eq(DestructiveToolAction.SNAPSHOT_ROLLBACK),
+                anyString(), org.mockito.ArgumentMatchers.eq(invocation))).thenReturn(true);
+        when(workspaceFileService.resolveDirectory(9L, null)).thenReturn(
+                new ToolWorkspaceFileService.ToolWorkspaceDirectory("", projectRoot, null));
+        when(snapshotWorkspaceService.resolveSnapshot(any(), anyString()))
+                .thenAnswer(call -> Path.of(
+                        "target", "test-snapshots", "9", call.getArgument(1, String.class)));
+        when(workspaceFileSystemService.isDirectory(any(Path.class)))
+                .thenAnswer(call -> "safe".equals(
+                        call.getArgument(0, Path.class).getFileName().toString()));
+        when(workspaceFileSystemService.replaceDirectory(
+                any(Path.class), any(Path.class), any(Runnable.class)
+        )).thenThrow(new WorkspaceFileSystemException(
+                WorkspaceFileSystemException.Reason.REPLACE_OUTCOME_UNKNOWN,
+                "physical outcome unknown"
+        ));
+
+        TextContent result = tool.manageSnapshot("rollbackSnapshot", "safe", null, 9L);
+
+        assertTrue(result.text().contains("回滚结果无法确认"));
+        assertTrue(result.text().contains("人工核对"));
+        assertTrue(ToolResultEvidence.confirmsWorkspaceInvalidation(
+                durableMessage("rollbackSnapshot", result)));
     }
 
     @Test
@@ -206,9 +382,9 @@ class SnapshotRollbackToolTest {
                 org.mockito.ArgumentMatchers.eq(DestructiveToolAction.SNAPSHOT_DELETE),
                 anyString(), org.mockito.ArgumentMatchers.eq(invocation))).thenReturn(true);
 
-        String result = tool.manageSnapshot("deleteSnapshot", "safe", null, 9L);
+        TextContent result = tool.manageSnapshot("deleteSnapshot", "safe", null, 9L);
 
-        assertEquals("快照已由同一审批调用删除: safe", result);
+        assertEquals("快照已由同一审批调用删除: safe", result.text());
         verify(fenceGuard).assertCurrent("task-approval");
         verify(workspaceFileSystemService, never()).deleteDirectory(any(Path.class));
     }
@@ -229,5 +405,18 @@ class SnapshotRollbackToolTest {
 
         assertSame(cancellation, thrown);
         verify(workspaceFileSystemService, never()).copyDirectory(any(Path.class), any(Path.class));
+    }
+
+    private ToolExecutionResultMessage durableMessage(String action, TextContent result) {
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .id("snapshot-result")
+                .name("manageSnapshot")
+                .arguments("{\"action\":\"" + action + "\"}")
+                .build();
+        ToolExecutionResult executionResult = ToolExecutionResult.builder()
+                .result(result)
+                .resultContents(List.of(result))
+                .build();
+        return ToolResultEvidence.toMessage(request, executionResult);
     }
 }

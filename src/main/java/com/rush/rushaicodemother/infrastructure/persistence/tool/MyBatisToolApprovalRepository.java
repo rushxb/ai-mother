@@ -375,6 +375,7 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         json.put("resultText", resultText);
         json.put("mutationEvidencePresent", outcome.mutationEvidencePresent());
         json.put("effectiveMutationPaths", outcome.effectiveMutationPaths());
+        json.put("workspaceInvalidated", outcome.workspaceInvalidated());
         return JSONUtil.toJsonStr(json);
     }
 
@@ -385,18 +386,40 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         }
         try {
             var json = JSONUtil.parseObj(executionResult);
-            boolean mutationEvidencePresent =
-                    Boolean.TRUE.equals(json.getBool("mutationEvidencePresent"));
+            boolean mutationEvidencePresent = parseOptionalBoolean(
+                    json, "mutationEvidencePresent", false);
             return new ToolExecutionOutcome(
-                    Boolean.TRUE.equals(json.getBool("error")),
+                    parseOptionalBoolean(json, "error", false),
                     json.getStr("resultText", ""),
                     mutationEvidencePresent,
-                    parseEffectiveMutationPaths(json, mutationEvidencePresent)
+                    parseEffectiveMutationPaths(json, mutationEvidencePresent),
+                    parseOptionalBoolean(json, "workspaceInvalidated", false)
             );
         } catch (RuntimeException malformedOutcome) {
             throw new BusinessException(
                     ErrorCode.OPERATION_ERROR, "工具执行结果无法解析", malformedOutcome);
         }
+    }
+
+    /**
+     * 严格读取可选布尔字段，拒绝 Hutool 对字符串和数字的宽松类型转换。
+     *
+     * <p>这些字段会决定审批结果重放时是否恢复平台私有事实，类型损坏时必须
+     * 整体失败关闭，不能把外部 JSON 升级为可信 carrier。</p>
+     */
+    private boolean parseOptionalBoolean(
+            cn.hutool.json.JSONObject json,
+            String field,
+            boolean defaultValue
+    ) {
+        if (!json.containsKey(field)) {
+            return defaultValue;
+        }
+        Object value = json.get(field);
+        if (value instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        throw new IllegalArgumentException("工具执行结果包含非法布尔字段: " + field);
     }
 
     private List<String> parseEffectiveMutationPaths(

@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.infrastructure.filesystem;
 
 import com.rush.rushaicodemother.config.WorkspaceFileSystemProperties;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -44,6 +45,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * 快照副本完成暂存后才会对外可见。</p>
  */
 @Component
+@Slf4j
 public class WorkspaceFileSystemService {
 
     private static final int BUFFER_SIZE = 16 * 1024;
@@ -76,16 +78,25 @@ public class WorkspaceFileSystemService {
     private final WorkspaceFileSystemProperties properties;
     private final ReentrantLock[] mutationLocks;
     private final MoveOperation moveOperation;
+    private final TreeDeleteOperation treeDeleteOperation;
 
     @Autowired
     public WorkspaceFileSystemService(WorkspaceFileSystemProperties properties) {
-        this(properties, Files::move);
+        this(properties, Files::move, WorkspaceFileSystemService::deleteTree);
     }
 
     WorkspaceFileSystemService(WorkspaceFileSystemProperties properties, MoveOperation moveOperation) {
+        this(properties, moveOperation, WorkspaceFileSystemService::deleteTree);
+    }
+
+    WorkspaceFileSystemService(WorkspaceFileSystemProperties properties,
+                               MoveOperation moveOperation,
+                               TreeDeleteOperation treeDeleteOperation) {
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
         this.mutationLocks = createMutationLocks();
         this.moveOperation = Objects.requireNonNull(moveOperation, "moveOperation must not be null");
+        this.treeDeleteOperation = Objects.requireNonNull(
+                treeDeleteOperation, "treeDeleteOperation must not be null");
     }
 
     /** 扫描一次项目并为下游消费者返回稳定的相对路径元数据。 */
@@ -390,59 +401,80 @@ public class WorkspaceFileSystemService {
         }
 
         Path staging = temporarySibling(target, "copy");
+        boolean publicationCommitted = false;
+        Throwable operationFailure = null;
         try {
             WorkspaceCopyResult staged = copyTree(source, staging, effectiveCheck);
             effectiveCheck.run();
-            moveWithoutReplace(staging, target);
+            moveWithoutReplace(staging, target, effectiveCheck);
+            publicationCommitted = true;
             return new WorkspaceCopyResult(target, staged.fileCount(), staged.totalBytes());
         } catch (WorkspaceFileSystemException exception) {
+            operationFailure = exception;
+            throw exception;
+        } catch (RuntimeException exception) {
+            operationFailure = exception;
             throw exception;
         } catch (IOException exception) {
+            operationFailure = exception;
             throw failure(WorkspaceFileSystemException.Reason.COPY_FAILED, "复制工作区失败", exception);
         } finally {
-            deleteTreeIfExists(staging);
+            deleteStagingAfterOperation(staging, operationFailure, publicationCommitted, "copy");
         }
     }
 
     /** 通过暂存副本替换目录，并在交换失败时恢复原始目录。 */
     public WorkspaceCopyResult replaceDirectory(Path sourceDirectory, Path targetDirectory) throws IOException {
+        return replaceDirectory(sourceDirectory, targetDirectory, NO_OP_CONTINUATION_CHECK);
+    }
+
+    /** 在调用方取消边界内通过暂存副本替换目录。 */
+    public WorkspaceCopyResult replaceDirectory(
+            Path sourceDirectory,
+            Path targetDirectory,
+            Runnable continuationCheck
+    ) throws IOException {
+        Runnable effectiveCheck = effectiveContinuationCheck(continuationCheck);
+        effectiveCheck.run();
         Path source = requireExistingDirectory(sourceDirectory);
         Path target = requireExistingDirectory(targetDirectory);
         rejectOverlappingDirectories(source, target);
         Path staging = temporarySibling(target, "restore");
         Path displaced = temporarySibling(target, "previous");
-        WorkspaceCopyResult staged = copyTree(source, staging, NO_OP_CONTINUATION_CHECK);
-        boolean targetMoved = false;
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
+        boolean targetDisplaced = false;
+        boolean activationCommitted = false;
+        Throwable operationFailure = null;
         try {
-            moveWithoutReplace(target, displaced);
-            targetMoved = true;
-            try {
-                moveWithoutReplace(staging, target);
-            } catch (IOException swapFailure) {
-                moveWithoutReplace(displaced, target);
-                targetMoved = false;
-                throw swapFailure;
-            }
-            targetMoved = false;
-            deleteTreeIfExists(displaced);
+            WorkspaceCopyResult staged = copyTree(source, staging, effectiveCheck);
+            moveWithoutReplace(target, displaced, effectiveCheck);
+            targetDisplaced = true;
+            moveWithoutReplace(staging, target, effectiveCheck);
+            // staging 激活成功是交换的唯一提交点，之后的清理不得改写已提交结果。
+            activationCommitted = true;
+            deleteDisplacedAfterCommit(displaced);
             return new WorkspaceCopyResult(target, staged.fileCount(), staged.totalBytes());
-        } catch (WorkspaceFileSystemException exception) {
-            throw exception;
-        } catch (IOException exception) {
-            throw failure(WorkspaceFileSystemException.Reason.REPLACE_FAILED, "恢复工作区失败", exception);
+        } catch (IOException | RuntimeException exception) {
+            Throwable resolvedFailure = recoverDisplacedBeforeCommit(
+                    target,
+                    displaced,
+                    targetDisplaced,
+                    activationCommitted,
+                    exception
+            );
+            operationFailure = resolvedFailure;
+            if (resolvedFailure instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (resolvedFailure instanceof WorkspaceFileSystemException workspaceFailure) {
+                throw workspaceFailure;
+            }
+            throw failure(
+                    WorkspaceFileSystemException.Reason.REPLACE_FAILED,
+                    "恢复工作区失败",
+                    resolvedFailure
+            );
         } finally {
-            deleteTreeIfExists(staging);
-            if (targetMoved && !Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
-                try {
-                    moveWithoutReplace(displaced, target);
-                } catch (IOException ignored) {
-                    // 仍以原始异常为准；持久化的快照备份依然存在。
-                }
-            }
-            if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
-                deleteTreeIfExists(displaced);
-            }
+            deleteStagingAfterOperation(staging, operationFailure, activationCommitted, "replacement");
         }
     }
 
@@ -549,14 +581,9 @@ public class WorkspaceFileSystemService {
         continuationCheck.run();
         Files.createDirectory(target);
         CopyCollector collector = new CopyCollector(source, target, continuationCheck);
-        try {
-            Files.walkFileTree(source, collector);
-            continuationCheck.run();
-            return new WorkspaceCopyResult(target, collector.fileCount, collector.totalBytes);
-        } catch (IOException exception) {
-            deleteTreeIfExists(target);
-            throw exception;
-        }
+        Files.walkFileTree(source, collector);
+        continuationCheck.run();
+        return new WorkspaceCopyResult(target, collector.fileCount, collector.totalBytes);
     }
 
     /** 复制文件。 */
@@ -782,10 +809,17 @@ public class WorkspaceFileSystemService {
 
     /** 移动{@code Without}{@code Replace}。 */
     private void moveWithoutReplace(Path source, Path target) throws IOException {
+        moveWithoutReplace(source, target, NO_OP_CONTINUATION_CHECK);
+    }
+
+    /** 每次发布尝试前重新确认调用方仍拥有继续执行权。 */
+    private void moveWithoutReplace(Path source, Path target, Runnable continuationCheck) throws IOException {
+        Runnable effectiveCheck = effectiveContinuationCheck(continuationCheck);
         int maxAttempts = properties.getPublishMaxAttempts();
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            effectiveCheck.run();
             try {
-                moveWithoutReplaceOnce(source, target);
+                moveWithoutReplaceOnce(source, target, effectiveCheck);
                 return;
             } catch (AccessDeniedException exception) {
                 if (attempt >= maxAttempts || Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
@@ -797,10 +831,12 @@ public class WorkspaceFileSystemService {
     }
 
     /** 移动{@code Without}{@code Replace}{@code Once}。 */
-    private void moveWithoutReplaceOnce(Path source, Path target) throws IOException {
+    private void moveWithoutReplaceOnce(Path source, Path target, Runnable continuationCheck) throws IOException {
         try {
             moveOperation.move(source, target, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException exception) {
+            // 原子移动降级会产生第二次真实副作用，降级前也必须重验围栏。
+            continuationCheck.run();
             moveOperation.move(source, target);
         }
     }
@@ -833,6 +869,10 @@ public class WorkspaceFileSystemService {
         if (root == null || !Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
             return;
         }
+        treeDeleteOperation.delete(root);
+    }
+
+    private static void deleteTree(Path root) throws IOException {
         Files.walkFileTree(root, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
@@ -858,9 +898,99 @@ public class WorkspaceFileSystemService {
         });
     }
 
+    /** 交换提交后仅做最佳努力清理，失败时保留 previous 目录用于人工恢复。 */
+    private void deleteDisplacedAfterCommit(Path displaced) {
+        try {
+            deleteTreeIfExists(displaced);
+        } catch (IOException cleanupFailure) {
+            log.warn(
+                    "Workspace replacement committed but displaced directory cleanup failed, "
+                            + "recoveryPath: {}, exceptionType: {}",
+                    displaced,
+                    cleanupFailure.getClass().getSimpleName()
+            );
+        }
+    }
+
+    /** 提交前失败时恢复旧目标；恢复也失败则显式标记物理结果未知。 */
+    private Throwable recoverDisplacedBeforeCommit(Path target,
+                                                    Path displaced,
+                                                    boolean targetDisplaced,
+                                                    boolean activationCommitted,
+                                                    Throwable originalFailure) {
+        if (activationCommitted) {
+            return originalFailure;
+        }
+        boolean targetExists = Files.exists(target, LinkOption.NOFOLLOW_LINKS);
+        boolean displacedExists = Files.exists(displaced, LinkOption.NOFOLLOW_LINKS);
+        if (!targetDisplaced && targetExists && !displacedExists) {
+            return originalFailure;
+        }
+        if (targetExists || !displacedExists) {
+            return unknownReplacementOutcome(originalFailure, null);
+        }
+        try {
+            // 围栏失效后仍必须完成安全补偿，恢复旧目标不再依赖已失效围栏。
+            moveWithoutReplace(displaced, target);
+            return originalFailure;
+        } catch (IOException recoveryFailure) {
+            return unknownReplacementOutcome(originalFailure, recoveryFailure);
+        }
+    }
+
+    private WorkspaceFileSystemException unknownReplacementOutcome(Throwable originalFailure,
+                                                                    IOException recoveryFailure) {
+        WorkspaceFileSystemException unknownOutcome = failure(
+                WorkspaceFileSystemException.Reason.REPLACE_OUTCOME_UNKNOWN,
+                "工作区目录交换后无法确认或恢复原目标，请人工核对",
+                originalFailure
+        );
+        if (recoveryFailure != null) {
+            unknownOutcome.addSuppressed(recoveryFailure);
+        }
+        return unknownOutcome;
+    }
+
+    private void deleteStagingAfterOperation(Path staging,
+                                             Throwable operationFailure,
+                                             boolean operationCommitted,
+                                             String operationName) throws IOException {
+        try {
+            deleteTreeIfExists(staging);
+        } catch (IOException cleanupFailure) {
+            if (operationFailure != null) {
+                operationFailure.addSuppressed(cleanupFailure);
+                log.warn(
+                        "Workspace {} failed and staging cleanup also failed, "
+                                + "stagingPath: {}, exceptionType: {}",
+                        operationName,
+                        staging,
+                        cleanupFailure.getClass().getSimpleName()
+                );
+                return;
+            }
+            if (operationCommitted) {
+                log.warn(
+                        "Workspace {} committed but staging cleanup failed, "
+                                + "stagingPath: {}, exceptionType: {}",
+                        operationName,
+                        staging,
+                        cleanupFailure.getClass().getSimpleName()
+                );
+                return;
+            }
+            throw cleanupFailure;
+        }
+    }
+
     @FunctionalInterface
     interface MoveOperation {
         Path move(Path source, Path target, CopyOption... options) throws IOException;
+    }
+
+    @FunctionalInterface
+    interface TreeDeleteOperation {
+        void delete(Path root) throws IOException;
     }
 
     /** 返回{@code channels}{@code Equal}。 */

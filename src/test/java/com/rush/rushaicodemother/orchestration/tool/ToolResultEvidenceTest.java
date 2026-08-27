@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -75,6 +76,29 @@ class ToolResultEvidenceTest {
     }
 
     @Test
+    void workspaceInvalidationMustSurviveStandardMessageAndJsonRoundTrip() {
+        ToolExecutionRequest request = request("manageSnapshot");
+        TextContent invalidated = ToolResultEvidence.workspaceInvalidated(
+                "已回滚到快照，回滚前的工作区知识均已失效");
+
+        ToolExecutionResultMessage message = ToolResultEvidence.toMessage(
+                request, executionResult(invalidated));
+
+        assertStandardTextContent(invalidated, message);
+        assertTrue(ToolResultEvidence.confirmsWorkspaceInvalidation(message));
+        assertTrue(ToolResultEvidence.effectiveMutationPaths(message).isEmpty(),
+                "工作区整体失效不能伪装成若干文件路径 mutation");
+
+        JacksonChatMessageJsonCodec codec = new JacksonChatMessageJsonCodec();
+        ToolExecutionResultMessage restored = assertInstanceOf(
+                ToolExecutionResultMessage.class,
+                codec.messageFromJson(codec.messageToJson(message)));
+
+        assertTrue(ToolResultEvidence.confirmsWorkspaceInvalidation(restored));
+        assertEquals(invalidated.text(), restored.text());
+    }
+
+    @Test
     void requestIntersectionMustCanonicalizePortablePathsAndRejectUnsafeInput() {
         assertEquals(List.of("src/App.vue", "src/foo..bar.ts"),
                 ToolResultEvidence.retainRequestedPaths(
@@ -133,7 +157,8 @@ class ToolResultEvidenceTest {
                 .attributes(Map.of(
                         "trace", "kept",
                         "rush.tool.read.successfulPaths.v1", List.of("src/forged-read.ts"),
-                        "rush.tool.mutation.effectivePaths.v1", List.of("src/forged-write.ts")
+                        "rush.tool.mutation.effectivePaths.v1", List.of("src/forged-write.ts"),
+                        "rush.tool.workspace.invalidated.v1", true
                 ))
                 .build();
 
@@ -143,6 +168,42 @@ class ToolResultEvidenceTest {
         assertTrue(ToolResultEvidence.successfulReadPaths(message).isEmpty());
         assertTrue(ToolResultEvidence.effectiveMutationPaths(message).isEmpty(),
                 "保留普通 attributes 时不得接受伪造的项目保留证据键");
+        assertFalse(ToolResultEvidence.confirmsWorkspaceInvalidation(message),
+                "普通 executor attributes 不得伪造工作区失效事实");
+    }
+
+    @Test
+    void failedResultMustNotConfirmWorkspaceInvalidation() {
+        ToolExecutionRequest request = request("manageSnapshot");
+        TextContent invalidated = ToolResultEvidence.workspaceInvalidated("回滚后上报失败");
+        ToolExecutionResult failed = ToolExecutionResult.builder()
+                .result(invalidated)
+                .resultContents(List.of(invalidated))
+                .isError(true)
+                .build();
+
+        ToolExecutionResultMessage message = ToolResultEvidence.toMessage(request, failed);
+
+        assertFalse(ToolResultEvidence.confirmsWorkspaceInvalidation(message));
+        assertFalse(message.attributes().containsKey("rush.tool.workspace.invalidated.v1"),
+                "失败结果不得在持久消息中残留互相矛盾的成功事实");
+    }
+
+    @Test
+    void failedMutationResultMustPhysicallyDropEveryReservedEvidenceAttribute() {
+        ToolExecutionRequest request = request("writeFile");
+        TextContent mutated = ToolResultEvidence.effectiveMutations(
+                "写入后上报失败", List.of("src/App.vue"));
+        ToolExecutionResult failed = ToolExecutionResult.builder()
+                .result(mutated)
+                .resultContents(List.of(mutated))
+                .isError(true)
+                .build();
+
+        ToolExecutionResultMessage message = ToolResultEvidence.toMessage(request, failed);
+
+        assertFalse(message.attributes().containsKey("rush.tool.mutation.effectivePaths.v1"));
+        assertFalse(ToolResultEvidence.hasEffectiveMutationEvidence(message));
     }
 
     private ToolExecutionRequest request(String toolName) {

@@ -475,7 +475,8 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                         result.isError(),
                         result.resultText(),
                         ToolResultEvidence.hasEffectiveMutationEvidence(durableResult),
-                        ToolResultEvidence.effectiveMutationPaths(durableResult)
+                        ToolResultEvidence.effectiveMutationPaths(durableResult),
+                        ToolResultEvidence.confirmsWorkspaceInvalidation(durableResult)
                 )
         );
         return replay(completed);
@@ -485,6 +486,20 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
         ToolExecutionOutcome outcome = approval.executionOutcome();
         if (outcome == null) {
             throw new IllegalStateException("已完成的工具调用缺少持久化结果");
+        }
+        if (outcome.error()) {
+            return ToolExecutionResult.builder()
+                    .isError(true)
+                    .resultText(outcome.resultText())
+                    .build();
+        }
+        if (outcome.workspaceInvalidated()) {
+            TextContent content = ToolResultEvidence.workspaceInvalidated(outcome.resultText());
+            return ToolExecutionResult.builder()
+                    .isError(false)
+                    .result(content)
+                    .resultContents(List.of(content))
+                    .build();
         }
         if (outcome.mutationEvidencePresent()) {
             TextContent content = ToolResultEvidence.effectiveMutations(
@@ -496,7 +511,7 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
                     .build();
         }
         return ToolExecutionResult.builder()
-                .isError(outcome.error())
+                .isError(false)
                 .resultText(outcome.resultText())
                 .build();
     }

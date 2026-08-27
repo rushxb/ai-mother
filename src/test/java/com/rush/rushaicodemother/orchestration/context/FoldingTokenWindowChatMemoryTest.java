@@ -70,6 +70,41 @@ class FoldingTokenWindowChatMemoryTest {
     }
 
     @Test
+    void rollbackMustRetirePersistedPlatformSummaryEvenWithinTokenBudget() {
+        ChatMemory memory = memory(48_000);
+        String originalSystem = "必须保留的系统原文";
+        memory.add(SystemMessage.from(originalSystem
+                + "\n\n【已折叠的历史工具循环】"
+                + "\n已写入或修改文件：src/stale.ts"));
+        memory.add(UserMessage.from("回滚后继续"));
+        ToolExecutionRequest rollback = ToolExecutionRequest.builder()
+                .id("rollback")
+                .name("manageSnapshot")
+                .arguments("{\"action\":\"rollbackSnapshot\",\"snapshotName\":\"safe\"}")
+                .build();
+        memory.add(AiMessage.from(rollback));
+        TextContent invalidated = ToolResultEvidence.workspaceInvalidated("workspace restored");
+        ToolExecutionResult executionResult = ToolExecutionResult.builder()
+                .result(invalidated)
+                .resultContents(List.of(invalidated))
+                .build();
+        memory.add(ToolResultEvidence.toMessage(rollback, executionResult));
+
+        List<ChatMessage> messages = memory.messages();
+        String system = messages.stream()
+                .filter(SystemMessage.class::isInstance)
+                .map(SystemMessage.class::cast)
+                .map(SystemMessage::text)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(originalSystem, system,
+                "token budget must not bypass rollback epoch cleanup");
+        assertEquals(4, messages.size(), "rollback request/result raw messages must stay available");
+        assertNoOrphanToolResults(messages);
+    }
+
+    @Test
     void overflowingConversationMustConvergeIntoBudget() {
         ChatMemory memory = memory(2_000);
         memory.add(SystemMessage.from("你是代码生成智能体"));

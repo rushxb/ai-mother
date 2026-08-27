@@ -14,12 +14,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -173,6 +175,78 @@ class WorkspaceFileSystemServiceTest {
     }
 
     @Test
+    void copyMustRecheckContinuationBeforeEveryPublishRetry() throws Exception {
+        Path root = createTempWorkspace("copy-fence-retry");
+        Path source = root.resolve("source");
+        Path target = root.resolve("snapshots/snapshot");
+        try {
+            write(source, "src/App.vue", "snapshot");
+            AtomicBoolean firstPublishAttemptFailed = new AtomicBoolean();
+            AtomicInteger moveAttempts = new AtomicInteger();
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(
+                    retryProperties(3, 0),
+                    (moveSource, moveTarget, options) -> {
+                        moveAttempts.incrementAndGet();
+                        firstPublishAttemptFailed.set(true);
+                        throw accessDenied(moveSource, moveTarget);
+                    }
+            );
+            IllegalStateException fenceRejected = new IllegalStateException("worker fence rejected");
+
+            IllegalStateException thrown = assertThrows(
+                    IllegalStateException.class,
+                    () -> service.copyDirectory(source, target, () -> {
+                        if (firstPublishAttemptFailed.get()) {
+                            throw fenceRejected;
+                        }
+                    })
+            );
+
+            assertEquals(fenceRejected, thrown);
+            assertEquals(1, moveAttempts.get(), "第二次快照发布尝试前必须重新检查执行权");
+            assertFalse(Files.exists(target));
+            assertNoTemporarySibling(target, "copy");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void copyStagingCleanupFailureMustNotOverrideContinuationRejection() throws Exception {
+        Path root = createTempWorkspace("copy-fence-cleanup-failure");
+        Path source = root.resolve("source");
+        Path target = root.resolve("snapshots/snapshot");
+        try {
+            write(source, "src/App.vue", "snapshot");
+            AtomicInteger checks = new AtomicInteger();
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(
+                    retryProperties(1, 0),
+                    Files::move,
+                    directory -> {
+                        throw new IOException("injected staging cleanup failure");
+                    }
+            );
+            IllegalStateException fenceRejected = new IllegalStateException("worker fence rejected");
+
+            IllegalStateException thrown = assertThrows(
+                    IllegalStateException.class,
+                    () -> service.copyDirectory(source, target, () -> {
+                        if (checks.incrementAndGet() == 4) {
+                            throw fenceRejected;
+                        }
+                    })
+            );
+
+            assertSame(fenceRejected, thrown);
+            assertTrue(thrown.getSuppressed().length > 0, "staging 清理失败证据必须挂到 primary fence 异常");
+            assertFalse(Files.exists(target));
+            assertTrue(hasTemporarySibling(target, "copy"), "注入清理失败后 staging 应保留供运维回收");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
     void shouldStopPublishingWhenTargetAppearsDuringRetry() throws Exception {
         Path root = createTempWorkspace("publish-race");
         Path source = root.resolve("source");
@@ -314,6 +388,263 @@ class WorkspaceFileSystemServiceTest {
             assertEquals("current-version", Files.readString(target.resolve("src/App.vue")));
             assertNoTemporarySibling(target, "restore");
             assertNoTemporarySibling(target, "previous");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void replaceMustRestoreOriginalWorkspaceWhenContinuationIsRejectedAfterDisplacement() throws Exception {
+        Path root = createTempWorkspace("restore-fence-after-displacement");
+        Path source = root.resolve("snapshot");
+        Path target = root.resolve("project");
+        try {
+            write(source, "src/App.vue", "snapshot-version");
+            write(target, "src/App.vue", "current-version");
+            AtomicBoolean targetDisplaced = new AtomicBoolean();
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(
+                    retryProperties(1, 0),
+                    (moveSource, moveTarget, options) -> {
+                        Path moved = Files.move(moveSource, moveTarget, options);
+                        if (moveSource.equals(target.toAbsolutePath().normalize())) {
+                            targetDisplaced.set(true);
+                        }
+                        return moved;
+                    }
+            );
+            IllegalStateException fenceRejected = new IllegalStateException("worker fence rejected");
+
+            IllegalStateException thrown = assertThrows(
+                    IllegalStateException.class,
+                    () -> service.replaceDirectory(source, target, () -> {
+                        if (targetDisplaced.get()) {
+                            throw fenceRejected;
+                        }
+                    })
+            );
+
+            assertEquals(fenceRejected, thrown);
+            assertEquals("current-version", Files.readString(target.resolve("src/App.vue")));
+            assertNoTemporarySibling(target, "restore");
+            assertNoTemporarySibling(target, "previous");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void replaceMustRemoveStagingAndKeepCurrentTargetWhenContinuationIsRejectedDuringCopy() throws Exception {
+        Path root = createTempWorkspace("restore-fence-during-copy");
+        Path source = root.resolve("snapshot");
+        Path target = root.resolve("project");
+        try {
+            write(source, "src/App.vue", "snapshot-version");
+            write(source, "src/Other.vue", "another-snapshot-file");
+            write(target, "src/App.vue", "current-version");
+            AtomicInteger checks = new AtomicInteger();
+            AtomicInteger moveAttempts = new AtomicInteger();
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(
+                    retryProperties(1, 0),
+                    (moveSource, moveTarget, options) -> {
+                        moveAttempts.incrementAndGet();
+                        return Files.move(moveSource, moveTarget, options);
+                    }
+            );
+            IllegalStateException fenceRejected = new IllegalStateException("worker fence rejected");
+
+            IllegalStateException thrown = assertThrows(
+                    IllegalStateException.class,
+                    () -> service.replaceDirectory(source, target, () -> {
+                        if (checks.incrementAndGet() == 4) {
+                            throw fenceRejected;
+                        }
+                    })
+            );
+
+            assertEquals(fenceRejected, thrown);
+            assertEquals(0, moveAttempts.get(), "staging 复制未完成前不得开始交换");
+            assertEquals("current-version", Files.readString(target.resolve("src/App.vue")));
+            assertNoTemporarySibling(target, "restore");
+            assertNoTemporarySibling(target, "previous");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void replaceMustRecheckContinuationBeforeEveryPublishRetry() throws Exception {
+        Path root = createTempWorkspace("restore-fence-retry");
+        Path source = root.resolve("snapshot");
+        Path target = root.resolve("project");
+        try {
+            write(source, "src/App.vue", "snapshot-version");
+            write(target, "src/App.vue", "current-version");
+            AtomicBoolean firstPublishAttemptFailed = new AtomicBoolean();
+            AtomicInteger moveAttempts = new AtomicInteger();
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(
+                    retryProperties(3, 0),
+                    (moveSource, moveTarget, options) -> {
+                        moveAttempts.incrementAndGet();
+                        firstPublishAttemptFailed.set(true);
+                        throw accessDenied(moveSource, moveTarget);
+                    }
+            );
+            IllegalStateException fenceRejected = new IllegalStateException("worker fence rejected");
+
+            IllegalStateException thrown = assertThrows(
+                    IllegalStateException.class,
+                    () -> service.replaceDirectory(source, target, () -> {
+                        if (firstPublishAttemptFailed.get()) {
+                            throw fenceRejected;
+                        }
+                    })
+            );
+
+            assertEquals(fenceRejected, thrown);
+            assertEquals(1, moveAttempts.get(), "第二次发布尝试前必须重新检查执行权");
+            assertEquals("current-version", Files.readString(target.resolve("src/App.vue")));
+            assertNoTemporarySibling(target, "restore");
+            assertNoTemporarySibling(target, "previous");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void displacedCleanupFailureAfterActivationMustNotChangeCommittedRestoreToFailure() throws Exception {
+        Path root = createTempWorkspace("restore-cleanup-failure");
+        Path source = root.resolve("snapshot");
+        Path target = root.resolve("project");
+        try {
+            write(source, "src/App.vue", "snapshot-version");
+            write(target, "src/App.vue", "current-version");
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(
+                    retryProperties(1, 0),
+                    Files::move,
+                    directory -> {
+                        throw new IOException("injected displaced cleanup failure");
+                    }
+            );
+
+            WorkspaceFileSystemService.WorkspaceCopyResult restored = service.replaceDirectory(source, target);
+
+            assertEquals(1, restored.fileCount());
+            assertEquals("snapshot-version", Files.readString(target.resolve("src/App.vue")));
+            assertNoTemporarySibling(target, "restore");
+            assertTrue(hasTemporarySibling(target, "previous"),
+                    "提交后的清理失败必须保留 previous 目录供人工恢复");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void failedActivationAndFailedRecoveryMustExposeUnknownPhysicalOutcome() throws Exception {
+        Path root = createTempWorkspace("restore-outcome-unknown");
+        Path source = root.resolve("snapshot");
+        Path target = root.resolve("project");
+        try {
+            write(source, "src/App.vue", "snapshot-version");
+            write(target, "src/App.vue", "current-version");
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(
+                    retryProperties(1, 0),
+                    (moveSource, moveTarget, options) -> {
+                        String sourceName = moveSource.getFileName().toString();
+                        if (sourceName.startsWith(".project.restore-")
+                                || sourceName.startsWith(".project.previous-")) {
+                            throw new IOException("injected activation or recovery failure");
+                        }
+                        return Files.move(moveSource, moveTarget, options);
+                    }
+            );
+
+            WorkspaceFileSystemException exception = assertThrows(
+                    WorkspaceFileSystemException.class,
+                    () -> service.replaceDirectory(source, target)
+            );
+
+            assertEquals(WorkspaceFileSystemException.Reason.REPLACE_OUTCOME_UNKNOWN, exception.reason());
+            assertFalse(Files.exists(target), "恢复失败后不能伪装目标目录仍处于已知版本");
+            assertNoTemporarySibling(target, "restore");
+            assertTrue(hasTemporarySibling(target, "previous"),
+                    "物理结果未知时必须保留 displaced 目录供人工恢复");
+            assertTrue(exception.getSuppressed().length > 0, "恢复失败证据不得被吞掉");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void displacementMoveThatThrowsAfterMovingMustStillRestoreOriginalWorkspace() throws Exception {
+        Path root = createTempWorkspace("restore-displacement-post-move-failure");
+        Path source = root.resolve("snapshot");
+        Path target = root.resolve("project");
+        try {
+            write(source, "src/App.vue", "snapshot-version");
+            write(target, "src/App.vue", "current-version");
+            IOException postMoveFailure = new IOException("injected failure after displacement move");
+            AtomicBoolean displacementFailed = new AtomicBoolean();
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(
+                    retryProperties(1, 0),
+                    (moveSource, moveTarget, options) -> {
+                        Path moved = Files.move(moveSource, moveTarget, options);
+                        if (moveSource.equals(target.toAbsolutePath().normalize())
+                                && displacementFailed.compareAndSet(false, true)) {
+                            throw postMoveFailure;
+                        }
+                        return moved;
+                    }
+            );
+
+            WorkspaceFileSystemException exception = assertThrows(
+                    WorkspaceFileSystemException.class,
+                    () -> service.replaceDirectory(source, target)
+            );
+
+            assertEquals(WorkspaceFileSystemException.Reason.REPLACE_FAILED, exception.reason());
+            assertSame(postMoveFailure, exception.getCause());
+            assertEquals("current-version", Files.readString(target.resolve("src/App.vue")));
+            assertNoTemporarySibling(target, "restore");
+            assertNoTemporarySibling(target, "previous");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void displacementPostMoveFailureAndRecoveryFailureMustExposeUnknownOutcome() throws Exception {
+        Path root = createTempWorkspace("restore-displacement-post-move-unknown");
+        Path source = root.resolve("snapshot");
+        Path target = root.resolve("project");
+        try {
+            write(source, "src/App.vue", "snapshot-version");
+            write(target, "src/App.vue", "current-version");
+            AtomicBoolean displacementFailed = new AtomicBoolean();
+            WorkspaceFileSystemService service = new WorkspaceFileSystemService(
+                    retryProperties(1, 0),
+                    (moveSource, moveTarget, options) -> {
+                        if (moveSource.getFileName().toString().startsWith(".project.previous-")) {
+                            throw new IOException("injected displaced recovery failure");
+                        }
+                        Path moved = Files.move(moveSource, moveTarget, options);
+                        if (moveSource.equals(target.toAbsolutePath().normalize())
+                                && displacementFailed.compareAndSet(false, true)) {
+                            throw new IOException("injected failure after displacement move");
+                        }
+                        return moved;
+                    }
+            );
+
+            WorkspaceFileSystemException exception = assertThrows(
+                    WorkspaceFileSystemException.class,
+                    () -> service.replaceDirectory(source, target)
+            );
+
+            assertEquals(WorkspaceFileSystemException.Reason.REPLACE_OUTCOME_UNKNOWN, exception.reason());
+            assertFalse(Files.exists(target));
+            assertNoTemporarySibling(target, "restore");
+            assertTrue(hasTemporarySibling(target, "previous"));
+            assertTrue(exception.getSuppressed().length > 0);
         } finally {
             cleanup(root);
         }
@@ -613,6 +944,13 @@ class WorkspaceFileSystemServiceTest {
         String prefix = "." + target.getFileName() + "." + purpose + "-";
         try (Stream<Path> children = Files.list(target.getParent())) {
             assertTrue(children.noneMatch(path -> path.getFileName().toString().startsWith(prefix)));
+        }
+    }
+
+    private boolean hasTemporarySibling(Path target, String purpose) throws IOException {
+        String prefix = "." + target.getFileName() + "." + purpose + "-";
+        try (Stream<Path> children = Files.list(target.getParent())) {
+            return children.anyMatch(path -> path.getFileName().toString().startsWith(prefix));
         }
     }
 

@@ -1,0 +1,571 @@
+# 后端 AI 生成项目链路改造总清单
+
+> 文档类型：持续维护的改造台账（Reference + Explanation）
+>
+> 审计基线：`dev@850f6e6`（2026-08-27）+ 当前未提交工作树
+>
+> 本次结论：停止继续横向堆功能，先闭合事实所有权、零副作用、能力协商、完成证据和恢复安全五条不变量。
+>
+> 重要口径：代码已提交、自动化测试通过、真实模型验收、真实浏览器验收、生产流量验收是五种不同证据，不得互相替代。
+
+## 1. 这份清单解决什么问题
+
+项目已经进行了多轮生成链路改造，提交数量很多，能力面也明显扩大。现在最大的风险不再是“少一个类或少一条分支”，而是跨模块对同一事实给出不同答案，例如：
+
+- 路由判断可以选择某模式，但准入阶段才发现没有对应 Pipeline；
+- 场景要求的是 `BUILD`，完成证据却没有证明构建实际发生；
+- 名义上的 READ_ONLY 不发布项目，却在读取上下文时写入语义索引；
+- 实时链路知道具体失败原因，刷新后的持久终态却只剩“项目生成失败”；
+- 快照目录存在，但快照身份没有完整绑定应用、工程类型、子目录和任务执行纪元；
+- 代码里已经有 Benchmark、晋级门禁和消融框架，但还没有足够的真实模型样本证明策略更好。
+
+因此，本清单不是再造一套架构，也不是罗列所有可做的优化，而是：
+
+1. 给端到端链路建立唯一状态台账；
+2. 明确哪些能力已经工程落地、哪些仍待真实验收、哪些只是工作树 WIP；
+3. 用少量高杠杆改造消除隐藏 Bug 和多事实源；
+4. 让后续每一轮工作都能回答“解决了哪个用户问题、由什么证据证明、边界在哪里”。
+
+## 2. 北极星、工程原则与硬性不变量
+
+### 2.1 北极星
+
+北极星不是后端 `SUCCESS` 数量，而是“有效交付率”：
+
+```text
+有效交付 =
+终态成功
+∧ 用户意图覆盖完整
+∧ 场景要求的验证被真实执行并通过
+∧ 预览或运行结果真实可访问
+∧ 未在约定观察窗口内因同一问题返工
+```
+
+围绕北极星只保留三组一等指标：
+
+| 目标 | 核心指标 | 禁止的替代指标 |
+|---|---|---|
+| 用户体验 | 首个有意义响应、首个可用预览、总耗时、取消生效时间、失败可解释率、安全恢复成功率 | 只看平均响应时间、只看 SSE 是否发出 |
+| 生成质量 | 有效交付率、意图覆盖率、一次构建通过率、运行时通过率、假成功数、同因返工率 | 只看模型输出长度、只看“生成了文件” |
+| 生成效率 | 单位有效交付 Token、积分、Provider 成本、工具轮次、构建次数、上下文重复读取量 | 只看单次模型调用便宜、只看某一步更快 |
+
+所有指标必须按 `工程类型 × 场景 × route × releaseIdentity` 分桶；全局平均值只能用于总览，不能用于策略晋级。
+
+### 2.2 工程原则
+
+1. **单一事实源**：场景、能力、验证结果、工作区身份、成本和终态各有且只有一个权威所有者。
+2. **观察事实高于计划事实**：`expected BUILD` 不能生成 `BUILD passed`；只有 Validator 的观察结果可以产生验证证据。
+3. **生成内容默认不可信**：仓库文件、模型输出、依赖清单、脚本、快照和恢复制品都必须经过边界校验。
+4. **深模块与开闭原则**：新增工程类型或场景通过 Capability、Adapter、Manifest、Validator、Benchmark 扩展，不新增下游散落分支。
+5. **低风险自治，高风险确认**：只读与可逆操作可自动执行；网络、依赖、破坏性修改、恢复覆盖等跨边界行为需策略或审批。
+6. **持久状态优先**：任务、租约、执行纪元、发布日志、终态意图和工具副作用必须支持进程退出和跨实例恢复。
+7. **失败关闭**：证据缺失、身份不一致、版本未知、Sandbox 不可用或结果不确定时，宁可明确失败，也不能猜测成功或盲目重放。
+8. **为有效交付优化**：任何性能或成本优化都不能以降低真实质量、扩大安全边界或隐藏失败为代价。
+
+### 2.3 必须永久成立的不变量
+
+- 假成功数为 0。
+- READ_ONLY 对项目工作区的字节级变更数为 0。
+- 未经实际 Validator 观察，不得生成 `FAST/BUILD/RUNTIME/EXPERT passed` 证据。
+- 不存在“路由允许、准入拒绝、但本可安全回退”的能力断层。
+- 旧执行纪元不得写入、发布、回滚或终态化新执行纪元。
+- 发布成功但业务终态永久缺失数为 0。
+- 跨应用、跨工程类型、跨 scope、跨任务的快照恢复数为 0。
+- 取消或时限到达后不得继续新增模型、工具、构建或发布副作用。
+- 任何策略没有真实质量、延迟和单位成功成本证据时不得晋级。
+- 工作树里的 WIP 不得记为“已完成”。
+
+## 3. 边界：本轮做什么，不做什么
+
+### 3.1 纳入范围
+
+```text
+任务提交
+→ 鉴权 / 应用所有权 / 限流 / 幂等
+→ 意图预检 / 场景决策 / 能力协商 / 预算报价
+→ 容量与积分准入 / Durable Task
+→ Worker 领取 / Lease / Epoch / Fence / 隔离工作区
+→ CREATE | READ_ONLY | LIGHT_EDIT | AGENT_EDIT | HEAVY_EXPERT
+→ 上下文检索 / 模型调用 / 工具 / 审批 / Continuation
+→ FAST / BUILD / RUNTIME / EXPERT 验证与预览
+→ 完成证据门禁
+→ 版本化发布 / Journal / Reconciliation
+→ 业务终态 / SSE / 计费结算 / 清理
+→ Benchmark / 反馈 / 场景归因 / 策略晋级
+```
+
+鉴权、应用生命周期、安全、成本、租户容量和可观测性虽然是横切能力，但直接决定生成链路是否可运营，属于本清单范围。
+
+### 3.2 明确不做
+
+- 不整体重写现有编排框架，不因“看起来更 Agent”引入新工作流引擎或微服务。
+- 不复制 Claude Code/Codex 的界面、命名或 Agent 数量；只借鉴经过验证的机制。
+- 不继续增加无独立上下文、无明确权限、无质量收益证明的“子 Agent”。
+- 不建设基础模型训练、在线强化学习、大规模向量聚类或完整 MLOps 平台。
+- 不建设完整支付、订阅和动态套餐系统；本轮只完善生成任务的预算、计费解释和管理边界。
+- 不做与生成链路无关的全站 UI 重构；仅定义后端需要提供的稳定体验合同。
+- 不为尚未声明支持的框架写临时 `if/else`；新增类型必须同时有 Capability、Adapter、Validator 和 Benchmark。
+- 不把单测、编译、Mock Sandbox 或提交记录描述成真实模型、真实浏览器或生产验收。
+- 不把用户工作树现有的并行改动顺手重构或合并到本清单提交。
+
+## 4. 状态与证据口径
+
+### 4.1 状态
+
+| 标记 | 含义 |
+|---|---|
+| ✅ 工程完成 | 已进入 Git 历史，并有对应测试/契约资产；不自动代表真实环境完成 |
+| 🟡 待验收 | 主体代码已提交，但仍缺集成、故障注入、真实模型、浏览器、并发或生产指标 |
+| 🚧 进行中 | 当前工作树已有实现或测试，但尚未形成独立提交与完整验证，不能计入交付 |
+| ⬜ 待办 | 已确认的问题或必要能力，当前没有完成证据 |
+| 🧊 暂停 | 有基础设施，但在获得数据前停止继续投入 |
+| ⛔ 范围外 | 本轮明确不做，防止改造失控 |
+
+### 4.2 证据等级
+
+| 等级 | 证据 | 可以证明什么 |
+|---|---|---|
+| E0 | 设计、ADR、清单 | 边界与决策被写清楚，不能证明代码可用 |
+| E1 | 独立提交、可审查 Diff | 实现已进入版本历史，不能证明行为正确 |
+| E2 | 单元、契约、架构测试 | 局部不变量成立，不能证明跨进程或真实外部系统 |
+| E3 | 集成、并发、故障注入、真实 OS/容器 | 跨模块恢复和运行边界成立 |
+| E4 | 真实模型、浏览器、Backend/Full Stack Benchmark | 生成质量与体验在代表性场景成立 |
+| E5 | 灰度/生产指标、告警与回滚演练 | 在真实流量与故障下可运营 |
+
+状态更新必须同时记录证据等级。例如“✅ E2 / 🟡 E4-E5”表示工程契约已完成，但真实质量与生产体验仍待验收。
+
+## 5. 当前链路与事实所有权
+
+| 阶段 | 权威事实 | 应由谁拥有 | 下游只能做什么 |
+|---|---|---|---|
+| 提交 | user、tenant、app、idempotency key | API/Admission | 校验和引用，不得重新识别所有权 |
+| 预检 | IntentProfile、目标类型、资源需求 | Scenario Decision Kernel | 消费冻结事实，不再解析 Prompt |
+| 路由 | mode、fallback、validation floor、rule/release fingerprint | Scenario Decision + Capability Negotiation | 选择已声明可执行的 Pipeline |
+| 准入 | 并发、租户预算、积分预授权、deadline | Admission Policies | 领取已获准任务，不重新报价 |
+| 执行 | taskId、leaseOwner、epoch、fence、workspace identity | Durable Runtime | 所有副作用携带并重验 fence |
+| 上下文 | 来源、路径、版本、敏感度、Token 预算 | Repository Context Trust/Retrieval | 模型只接收受保护的 Context Envelope |
+| 工具 | 每项成功/失败、有效 mutation、side-effect receipt | Tool Runtime | 模型文本不能反向伪造工具事实 |
+| 验证 | 实际执行级别、观察结果、日志摘要、主体身份 | Validator | Completion 只消费 observed evidence |
+| 发布 | candidate、active pointer、journal、reconcile status | Publication Service | 业务终态引用发布结果，不自行移动目录 |
+| 终态 | status、failure category、delivery receipt、cost settlement | Finalization/Outbox | SSE、查询、反馈共享同一持久投影 |
+| 学习 | scenario bucket、release identity、quality/latency/cost | Evaluation/Attribution | 只有完整样本可进入晋级判断 |
+
+## 6. 当前完成面与审计结论
+
+从 `53d0657` 到当前基线共有 130 个生成链路相关提交。它们证明项目已从“单条生成流程”发展成有场景、能力、工作区安全、持久任务、验证、发布和评测边界的系统；但提交数量不等于链路已经验收完成。
+
+| 领域 | 当前状态 | 已有基础 | 仍未闭环的核心问题 |
+|---|---|---|---|
+| 场景决策 | ✅ E1-E2 / 🟡 E4-E5 | 冻结 `GenerationScenarioDecision`、有界澄清、发布指纹、下游去 Prompt 重解释 | 澄清默认关闭；缺真实中文歧义样本和生产路由准确率 |
+| READ_ONLY | **存在 P0 缺陷** | 独立 Pipeline、只读工具权限、文件引用落地校验 | 语义索引会写工作区；PLAN/空项目被错误强制要求文件引用；上下文未统一走信任边界 |
+| Pipeline 能力与 OCP | **存在 P0 缺陷** | 从真实 Pipeline Bean 构建的 Capability Registry、启动期重复校验、多个 Adapter Registry | HTML/MULTI_FILE 简单 CREATE 会先选 CREATE 后在准入被拒；工作树新增手写 Catalog 会制造第二事实源 |
+| Agent/工具协议 | ✅ E1-E2 / 🚧 | 回合预算、工具暴露、取消传播、失败协议、批量读取逐项事实、有效 mutation | Agent Edit 可能用“期望验证”伪造“实际验证”；Light Edit 成功证据为空；相关修复仍在工作树 |
+| 路由回退归因 | 🚧 | CREATE/LIGHT/AGENT 可回退 HEAVY | 回退后异常仍可能按初始 request 终态化，污染 route、成本、质量记忆和事件归因 |
+| 工作区 Trust/Sandbox | ✅ E1-E2 / 🟡 E3-E5 | 控制文件、生命周期脚本、依赖源、锁文件、环境、网络、registry egress 与执行前复核 | Repository 内容入模的 Prompt Injection/源码密钥边界不统一；真实 OS、资源上限和攻击演练待补 |
+| 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt | 缺 kill/DB/Redis/磁盘/移动窗口故障矩阵；刷新后终态仍过度泛化 |
+| 快照/回滚 | ✅ 基础 / 🚧 P0 | 已建立回滚交换 commit point 与 unknown/invalidation 边界（`850f6e6`） | Manifest、scope/provenance、树摘要、消费者迁移和严格文件类型校验未交付 |
+| 成本/容量 | ✅ E1-E2 / 🟡 E3-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算 | 用户看不到预计上限、实际扣费和退还；缺跨实例公平压测和租户管理员视图 |
+| Benchmark/学习 | ✅ 基础 / 🟡 E4-E5 | Dataset、Runtime Grader、Evidence Provenance、Release Gate、Outcome Promotion、Planning Ablation | 当前 33 条数据仅覆盖 Vue/Backend/Full Stack，无 READ_ONLY，HEAVY 仅 1 条，32 条无显式 expectedRoute |
+| 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
+| 安全/应用治理 | ✅ 基础 / 🟡 E3-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界 | 需端到端 RBAC/所有权矩阵、威胁模型、审计事件、租户/应用控制面和真实攻防验收 |
+
+### 6.1 已进入 Git 历史、可以保留的方向
+
+- `d797919`、`8df92f0`：场景决策冻结和入口收口。
+- `a6f6271` 及后续只读证据提交：独立 READ_ONLY 是正确架构方向，但零写与 PLAN 证据契约尚未闭合。
+- `4b93452`：从实际 Pipeline 声明构建准入能力矩阵，应该继续作为能力唯一事实源。
+- `505ebe7`、`9e0e534`、`ad54da6`、`a951d61`、`71a669a`、`2524331`、`fd88432`、`548fceb`：统一生成工作区 Trust 与执行边界。
+- `85edd0e`、`3944404`、`aaabaed`：按质量、尾延迟和单位成功成本约束策略晋级。
+- `b74b074`、`3e94cdf`、`68097a9`、`850f6e6`：发布、对账、回滚不确定性的安全收口。
+- `7488f66`、`647d50e`：工具逐项成功与有效 mutation 成为可信事实。
+- 工程类型 Adapter、Template、Recipe、Runtime Validator 的注册化方向应保留，禁止退回大 `switch`。
+
+### 6.2 关键证据入口
+
+- 场景唯一事实：[GenerationScenarioDecision.java](../src/main/java/com/rush/rushaicodemother/orchestration/decision/GenerationScenarioDecision.java)
+- READ_ONLY 强制文件依据：[ReadOnlyAnalysisService.java](../src/main/java/com/rush/rushaicodemother/orchestration/readonly/ReadOnlyAnalysisService.java)
+- READ_ONLY 隐式索引写入：[WorkspaceSemanticIndexService.java](../src/main/java/com/rush/rushaicodemother/orchestration/index/WorkspaceSemanticIndexService.java)
+- Pipeline 能力唯一注册表：[GenerationPipelineCapabilityRegistry.java](../src/main/java/com/rush/rushaicodemother/orchestration/pipeline/GenerationPipelineCapabilityRegistry.java)
+- CREATE 当前支持类型声明：[SlotFillGenerationPipeline.java](../src/main/java/com/rush/rushaicodemother/orchestration/pipeline/SlotFillGenerationPipeline.java)
+- 准入期能力拒绝：[GenerationTaskCapabilityAdmissionPolicy.java](../src/main/java/com/rush/rushaicodemother/orchestration/runtime/task/GenerationTaskCapabilityAdmissionPolicy.java)
+- Agent Edit 期望/观察证据缺口：[AgentEditGenerationPipeline.java](../src/main/java/com/rush/rushaicodemother/orchestration/pipeline/AgentEditGenerationPipeline.java)
+- Light Edit 空完成证据：[LightweightEditGenerationPipeline.java](../src/main/java/com/rush/rushaicodemother/orchestration/pipeline/LightweightEditGenerationPipeline.java)
+- Fallback 后失败归因入口：[GenerationPipelineExecutor.java](../src/main/java/com/rush/rushaicodemother/orchestration/pipeline/GenerationPipelineExecutor.java)
+- 公共任务状态字段：[GenerationTaskStatusVO.java](../src/main/java/com/rush/rushaicodemother/model/vo/GenerationTaskStatusVO.java)
+- 持久终态泛化投影：[GenerationTerminalStreamEventFactory.java](../src/main/java/com/rush/rushaicodemother/orchestration/eventstream/GenerationTerminalStreamEventFactory.java)
+- 当前 33 条评测数据：[generation-benchmark-dataset-v2.json](../src/main/resources/benchmark/generation-benchmark-dataset-v2.json)
+- 当前快照 Manifest WIP：`src/main/java/com/rush/rushaicodemother/orchestration/snapshot/SnapshotManifest.java`（当前未跟踪，不能作为提交态链接）
+
+## 7. 方向调整：当前只激活五个高杠杆改造包
+
+在这五个改造包完成前，暂停新增工程类型、Agent 角色、路由规则和大规模性能重构。
+
+**P0-0 执行门禁（不计入五个业务改造包）**：先冻结 `dev@850f6e6` 的提交态事实，为当前每组未提交改动登记 owner、文件范围、依赖、测试和目标提交；不重置用户改动，也不把 Snapshot、Index、Pipeline、Router、SQL 等不同主题揉成一次“全绿”提交。
+
+| 顺序 | 改造包 | 当前状态 | 为什么先做 | 完成出口 |
+|---|---|---|---|---|
+| P0-1 | READ_ONLY + Repository Context Trust | ⬜/🚧 | 现在既可能写工作区，又会让空项目 PLAN 稳定失败，还存在仓库内容未经统一保护直接入模的问题 | EXPLAIN/AUDIT/PLAN 分契约；工作区指纹零变化；所有项目上下文经过统一保护、来源与 Token 预算可追踪 |
+| P0-2 | Observed Validation Evidence + Fallback Attribution | 🚧 | 当前可能把“应该 BUILD”误写成“BUILD 已通过”，回退后失败又可能归因旧 route，直接污染成功、成本与学习 | Validator observation → evidence → completion 不可伪造；稳定 failure taxonomy；fallback 后终态、SSE、成本、release identity 全部使用 effective request |
+| P0-3 | Capability Negotiation 单一事实源 | 🚧（需调整方向） | HTML/MULTI_FILE CREATE 存在路由/准入断层；新手写 Catalog 会复制类型集合 | 路由从现有 Registry 派生可执行视图并在准入前选定安全 route；删除重复 Catalog；不支持组合零模型调用、零计费拒绝 |
+| P0-4 | Snapshot Provenance 与恢复身份 | 🚧 | 目录快照缺少完整身份可能跨 scope/type 恢复，属于数据破坏风险 | Manifest + payload 自包含发布；绑定 app/type/scope/task/snapshot/tree hash；旧版与损坏制品 fail-closed；全部消费者迁移 |
+| P0-5 | 真实交付基线与故障矩阵 | ⬜ | 没有 E3-E5 数据就无法判断继续重构、路由学习或增加 Agent 是否有收益 | 核心场景 Benchmark、真实浏览器/Backend、故障注入、成本与终态体验形成首份可重复基线 |
+
+### 7.1 并行与文件边界
+
+- P0-1 涉及 Context、Index、ReadOnly、Light/Agent Edit；不得与无界的“索引性能重构”混为一个提交。
+- P0-2 涉及 Pipeline Outcome、Validator、Completion Evidence、Finalization；必须先冻结证据 DTO，再迁移生产者和消费者。
+- P0-3 只解决“能力声明到可执行路由”的单一事实源；不得顺手改意图识别规则。
+- P0-4 涉及 Filesystem、Snapshot、Rollback、Diff 消费者；与 P0-1 都接触文件系统，合并与测试需串行，避免互相掩盖。
+- P0-5 先建立数据，不在拿到报告前调整 Prompt、模型池、规划 DAG 或路由阈值。
+- 每个改造包独立 Diff、独立提交、独立回滚；不得把当前工作树其他并行修改一起计入完成。
+
+## 8. 分领域改造清单
+
+### A. 场景决策与能力协商
+
+**目标**：一次理解，冻结事实，只选择真实可执行的路线；新增类型靠注册扩展，不靠修改多个中心类。
+
+- [x] ✅ 冻结 `IntentProfile`、目标工程类型、可变性、资源需求、route、验证下限、工具权限和 release fingerprint。
+- [x] ✅ EXPLAIN/AUDIT/PLAN 被映射到 READ_ONLY，写场景使用受 Fence 保护的写权限。
+- [x] ✅ 低置信意图澄清被限制在 Preflight，禁止工具、构建和工作区副作用。
+- [x] ✅ 从实际 Pipeline Bean 声明构建 `GenerationPipelineCapabilityRegistry`，重复声明启动失败。
+- [x] ✅ 前端与后端能力合并为 Full Stack，避免线性枚举比较丢失已有能力。
+- [ ] **P0** 让路由/场景决策消费 Registry 派生的只读能力视图或能力协商结果；不得再维护手写工程类型集合。
+- [ ] **P0** 修复 HTML/MULTI_FILE 首次简单 CREATE：若无 CREATE implementation，应在预检选择 HEAVY 或明确零计费拒绝，不能先选 CREATE 再被 Admission 拒绝。
+- [ ] **P0** 删除/拒绝当前工作树中的重复 `GenerationExecutionCapabilityCatalog` 设计，保留一个能力事实源。
+- [ ] 为 `operation × mutability × codeGenType × mode` 的每个受支持单元建立契约测试；所有未支持单元证明在模型与计费前关闭。
+- [ ] 明确 HTML、MULTI_FILE 的产品承诺：正式支持、受控降级，或从公开可选项移除；禁止“前端可选、执行时失败”。
+- [ ] 在真实标注集上验证中文歧义、跨类型升级、数据库诉求、破坏性修改和范围估算；澄清开关灰度前保持默认关闭。
+
+**验收出口**：相同请求在提交、排队、恢复、跨 Worker、Fallback 后的 Scenario fingerprint 不变；每个被选择的 route 都有唯一执行所有者；新增工程类型只新增 Adapter/Manifest/Test，不修改既有类型分支。
+
+### B. READ_ONLY 与 Repository Context Trust/Retrieval
+
+**目标**：只读是真的零副作用；不同只读场景拥有不同证据合同；仓库内容作为不可信数据进入模型。
+
+- [x] ✅ READ_ONLY 独立 Pipeline 不注入写工具、Patch、构建或发布服务。
+- [x] ✅ EXPLAIN/AUDIT 的文件引用必须落在已采集路径，越界行号降级或拒绝，不能让模型伪造文件依据。
+- [ ] **P0 Bug** 修复 `ReadOnlyAnalysisService → AgentEditContextCollector → WorkspaceSemanticIndexService.loadOrBuild` 写入 `.ai-code-index/semantic-index.json` 的旁路。
+- [ ] **P0 Bug** 按操作拆分证据合同：
+  - EXPLAIN：已有工程时以文件/符号事实为主；空工程应明确“无工程可解释”，不能泛化编造。
+  - AUDIT：必须有仓库事实与可定位证据；无可审计文件时返回结构化不可审计原因。
+  - PLAN：允许以用户需求/冻结规格为依据，仓库引用可选；空项目或新项目规划不能因无文件稳定失败。
+- [ ] 将索引移出用户项目工作区，放入 task/execution cache 或受控平台缓存；缓存身份至少绑定 workspace version/fingerprint。
+- [ ] 建立 `RepositoryContextRequest → RetrievedEvidence → ProtectedContextEnvelope` 深模块，统一服务 READ_ONLY、LIGHT_EDIT、AGENT_EDIT 和 HEAVY。
+- [ ] Context Envelope 记录来源、相对路径、内容指纹、版本、截断、敏感度、Prompt Injection 风险、Token 预算和是否允许出站。
+- [ ] 统一复用 `AiContextBoundaryService` 或其演进模块，防止仓库指令冒充系统指令，拦截源码密钥、令牌、私钥和配置秘密出站。
+- [ ] 消除 READ_ONLY/Light/Agent 对原始文件内容的重复拼接和重复扫描；性能优化只能发生在统一边界内部。
+- [ ] 新增 EXPLAIN/AUDIT/PLAN 端到端测试：执行前后工作区树摘要完全一致，包含隐藏目录、空目录、mtime 策略和已存在索引场景。
+- [ ] 新增恶意仓库样本：提示注入、伪系统消息、超大文件、二进制、符号链接、密钥、Unicode 路径和扫描期间文件变化。
+
+**验收出口**：READ_ONLY 的 mutation、发布、数据库资源、构建、依赖安装均为 0；PLAN 可在空项目上产出有需求依据的计划；所有入模仓库上下文都有可审计来源且不泄漏秘密。
+
+### C. Agent、工具与完成证据
+
+**目标**：模型负责提出行动，工具和 Validator 负责提供事实；Fallback、恢复和终态始终保留真实执行路径。
+
+- [x] ✅ Agent 回合、模型调用、工具调用、修复次数和时限具有统一预算。
+- [x] ✅ 只读工具可受控并发，写工具保持串行；并发首错可取消慢调用。
+- [x] ✅ 取消信号贯穿同步模型、工具、Go 构建和共享等待。
+- [x] ✅ 工具失败协议区分调用失败、业务失败、部分成功和 no-op；模型可见 Markdown 不作为持久事实。
+- [x] ✅ 批量读取只保存真实成功项；有效 mutation 由工具执行结果而非模型声明决定。
+- [ ] **P0 Bug** Agent Edit 不得用 `expectedValidationLevel` 直接构造 successful mutation evidence；改为消费 `AgentEditVerificationOutcome` 或等价的 observed outcome。
+- [ ] **P0 Bug** Light Edit 成功不得返回空 evidence；FAST/BUILD/RUNTIME 证据必须来自实际执行的对应 Validator。
+- [ ] **P0 Bug** Fallback 后使用 `effectiveRequest` 完成失败终态、SSE、质量记忆、成本与 release fingerprint 归因，禁止回落到初始 request。
+- [ ] 定义不可伪造链路：`Validator Observation → Typed Evidence → Completion Gate → Delivery Receipt`，禁止 Pipeline 手写“验证通过”文本。
+- [ ] 为工具副作用建立稳定 receipt/idempotency key；Continuation 恢复时核对已完成工具，避免重复安装、重复写、重复回滚。
+- [ ] 审批持久化必须绑定 task/epoch/tool/arguments digest，并覆盖批准、拒绝、过期、刷新、重复提交与越权。
+- [ ] 对 Provider 超时、连接中断、已发送未确认等结果不确定场景定义重试策略；不得把未知调用当作未发生。
+- [ ] 统一 failure taxonomy：低基数内部分类用于恢复和学习；公开 reason 单独脱敏，禁止用自由异常文本做指标标签。
+
+**验收出口**：无观察即无证据；no-op、部分成功和空输出无法完成；Fallback 后所有持久事实指向最终实际 route；恢复不会重复不可逆副作用。
+
+### D. 生成工作区 Trust、Sandbox 与供应链
+
+**目标**：生成项目可以被验证和运行，但不能因此获得宿主机、凭证或任意网络权限。
+
+- [x] ✅ 统一拒绝可改变安装行为的控制文件、危险生命周期脚本和非受信依赖源。
+- [x] ✅ 安装、构建和运行前重新校验当前工作区，关闭历史残留和旁路写入。
+- [x] ✅ 锁文件执行可信校验，依赖网络仅允许受信 registry，运行网络需显式授权。
+- [x] ✅ 子进程环境最小化，不继承无关宿主环境；Benchmark 复用生产 Trust Policy。
+- [x] ✅ 预览施加 CSP、鉴权和 WebSocket 应用边界。
+- [ ] Sandbox 无法启动时 fail-closed；生产不得静默退化为宿主直接执行。
+- [ ] OS/容器限制必须被所有子进程继承，覆盖孙进程、Shell、包管理器脚本和构建工具。
+- [ ] 补齐 CPU、内存、进程数、磁盘、文件数、输出大小、运行时长和端口配额。
+- [ ] 对 symlink、junction、hardlink、device file、FIFO、大小写碰撞和路径标准化做跨平台负测。
+- [ ] 把网络策略、依赖 registry、密钥注入、运行权限做成显式 Capability，不由 Prompt 或生成文件放宽。
+- [ ] 生成产物进入 Benchmark、预览、保存、发布和恢复时共享同一 Trust Kernel；用架构测试阻止 Pipeline 自建黑名单。
+- [ ] 建立攻击基准：依赖投毒、SSRF、环境变量窃取、CSP 绕过、WebSocket 越权、超大产物、压缩炸弹和路径逃逸。
+
+**验收出口**：真实容器/OS 环境下所有边界负测通过；Sandbox 不可用会拒绝任务；宿主凭证、网络和文件系统无隐式继承。
+
+### E. 工程类型、模板、Recipe 与 OCP
+
+**目标**：项目类型扩展是可组合能力，而不是新的中心化条件分支；模板速度与 Agent 灵活性各司其职。
+
+- [x] ✅ Parser、Build/Runtime Validator、Template Planner、Bootstrap、Workspace Layout、Event Handler 等关键变化点已逐步 Adapter 化。
+- [x] ✅ 模板初始化与生成需求等关键制品已强类型化，减少 Map/字符串协议漂移。
+- [x] ✅ Vue、Backend、Full Stack 的模板/运行事实已接通；管理后台、移动端、后端多实体、全栈 CRUD Recipe 已补强。
+- [x] ✅ CREATE 部分生成、缺少必需模板、无有效 Patch 等场景禁止误报成功。
+- [ ] 给每个公开工程类型建立 Capability Manifest：支持的操作、route、模板、工具、验证下限、运行时、预览和 Benchmark。
+- [ ] 为模板覆盖范围建立“能完整覆盖则 CREATE，否则在副作用前 HEAVY”的确定性判断；模板执行失败后是否可回退由工作区 mutation 事实决定。
+- [ ] 每个 Recipe 必须有必需槽位、生成文件、契约、验证和失败语义，禁止只凭文件数量证明意图覆盖。
+- [ ] Backend/Full Stack 增加真实数据库、迁移、API、鉴权、分页、错误合同和前后端字段一致性验收。
+- [ ] 管理台/移动端增加真实浏览器交互、响应式、可访问性和关键业务流验收。
+- [ ] 用 Branch Budget/Architecture Test 防止重新出现按 `CodeGenTypeEnum` 分散到多个服务的大型 `switch`。
+- [ ] 在真实数据前暂停新增更多模板变体；先比较模板命中率、Fallback 率、一次成功率和单位交付成本。
+
+**验收出口**：新增一种工程类型时，只新增声明和适配器；现有编排核心无需修改；每种公开能力都有真实生成与运行证据。
+
+### F. 验证、发布、终态、快照与恢复
+
+**目标**：工作区结果从执行到正式发布只有一条受 Fence 保护、可对账、可恢复的路径。
+
+- [x] ✅ 完成门禁要求意图、工作区结果和对应验证证据。
+- [x] ✅ Lease、epoch、fence 贯穿执行、发布、恢复和终态。
+- [x] ✅ Publication Journal、active pointer、回滚与 Reconciler 处理文件系统和数据库非原子窗口。
+- [x] ✅ Terminal Intent/Effect Receipt 支持终态后事件、计费、清理等可重放副作用。
+- [x] ✅ 回滚目录交换把激活作为唯一 commit point；结果未知时失效工作区并禁止盲重试。
+- [ ] **P0** 快照目录改为 `snapshotRoot/{appId}/{snapshotId}/manifest.json + payload/` 等自包含 bundle，名称只作显示或索引，不作身份。
+- [ ] Manifest 至少绑定 `snapshotId/appId/kind/codeGenType/scope/taskId/executionEpoch/copyPolicy/treeHash/fileCount/byteCount/createdAt`。
+- [ ] RollbackPoint/Restore 制品升级到新版本并携带 snapshotId、manifest hash 和 scope；旧版可解析但禁止自动恢复和 Diff。
+- [ ] 快照先复制到 staging，计算树摘要并写 Manifest，外层目录一次原子发布；Manifest 与 payload 不得出现半成品组合。
+- [ ] 复制与恢复严格拒绝不支持的文件类型和路径逃逸；Windows 跳过的 symlink 测试必须在支持环境补证。
+- [ ] SnapshotRollbackTool 保留调用方相对 scope；Diff、手工回滚、自动回滚、Checkpoint 和 Catalog 全部迁移到同一读取服务。
+- [ ] 缺失、损坏、篡改、旧格式、身份不一致、树摘要不一致均在移动目标目录前 fail-closed。
+- [ ] 建立故障注入矩阵：模型返回前后、工具写中、验证中、publish prepare/move/pointer/DB commit、terminal outbox、Redis、清理、进程 kill。
+- [ ] 每个故障点验证 task/app/workspace/pointer/credit/event/quality sample 的最终一致性和可重放性。
+
+**验收出口**：任何恢复都能证明“恢复谁、恢复到哪里、内容是什么、由哪个任务创建”；故障注入后不存在双 active、跨 scope 覆盖、永久 RUNNING 或重复计费。
+
+### G. 用户体验、持久回执与可观测性
+
+**目标**：用户始终知道系统正在做什么、还要多久、结果是否可信、失败后能做什么。
+
+- [x] ✅ 用户阶段已与内部 Agent 节点解耦，支持理解、规划、实现、预览、验证、审批、交付等稳定语义。
+- [x] ✅ ETA 基于历史 route/阶段分位数并携带 confidence 与 deadline risk。
+- [x] ✅ 暂定预览已提升为任务级所有权，验证返回后不立即停止；发布/终态按 workspace/fence 清理。
+- [x] ✅ SSE 支持序列、重放、显式 gap 与 durable terminal，跨实例查询有持久回退。
+- [ ] **P1** 新增 durable delivery receipt：实际 route、变更摘要、验证摘要、预览成熟度、失败分类、可恢复性、下一步和成本摘要。
+- [ ] **P1** `GenerationTaskStatusVO` 增加结构化 `failureCategory/retryable/recoveryAction/validationSummary/deliveryReceipt/costSummary`，以版本化方式兼容旧客户端。
+- [ ] 实时终态、Redis 重放、数据库回退必须来自同一投影；刷新后信息不能从具体错误降级成“项目生成失败”。
+- [ ] 审批等待、被拒、过期、取消、Deadline、Provider 暂时失败、工作区结果未知分别提供可行动中文提示。
+- [ ] 真实浏览器验收暂定/已验证预览：首次可用时间、并发隔离、刷新、发布切换、失败保留和资源释放。
+- [ ] 建立用户体验 SLO：首个有意义响应、首个可用预览、总耗时、取消生效、失败可解释、恢复完成和资源释放。
+- [ ] 公开事件只暴露稳定、低敏字段；内部异常、路径、模型凭证、租户标签和高基数诊断留在受控日志/Trace。
+
+**验收出口**：用户刷新或换实例仍能得到与实时链一致的结果说明；每个失败都有稳定分类和下一步；预览与进度指标可按场景追踪。
+
+### H. 成本、容量、鉴权与应用治理
+
+**目标**：在模型调用前做可解释准入，在终态后做账实一致结算，平台和租户都能控制风险。
+
+- [x] ✅ 任务幂等、重复生成拦截、应用所有权、匿名入口限流和登录后 session 轮换已建立基础。
+- [x] ✅ 用户/租户/Heavy 并发、月预算、预检上限和积分预授权在模型调用前参与准入。
+- [x] ✅ Provider 尝试账本、用户计费和单位成功交付成本已分层建模。
+- [x] ✅ 应用生成中删除、版本化制品和端口清理已有门禁与清理路径。
+- [ ] **P1** 提交回执展示预计积分区间/最大冻结额；运行中展示预算消耗；终态展示实际扣费、退还或免除原因。
+- [ ] **P1** 建立租户管理员只读控制面：月预算、剩余额度、排队、按场景单位成功成本和拒绝原因；普通成员不得查看全租户成本。
+- [ ] 对任务恢复、Provider 重试、取消、Deadline、发布后终态恢复建立账实一致测试，重复扣费为 0。
+- [ ] 在跨实例压测中证明租户公平、无饥饿、锁顺序稳定和额度不超发；指标禁止直接使用 tenantId 高基数标签。
+- [ ] 建立应用级控制：暂停生成、最大并发、模型策略、网络/依赖权限、预算上限、危险工具策略和紧急 kill switch。
+- [ ] 建立控制面 RBAC/所有权矩阵，覆盖提交、查询、取消、审批、恢复、终态重放、Benchmark、模型配置和应用删除。
+- [ ] 形成威胁模型与审计事件：谁在何时对哪个 app/task 执行了什么受控操作、结果如何；日志必须脱敏且可保留/删除。
+- [ ] 模型 failover、hedge、降级和路由学习必须同时通过质量、尾延迟、Provider 成本、用户积分和容量门禁。
+
+**验收出口**：无横向越权、无重复扣费、无预算超发；用户能解释单任务费用，管理员能控制租户和应用，策略变更可审计和回滚。
+
+### I. Benchmark、学习闭环、性能与代码健康
+
+**目标**：先用数据判断质量、速度和成本，再决定是否调整 Prompt、模型、路由或 Agent 结构。
+
+- [x] ✅ 已有声明式 Dataset、结构/安全规则、浏览器与 Backend Runtime Grader、报告校验和 Release Gate。
+- [x] ✅ Benchmark Evidence 绑定候选身份、模型/Prompt/数据集指纹并支持 provenance 校验。
+- [x] ✅ 策略晋级已纳入结果质量、尾延迟和单位成功成本。
+- [x] ✅ NO_PLAN/COMPACT_PLAN/CURRENT_DAG 消融基础设施已存在。
+- [ ] **P0** 扩充能力矩阵数据：CREATE、READ_ONLY、LIGHT、AGENT、HEAVY，以及 HTML/MULTI_FILE 的支持或拒绝合同。
+- [ ] 每个受支持矩阵单元至少 3 个确定性 Fixture；高风险路由至少 10 个中文表达变体与负例。
+- [ ] 补齐空项目 PLAN、仓库 AUDIT、提示注入、秘密文件、跨类型升级、部分读取、Fallback、取消、审批、恢复和发布故障样本。
+- [ ] 运行真实模型、真实浏览器、Backend/Full Stack，并保留候选、数据、环境和报告身份；Mock 结果不进入晋级。
+- [ ] 运行规划层三组同源消融，在质量不降的前提下比较准备耗时、总耗时、Token、工具轮次和成功成本；报告前暂停删除/增加节点。
+- [ ] 建立离线与在线关联：Benchmark 维度必须能解释生产失败、返工和低评分，否则删除无价值指标。
+- [ ] 所有新策略先 shadow/canary，门禁通过后小流量晋级；保留自动回滚阈值和旧 release identity。
+- [ ] 性能分析按端到端关键路径进行：预检、排队、上下文、首 Token、工具、构建、预览、发布、终态；禁止只优化局部方法耗时。
+- [ ] 代码健康门禁：重复事实源、跨层依赖、中心类分支预算、未使用兼容层、异常吞噬、无界缓存、低信息注释和高圈复杂度。
+- [ ] 每轮重构必须有“删除了什么”的结果；只新增抽象而未移除旧路径不能宣称降债。
+
+**验收出口**：每项策略决策都有可重复报告；有效交付率、尾延迟和成功成本共同决定晋级；架构复杂度随能力增长近似线性，而非分支爆炸。
+
+### J. P2 兼容与浅层代码债（当前冻结）
+
+这些问题是真实冗余，但不会先于 P0；只有在恢复兼容与回放证据齐全后再删除。
+
+- [ ] 删除已经退役、只返回原请求的 `IntentClarificationStage` 及其浅测试，同时让 Executor 直接消费提交阶段冻结的 Scenario Decision。
+- [ ] 把 24 字段、11 个 schema 版本兼容责任从 `GenerationTaskCommand` 主记录迁入版本化 Codec/Factory；保留旧 Decoder，直到历史任务回放样本全部通过。
+- [ ] 删除 Pipeline 中仅作字符串拼接或旧签名桥接、且没有独立不变量的兼容层；先用调用图和恢复样本证明可删。
+- [ ] 清理模板化、乱码和低信息注释；注释只保留约束、原因、失败语义和非显然权衡。
+- [ ] 只有“删除测试”证明复杂性已经外溢时，才继续拆分 FileSystem、Runtime 或 Finalizer；禁止按文件行数机械拆类。
+- [ ] 每次债务清理必须同时减少旧路径、构造器、分支或重复事实；只新增 Facade/Interface 不算降债。
+
+## 9. 场景矩阵：每种请求应如何处理
+
+下表是目标合同，不是对当前代码全部已实现的声明。
+
+| 场景 | 目标 route/处理 | 允许副作用 | 最低证据/验证 | 用户体验合同 |
+|---|---|---|---|---|
+| 空项目 PLAN/技术方案 | READ_ONLY | 不写项目、不预配 DB、不构建 | 需求/冻结规格依据；仓库引用可为空 | 返回计划和假设，不因无文件失败 |
+| 已有项目 EXPLAIN | READ_ONLY | 工作区字节零变化 | 已采集文件/符号引用 | 可定位说明；证据不足明确告知 |
+| 已有项目 AUDIT | READ_ONLY | 工作区字节零变化 | 风险项必须绑定仓库事实 | 不编造路径；按严重度给改造边界 |
+| Vue/Backend/Full Stack 简单首次创建 | CREATE（能力支持时） | 受 Fence 的模板/Recipe 写入 | 必需槽位 + observed build/runtime | 尽快给暂定预览，验证后升级成熟度 |
+| HTML/MULTI_FILE 简单首次创建 | 当前应能力协商到 HEAVY 或零计费拒绝 | 不得在 Admission 才意外失败 | 对应路线的真实验证 | API 可选项与后端能力一致 |
+| 高复杂度/基础设施首次创建 | HEAVY_EXPERT | 受控写、危险工具按策略审批 | 架构/构建/运行时/安全证据 | 明确耗时、成本上限和阶段 |
+| 文案/颜色/单文件低风险编辑 | LIGHT_EDIT | 小范围受控 Patch | 实际 FAST；风险升高则 BUILD | 快速完成；Fallback 原因可见 |
+| 多文件业务逻辑编辑 | AGENT_EDIT | 顺序写工具、只读工具可并发 | observed BUILD，必要时 RUNTIME | 展示修改摘要和验证结果 |
+| 跨前后端/数据库/高破坏性改造 | HEAVY_EXPERT | 高风险操作需能力或审批 | EXPERT + Full Stack/DB 契约 | 提前说明影响范围与安全检查点 |
+| 已有项目构建失败后的修复 | 原 route 内受限 Repair 或 HEAVY | 仅可信工作区、限定修复预算 | 修复前后诊断与 observed validation | 说明修复轮次；预算耗尽明确失败 |
+| 新建项目首轮空产出 | 失败关闭 | 不进入无依据“自动修复” | 空产出事实 | 不假装正在修复；给可行动原因 |
+| 低置信歧义请求 | 有界 Preflight 澄清一次 | 无工具、无写入、无构建 | 澄清结果与超时/降级事实 | 可取消；不无限追问 |
+| 网络/依赖安装 | 原 route + Capability/Approval | 仅 allowlist 网络与最小环境 | Trust 校验、命令/依赖 receipt | 明确为何需要权限及影响 |
+| 破坏性删除/恢复覆盖 | HEAVY/Approval | 审批后受 Fence 执行 | 参数摘要、快照身份、恢复结果 | 可拒绝；未知结果禁止一键重试 |
+| WAITING_APPROVAL 后刷新/重启 | 同 task/epoch Continuation | 未批准前无受控副作用 | 持久审批与 continuation receipt | 状态可恢复，批准/拒绝幂等 |
+| 用户取消 | 终止当前 route | 取消后不得新增副作用或发布 | 取消传播与资源释放事实 | 快速确认；说明是否已扣费/退还 |
+| Deadline/Provider 超时 | 明确 timed_out/failed | 仅安全清理和账本收口 | 调用结果、终态、结算 | 与用户取消区分，给重试策略 |
+| Worker 崩溃/租约过期 | Recovery Policy | 旧 epoch 禁止继续写 | lease/fence/检查点/发布日志 | 自动恢复或明确不可安全恢复 |
+| 同一应用并发写任务 | 准入串行或明确拒绝 | 不创建第二个写执行 | app/task ownership | 快速拒绝，不冻结重复费用 |
+| 客户端重复提交 | Idempotent replay | 只产生一个任务/预授权 | idempotency receipt | 返回同一 taskId 与状态 |
+| 刷新、断线、跨实例查询 | Durable status/SSE replay | 只读查询 | sequence/gap/terminal projection | 不丢终态；gap 显式 |
+| 发布时 DB/Redis/进程故障 | Reconcile/Terminal Effect replay | 仅幂等补偿 | journal、pointer、terminal intent | 最终状态一致，不重复收费 |
+| 手工/自动快照恢复 | Manifest-bound restore | 校验全部身份后原子替换 | manifest hash、tree hash、scope | 不匹配直接拒绝；未知结果人工核对 |
+
+## 10. 测试与发布门禁
+
+### 10.1 每个改造包的 Definition of Done
+
+- [ ] 问题能够由失败测试或可重复诊断先证明，而非只凭代码观感。
+- [ ] 权威事实所有者、调用者、持久边界和失败语义在代码/ADR 中明确。
+- [ ] 正常、边界、取消、超时、并发、恢复、越权和旧版本兼容场景有对应证据。
+- [ ] Targeted test 通过，并记录数量、跳过项和跳过原因。
+- [ ] 相关模块测试、架构测试、`git diff --check` 通过。
+- [ ] Full suite 的结果单独记录；若被既有问题阻塞，必须明确阻塞与本改造的边界。
+- [ ] 涉及真实模型、浏览器、Backend、容器或 Redis 的项目完成 E3/E4，不能用 Mock 替代。
+- [ ] 涉及生产策略的项目完成 shadow/canary、告警和回滚演练后才达到 E5。
+- [ ] 独立中文提交，只包含本改造包；工作树其他改动不得被顺带提交。
+- [ ] 清单状态、Commit、测试、Benchmark、已知限制和下一步同步更新。
+
+### 10.2 必做故障矩阵
+
+| 故障点 | 必须证明的结果 |
+|---|---|
+| Preflight 模型超时/取消 | 不创建收费任务，预检额度正确结算 |
+| 队列重复投递/Worker 重启 | 只有一个 epoch 获得副作用权限 |
+| 工具部分成功/返回丢失 | 已成功项可追踪，不重复不可逆操作 |
+| 构建阻塞/孙进程残留 | Deadline/取消可终止进程树并释放资源 |
+| 发布 candidate 移动前后 | active pointer、journal、正式目录最终一致 |
+| 发布后 DB 终态失败 | Reconciler/Terminal Intent 最终补齐，不误报失败 |
+| Redis 中断/SSE 重连 | gap 显式，数据库终态可回退，不重复终态 |
+| 计费结算前后崩溃 | 幂等结算，余额、流水、任务一致 |
+| 快照 Manifest/树内容篡改 | 恢复前拒绝，目标目录保持不变 |
+| 回滚激活结果未知 | workspace invalidated，禁止自动重试 |
+
+## 11. 当前工作树 WIP 台账（不计入已完成）
+
+当前工作树包含多组并行改动，必须按以下口径处理：
+
+| WIP | 方向判断 | 当前证据 | 尚缺什么 |
+|---|---|---|---|
+| Snapshot Manifest/Scope/Fingerprint | 方向正确，P0-4 | 跨 scope 拒绝的定向测试已绿；一次定向运行 16 tests、0 failure/error、3 skipped；低层主代码编译有证据 | 所有消费者迁移、bundle 原子发布、RollbackPoint v2、严格文件类型、Legacy/corrupt、Diff、真实 symlink 环境、完整回归、独立提交 |
+| Workspace FileSystem replace/fingerprint | 低层安全边界正确，但仍属 WIP | 预期 fingerprint、失配前拒绝、交换 commit point 等局部实现存在 | 与 Snapshot 端到端身份闭环、聚焦测试重跑、跨平台验证 |
+| Semantic Index 有界缓存 | 性能方向可保留，但未解决 READ_ONLY 写入 | Caffeine、有界容量、锁条带、精确失效等工作树实现 | 把持久索引移出项目工作区、统一 Context Trust、全链零写测试、内存/并发 Benchmark、独立提交 |
+| Agent Edit observed verification | 修复方向正确，P0-2 | `AgentEditVerificationOutcome` 等工作树改动正在传递观察结果 | Light Edit 同步迁移、Completion Gate、失败/取消/Fallback、全链测试与独立提交 |
+| Pipeline effective request | 修复方向正确，P0-2 | 工作树已出现回退后保留 effective request 的修改 | CREATE/LIGHT/AGENT → HEAVY 后失败的终态、SSE、成本、质量记忆、release identity 回归 |
+| 手写 Execution Capability Catalog | **方向错误，应替换** | 能提前识别 CREATE 类型缺口 | 复制了 Registry 中的工程类型事实；应改为 Registry 派生能力查询/协商并删除重复集合 |
+| Terminal Effect Architecture Test 等其他并行修改 | 所有权未核清 | 仅工作树可见 | 与各改造包拆分，不能顺带计入或提交 |
+
+### 11.1 本轮文档交付边界
+
+- 本轮只新增这份清单。
+- 不恢复或修改当前已暂存删除的旧蓝图。
+- 不提交 Snapshot、Index、Pipeline、Router、SQL、配置或测试 WIP。
+- 不运行会把当前并行 WIP 误当成基线的全量验收；代码改造重新启动时按改造包先隔离事实。
+
+## 12. 推荐执行顺序
+
+### 第一阶段：事实正确性
+
+1. P0-1：READ_ONLY 零写 + 三种只读证据合同 + Repository Context Trust。
+2. P0-2：Observed Validation Evidence + Fallback effective request。
+3. P0-3：Registry 驱动的 Capability Negotiation，删除重复 Catalog。
+4. P0-4：Snapshot Manifest/Scope/Tree Hash 和所有消费者迁移。
+
+完成条件：所有成功、失败、路由、恢复和快照身份都只有一个事实源。
+
+### 第二阶段：可恢复与可解释
+
+1. Terminal failure taxonomy 与 durable delivery receipt。
+2. 用户成本上限、实际扣费、退还与重试策略。
+3. Publication/Terminal/Snapshot/计费故障矩阵。
+4. 真实浏览器、跨实例 SSE、取消和资源释放验收。
+
+完成条件：用户刷新后仍能理解结果，平台可在任何中断窗口恢复或明确人工处置。
+
+### 第三阶段：用数据决定 Agent 工程
+
+1. 补齐场景/route/工程类型 Benchmark 矩阵。
+2. 运行真实模型、浏览器、Backend 与 Full Stack 基线。
+3. 运行规划层消融、Context Retrieval 性能和路由 shadow。
+4. 只有报告同时满足质量、尾延迟和单位成功成本，才晋级策略。
+
+完成条件：每个 Agent、规划节点、模型和路由规则都有可量化收益；没有收益的复杂度被删除。
+
+### 第四阶段：生产运营
+
+1. 租户/应用控制面、审计和 RBAC 全矩阵。
+2. 多租户公平、容量、账实一致与攻击演练。
+3. Canary、告警、自动回滚和定期恢复演练。
+
+完成条件：链路从“工程可运行”升级为“生产可治理”。
+
+## 13. 对 Codex / Claude Code 的借鉴边界
+
+借鉴的是机制，不是表面形态：
+
+- Codex 的任务隔离、Sandbox、跨边界审批、网络策略、凭证隔离和 Agent 可观测性，适合转化为本项目的执行 Capability 与审计合同。
+- Claude Code 的权限层与 OS Sandbox 叠加、子进程继承限制、确定性 Hooks 和有界子 Agent，适合转化为本项目的 fail-closed 策略和生命周期门禁。
+- 子 Agent 只用于边界清晰、上下文隔离有收益的任务；需要共享大量上下文或严格顺序时保留单一主执行者。
+- Hooks/Policy 用于确定性安全和验证，模型用于需要判断的规划；不能让另一个 Agent 代替硬性安全门禁。
+
+官方参考：
+
+- [OpenAI：Running Codex safely](https://openai.com/index/running-codex-safely/)
+- [OpenAI：Introducing Codex](https://openai.com/index/introducing-codex/)
+- [OpenAI：Building the Codex Windows sandbox](https://openai.com/index/building-codex-windows-sandbox/)
+- [Anthropic：Claude Code Security](https://code.claude.com/docs/en/security)
+- [Anthropic：Permissions](https://code.claude.com/docs/en/permissions)
+- [Anthropic：Sandboxing](https://code.claude.com/docs/en/sandboxing)
+- [Anthropic：Hooks guide](https://code.claude.com/docs/en/hooks-guide)
+- [Anthropic：Subagents](https://code.claude.com/docs/en/sub-agents)
+
+## 14. 清单维护规则
+
+1. 每个任务必须有稳定 ID、问题、用户影响、事实所有者、边界、依赖和验收出口。
+2. 开工时改为 🚧；只有独立提交与相应证据齐全后才能改为 ✅/🟡。
+3. 每个状态变更记录：`日期 / commit / tests / benchmark / evidence level / remaining risk`。
+4. “已有测试文件”“过去某次全量通过”“Mock 可运行”不能作为当前验收结果。
+5. 发现新问题先判断是否破坏五条 P0 不变量；若不是，进入对应领域 Backlog，不打断当前激活项。
+6. 同一领域最多一个进行中改造包；文件所有权冲突时先合并/拆分，不并行覆盖。
+7. 每个重构项必须记录删除的旧路径、重复事实或分支；只增加抽象不算完成。
+8. 每次真实 Benchmark 固化 candidate、model、prompt、dataset、environment、report fingerprint，禁止选择性引用结果。
+9. E5 前必须定义告警、回滚、人工处置和数据保留策略。
+10. 本文是唯一执行总清单；ADR 解释单项决策，旧蓝图只保留历史背景，不再作为完成状态来源。
+
+## 15. 相关项目文档
+
+- [后端 AI 生成项目链路审计与优化蓝图](./后端AI生成项目链路审计与优化蓝图.md)
+- [ADR：场景决策事实所有权](./ADR-场景决策事实所有权.md)
+- [ADR：生成工作区信任模型](./ADR-生成工作区信任模型.md)
+- [ADR：Agent 规划层消融协议](./ADR-Agent规划层消融协议.md)
+- [暂定预览 Dev Server 所有权设计](./暂定预览DevServer所有权设计.md)
+
+---
+
+最后更新：2026-08-27。下一次更新应从 P0-1 开始，先补失败测试和事实边界，不直接继续写实现。

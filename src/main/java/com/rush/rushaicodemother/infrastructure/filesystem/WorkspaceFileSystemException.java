@@ -31,6 +31,8 @@ public class WorkspaceFileSystemException extends IOException {
         BYTE_LIMIT_EXCEEDED,
         FILE_TOO_LARGE,
         FILE_CHANGED,
+        /** staging 目录的内容指纹与调用方信任的指纹不一致，不得发布或替换目标。 */
+        CONTENT_FINGERPRINT_MISMATCH,
         TARGET_ALREADY_EXISTS,
         COPY_FAILED,
         REPLACE_FAILED,

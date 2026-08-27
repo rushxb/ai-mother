@@ -28,8 +28,11 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -49,6 +52,10 @@ import java.util.concurrent.locks.ReentrantLock;
 public class WorkspaceFileSystemService {
 
     private static final int BUFFER_SIZE = 16 * 1024;
+    private static final String SHA_256_ALGORITHM = "SHA-256";
+    private static final byte[] DIRECTORY_FINGERPRINT_VERSION =
+            "workspace-directory-fingerprint-v1".getBytes(StandardCharsets.UTF_8);
+    private static final HexFormat HEX_FORMAT = HexFormat.of();
     private static final int MUTATION_LOCK_STRIPES = 64;
     private static final Runnable NO_OP_CONTINUATION_CHECK = () -> {
     };
@@ -377,13 +384,76 @@ public class WorkspaceFileSystemService {
 
     /** 创建完整的目录副本，而不暴露部分复制的目标。 */
     public WorkspaceCopyResult copyDirectory(Path sourceDirectory, Path targetDirectory) throws IOException {
-        return copyDirectory(sourceDirectory, targetDirectory, NO_OP_CONTINUATION_CHECK);
+        return copyDirectoryInternal(
+                sourceDirectory,
+                targetDirectory,
+                null,
+                NO_OP_CONTINUATION_CHECK
+        );
     }
 
     /** 在调用方取消边界内创建完整目录副本。 */
     public WorkspaceCopyResult copyDirectory(
             Path sourceDirectory,
             Path targetDirectory,
+            Runnable continuationCheck
+    ) throws IOException {
+        return copyDirectoryInternal(sourceDirectory, targetDirectory, null, continuationCheck);
+    }
+
+    /** 只读计算完整目录树指纹，严格拒绝符号链接和非常规文件。 */
+    public WorkspaceDirectoryFingerprint fingerprintDirectory(Path directory) throws IOException {
+        return fingerprintDirectory(directory, NO_OP_CONTINUATION_CHECK);
+    }
+
+    /** 在调用方取消边界内只读计算完整目录树指纹。 */
+    public WorkspaceDirectoryFingerprint fingerprintDirectory(
+            Path directory,
+            Runnable continuationCheck
+    ) throws IOException {
+        Runnable effectiveCheck = effectiveContinuationCheck(continuationCheck);
+        effectiveCheck.run();
+        Path source = requireExistingDirectory(directory);
+        DirectoryFingerprintCollector collector = new DirectoryFingerprintCollector(
+                source, effectiveCheck);
+        Files.walkFileTree(source, collector);
+        effectiveCheck.run();
+        return collector.fingerprint();
+    }
+
+    /** 仅当 staging 内容符合预期指纹时才发布目标目录。 */
+    public WorkspaceCopyResult copyDirectory(
+            Path sourceDirectory,
+            Path targetDirectory,
+            WorkspaceDirectoryFingerprint expectedFingerprint
+    ) throws IOException {
+        return copyDirectoryInternal(
+                sourceDirectory,
+                targetDirectory,
+                Objects.requireNonNull(expectedFingerprint, "expectedFingerprint must not be null"),
+                NO_OP_CONTINUATION_CHECK
+        );
+    }
+
+    /** 在调用方取消边界内校验指纹并发布完整目录副本。 */
+    public WorkspaceCopyResult copyDirectory(
+            Path sourceDirectory,
+            Path targetDirectory,
+            WorkspaceDirectoryFingerprint expectedFingerprint,
+            Runnable continuationCheck
+    ) throws IOException {
+        return copyDirectoryInternal(
+                sourceDirectory,
+                targetDirectory,
+                Objects.requireNonNull(expectedFingerprint, "expectedFingerprint must not be null"),
+                continuationCheck
+        );
+    }
+
+    private WorkspaceCopyResult copyDirectoryInternal(
+            Path sourceDirectory,
+            Path targetDirectory,
+            WorkspaceDirectoryFingerprint expectedFingerprint,
             Runnable continuationCheck
     ) throws IOException {
         Runnable effectiveCheck = effectiveContinuationCheck(continuationCheck);
@@ -406,9 +476,10 @@ public class WorkspaceFileSystemService {
         try {
             WorkspaceCopyResult staged = copyTree(source, staging, effectiveCheck);
             effectiveCheck.run();
+            requireExpectedFingerprint(staged, expectedFingerprint);
             moveWithoutReplace(staging, target, effectiveCheck);
             publicationCommitted = true;
-            return new WorkspaceCopyResult(target, staged.fileCount(), staged.totalBytes());
+            return staged.withTargetDirectory(target);
         } catch (WorkspaceFileSystemException exception) {
             operationFailure = exception;
             throw exception;
@@ -425,13 +496,56 @@ public class WorkspaceFileSystemService {
 
     /** 通过暂存副本替换目录，并在交换失败时恢复原始目录。 */
     public WorkspaceCopyResult replaceDirectory(Path sourceDirectory, Path targetDirectory) throws IOException {
-        return replaceDirectory(sourceDirectory, targetDirectory, NO_OP_CONTINUATION_CHECK);
+        return replaceDirectoryInternal(
+                sourceDirectory,
+                targetDirectory,
+                null,
+                NO_OP_CONTINUATION_CHECK
+        );
     }
 
     /** 在调用方取消边界内通过暂存副本替换目录。 */
     public WorkspaceCopyResult replaceDirectory(
             Path sourceDirectory,
             Path targetDirectory,
+            Runnable continuationCheck
+    ) throws IOException {
+        return replaceDirectoryInternal(sourceDirectory, targetDirectory, null, continuationCheck);
+    }
+
+    /** 仅当 staging 内容符合预期指纹时才替换现有目标。 */
+    public WorkspaceCopyResult replaceDirectory(
+            Path sourceDirectory,
+            Path targetDirectory,
+            WorkspaceDirectoryFingerprint expectedFingerprint
+    ) throws IOException {
+        return replaceDirectoryInternal(
+                sourceDirectory,
+                targetDirectory,
+                Objects.requireNonNull(expectedFingerprint, "expectedFingerprint must not be null"),
+                NO_OP_CONTINUATION_CHECK
+        );
+    }
+
+    /** 在调用方取消边界内校验指纹并替换现有目标。 */
+    public WorkspaceCopyResult replaceDirectory(
+            Path sourceDirectory,
+            Path targetDirectory,
+            WorkspaceDirectoryFingerprint expectedFingerprint,
+            Runnable continuationCheck
+    ) throws IOException {
+        return replaceDirectoryInternal(
+                sourceDirectory,
+                targetDirectory,
+                Objects.requireNonNull(expectedFingerprint, "expectedFingerprint must not be null"),
+                continuationCheck
+        );
+    }
+
+    private WorkspaceCopyResult replaceDirectoryInternal(
+            Path sourceDirectory,
+            Path targetDirectory,
+            WorkspaceDirectoryFingerprint expectedFingerprint,
             Runnable continuationCheck
     ) throws IOException {
         Runnable effectiveCheck = effectiveContinuationCheck(continuationCheck);
@@ -446,13 +560,15 @@ public class WorkspaceFileSystemService {
         Throwable operationFailure = null;
         try {
             WorkspaceCopyResult staged = copyTree(source, staging, effectiveCheck);
+            effectiveCheck.run();
+            requireExpectedFingerprint(staged, expectedFingerprint);
             moveWithoutReplace(target, displaced, effectiveCheck);
             targetDisplaced = true;
             moveWithoutReplace(staging, target, effectiveCheck);
             // staging 激活成功是交换的唯一提交点，之后的清理不得改写已提交结果。
             activationCommitted = true;
             deleteDisplacedAfterCommit(displaced);
-            return new WorkspaceCopyResult(target, staged.fileCount(), staged.totalBytes());
+            return staged.withTargetDirectory(target);
         } catch (IOException | RuntimeException exception) {
             Throwable resolvedFailure = recoverDisplacedBeforeCommit(
                     target,
@@ -583,7 +699,47 @@ public class WorkspaceFileSystemService {
         CopyCollector collector = new CopyCollector(source, target, continuationCheck);
         Files.walkFileTree(source, collector);
         continuationCheck.run();
-        return new WorkspaceCopyResult(target, collector.fileCount, collector.totalBytes);
+        return new WorkspaceCopyResult(
+                target,
+                collector.fileCount,
+                collector.totalBytes,
+                collector.contentSha256()
+        );
+    }
+
+    /** 读取常规文件并在读取前后核对文件身份，防止摘要绑定到竞态内容。 */
+    private byte[] digestRegularFile(Path source,
+                                     BasicFileAttributes before,
+                                     Runnable continuationCheck) throws IOException {
+        MessageDigest digest = newSha256Digest();
+        long readBytes = 0L;
+        try (SeekableByteChannel input = Files.newByteChannel(source, READ_NOFOLLOW_OPTIONS)) {
+            ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
+            while (true) {
+                continuationCheck.run();
+                int bytesRead = input.read(buffer);
+                if (bytesRead < 0) {
+                    break;
+                }
+                if (bytesRead == 0) {
+                    continue;
+                }
+                buffer.flip();
+                readBytes = safeAdd(
+                        readBytes,
+                        buffer.remaining(),
+                        WorkspaceFileSystemException.Reason.BYTE_LIMIT_EXCEEDED,
+                        "工作区摘要超过总字节上限");
+                digest.update(buffer);
+                buffer.clear();
+            }
+        }
+        continuationCheck.run();
+        BasicFileAttributes after = readRegularFileAttributes(source);
+        if (readBytes != before.size() || !sameIdentity(before, after)) {
+            throw failure(WorkspaceFileSystemException.Reason.FILE_CHANGED, "工作区文件在摘要期间发生变化");
+        }
+        return digest.digest();
     }
 
     /** 复制文件。 */
@@ -601,6 +757,7 @@ public class WorkspaceFileSystemService {
         if (updatedTotal > properties.getMaxCopyBytes()) {
             throw failure(WorkspaceFileSystemException.Reason.BYTE_LIMIT_EXCEEDED, "工作区快照超过总字节上限");
         }
+        MessageDigest fileDigest = newSha256Digest();
         try (SeekableByteChannel input = Files.newByteChannel(source, READ_NOFOLLOW_OPTIONS);
              SeekableByteChannel output = Files.newByteChannel(target, CREATE_NOFOLLOW_OPTIONS)) {
             ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
@@ -617,6 +774,8 @@ public class WorkspaceFileSystemService {
                 buffer.flip();
                 copied = safeAdd(copied, buffer.remaining(), WorkspaceFileSystemException.Reason.BYTE_LIMIT_EXCEEDED,
                         "工作区快照超过总字节上限");
+                // 复用同一次读取的字节计算文件摘要，避免为指纹二次读盘。
+                fileDigest.update(buffer.asReadOnlyBuffer());
                 writeFully(output, buffer);
                 buffer.clear();
             }
@@ -630,8 +789,32 @@ public class WorkspaceFileSystemService {
             throw failure(WorkspaceFileSystemException.Reason.FILE_CHANGED, "工作区文件在复制期间发生变化");
         }
         Files.setLastModifiedTime(target, FileTime.fromMillis(before.lastModifiedTime().toMillis()));
+        collector.addFile(source, before.size(), fileDigest.digest());
         collector.totalBytes = updatedTotal;
         collector.fileCount++;
+    }
+
+    private void requireExpectedFingerprint(WorkspaceCopyResult staged,
+                                            WorkspaceDirectoryFingerprint expectedFingerprint)
+            throws WorkspaceFileSystemException {
+        if (expectedFingerprint == null) {
+            return;
+        }
+        WorkspaceDirectoryFingerprint actualFingerprint = WorkspaceDirectoryFingerprint.from(staged);
+        if (!expectedFingerprint.equals(actualFingerprint)) {
+            throw failure(
+                    WorkspaceFileSystemException.Reason.CONTENT_FINGERPRINT_MISMATCH,
+                    "工作区 staging 内容指纹与预期不一致"
+            );
+        }
+    }
+
+    private MessageDigest newSha256Digest() {
+        try {
+            return MessageDigest.getInstance(SHA_256_ALGORITHM);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("JVM 不支持 SHA-256 算法", exception);
+        }
     }
 
     /** 校验并返回有效的{@code Matching}文件。 */
@@ -1174,7 +1357,34 @@ public class WorkspaceFileSystemService {
         }
     }
 
-    public record WorkspaceCopyResult(Path targetDirectory, int fileCount, long totalBytes) {
+    public record WorkspaceCopyResult(Path targetDirectory,
+                                      int fileCount,
+                                      long totalBytes,
+                                      String contentSha256) {
+
+        public WorkspaceCopyResult {
+            targetDirectory = Objects.requireNonNull(targetDirectory, "targetDirectory must not be null");
+            contentSha256 = Objects.requireNonNullElse(contentSha256, "");
+        }
+
+        /**
+         * 保留旧有构造器以兼容测试替身和外部调用。
+         *
+         * <p>空指纹只表示调用方没有提供指纹，不能转换为可信的
+         * {@link WorkspaceDirectoryFingerprint}。本服务的真实复制路径始终返回完整指纹。</p>
+         */
+        public WorkspaceCopyResult(Path targetDirectory, int fileCount, long totalBytes) {
+            this(targetDirectory, fileCount, totalBytes, "");
+        }
+
+        private WorkspaceCopyResult withTargetDirectory(Path publishedTargetDirectory) {
+            return new WorkspaceCopyResult(
+                    publishedTargetDirectory,
+                    fileCount,
+                    totalBytes,
+                    contentSha256
+            );
+        }
     }
 
     public record WorkspaceDirectoryMetadata(String name, long lastModifiedTime) {
@@ -1345,6 +1555,7 @@ public class WorkspaceFileSystemService {
         private final Path sourceRoot;
         private final Path targetRoot;
         private final Runnable continuationCheck;
+        private final List<CopyFingerprintEntry> fingerprintEntries = new ArrayList<>();
         private int fileCount;
         private long totalBytes;
 
@@ -1365,7 +1576,7 @@ public class WorkspaceFileSystemService {
         public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
             continuationCheck.run();
             if (attributes.isSymbolicLink() || Files.isSymbolicLink(directory)) {
-                return directory.equals(sourceRoot) ? unsafeRoot() : FileVisitResult.SKIP_SUBTREE;
+                return unsafeSymbolicLink();
             }
             int depth = sourceRoot.relativize(directory).getNameCount();
             if (depth > properties.getMaxDirectoryDepth()) {
@@ -1377,6 +1588,7 @@ public class WorkspaceFileSystemService {
             }
             if (!directory.equals(sourceRoot)) {
                 Files.createDirectory(targetRoot.resolve(sourceRoot.relativize(directory)));
+                fingerprintEntries.add(CopyFingerprintEntry.directory(relativePath(directory)));
             }
             return FileVisitResult.CONTINUE;
         }
@@ -1391,8 +1603,13 @@ public class WorkspaceFileSystemService {
         @Override
         public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
             continuationCheck.run();
-            if (attributes.isSymbolicLink() || Files.isSymbolicLink(file) || !attributes.isRegularFile()) {
-                return FileVisitResult.CONTINUE;
+            if (attributes.isSymbolicLink() || Files.isSymbolicLink(file)) {
+                return unsafeSymbolicLink();
+            }
+            if (!attributes.isRegularFile()) {
+                throw failure(
+                        WorkspaceFileSystemException.Reason.NOT_REGULAR_FILE,
+                        "工作区快照只支持常规文件");
             }
             if (fileCount >= properties.getMaxFiles()) {
                 throw failure(WorkspaceFileSystemException.Reason.FILE_LIMIT_EXCEEDED,
@@ -1403,9 +1620,185 @@ public class WorkspaceFileSystemService {
             return FileVisitResult.CONTINUE;
         }
 
-        private FileVisitResult unsafeRoot() throws WorkspaceFileSystemException {
+        private void addFile(Path file, long size, byte[] contentSha256) {
+            fingerprintEntries.add(CopyFingerprintEntry.file(
+                    relativePath(file),
+                    size,
+                    contentSha256
+            ));
+        }
+
+        /** 按规范化相对路径排序后统一聚合，不依赖底层文件系统的遍历顺序。 */
+        private String contentSha256() {
+            List<CopyFingerprintEntry> orderedEntries = new ArrayList<>(fingerprintEntries);
+            orderedEntries.sort(Comparator.comparing(CopyFingerprintEntry::relativePath)
+                    .thenComparingInt(CopyFingerprintEntry::kind));
+
+            MessageDigest directoryDigest = newSha256Digest();
+            updateLengthPrefixed(directoryDigest, DIRECTORY_FINGERPRINT_VERSION);
+            for (CopyFingerprintEntry entry : orderedEntries) {
+                directoryDigest.update((byte) entry.kind());
+                updateLengthPrefixed(
+                        directoryDigest,
+                        entry.relativePath().getBytes(StandardCharsets.UTF_8)
+                );
+                directoryDigest.update(ByteBuffer.allocate(Long.BYTES).putLong(entry.size()).array());
+                if (entry.kind() == CopyFingerprintEntry.FILE_KIND) {
+                    directoryDigest.update(entry.contentSha256());
+                }
+            }
+            return HEX_FORMAT.formatHex(directoryDigest.digest());
+        }
+
+        private String relativePath(Path path) {
+            Path relative = sourceRoot.relativize(path).normalize();
+            StringBuilder canonical = new StringBuilder();
+            for (Path segment : relative) {
+                if (!canonical.isEmpty()) {
+                    canonical.append('/');
+                }
+                canonical.append(segment);
+            }
+            return canonical.toString();
+        }
+
+        private FileVisitResult unsafeSymbolicLink() throws WorkspaceFileSystemException {
             throw failure(WorkspaceFileSystemException.Reason.UNSAFE_SYMBOLIC_LINK,
-                    "工作区根目录不能是符号链接");
+                    "工作区快照不允许符号链接");
+        }
+    }
+
+    /** 严格读取目录内容；与复制策略不同，校验既有 payload 时不得忽略任何子目录。 */
+    private final class DirectoryFingerprintCollector extends SimpleFileVisitor<Path> {
+
+        private final Path sourceRoot;
+        private final Runnable continuationCheck;
+        private final List<CopyFingerprintEntry> entries = new ArrayList<>();
+        private int fileCount;
+        private long totalBytes;
+
+        private DirectoryFingerprintCollector(Path sourceRoot, Runnable continuationCheck) {
+            this.sourceRoot = sourceRoot;
+            this.continuationCheck = continuationCheck;
+        }
+
+        @Override
+        public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes)
+                throws IOException {
+            continuationCheck.run();
+            if (attributes.isSymbolicLink() || Files.isSymbolicLink(directory)) {
+                throw failure(
+                        WorkspaceFileSystemException.Reason.UNSAFE_SYMBOLIC_LINK,
+                        "目录摘要不允许符号链接");
+            }
+            int depth = sourceRoot.relativize(directory).getNameCount();
+            if (depth > properties.getMaxDirectoryDepth()) {
+                throw failure(
+                        WorkspaceFileSystemException.Reason.FILE_LIMIT_EXCEEDED,
+                        "工作区目录深度超过摘要上限");
+            }
+            if (!directory.equals(sourceRoot)) {
+                entries.add(CopyFingerprintEntry.directory(relativePath(directory)));
+            }
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
+            continuationCheck.run();
+            if (attributes.isSymbolicLink() || Files.isSymbolicLink(file)) {
+                throw failure(
+                        WorkspaceFileSystemException.Reason.UNSAFE_SYMBOLIC_LINK,
+                        "目录摘要不允许符号链接");
+            }
+            if (!attributes.isRegularFile()) {
+                throw failure(
+                        WorkspaceFileSystemException.Reason.NOT_REGULAR_FILE,
+                        "目录摘要只支持常规文件");
+            }
+            if (fileCount >= properties.getMaxFiles()) {
+                throw failure(
+                        WorkspaceFileSystemException.Reason.FILE_LIMIT_EXCEEDED,
+                        "工作区文件数量超过摘要上限");
+            }
+            if (attributes.size() > properties.getMaxFileBytes()) {
+                throw failure(
+                        WorkspaceFileSystemException.Reason.FILE_TOO_LARGE,
+                        "工作区文件超过摘要单文件上限");
+            }
+            long updatedTotal = safeAdd(
+                    totalBytes,
+                    attributes.size(),
+                    WorkspaceFileSystemException.Reason.BYTE_LIMIT_EXCEEDED,
+                    "工作区摘要超过总字节上限");
+            if (updatedTotal > properties.getMaxCopyBytes()) {
+                throw failure(
+                        WorkspaceFileSystemException.Reason.BYTE_LIMIT_EXCEEDED,
+                        "工作区摘要超过总字节上限");
+            }
+            entries.add(CopyFingerprintEntry.file(
+                    relativePath(file),
+                    attributes.size(),
+                    digestRegularFile(file, attributes, continuationCheck)));
+            totalBytes = updatedTotal;
+            fileCount++;
+            return FileVisitResult.CONTINUE;
+        }
+
+        private WorkspaceDirectoryFingerprint fingerprint() {
+            List<CopyFingerprintEntry> orderedEntries = new ArrayList<>(entries);
+            orderedEntries.sort(Comparator.comparing(CopyFingerprintEntry::relativePath)
+                    .thenComparingInt(CopyFingerprintEntry::kind));
+            MessageDigest directoryDigest = newSha256Digest();
+            updateLengthPrefixed(directoryDigest, DIRECTORY_FINGERPRINT_VERSION);
+            for (CopyFingerprintEntry entry : orderedEntries) {
+                directoryDigest.update((byte) entry.kind());
+                updateLengthPrefixed(
+                        directoryDigest,
+                        entry.relativePath().getBytes(StandardCharsets.UTF_8));
+                directoryDigest.update(ByteBuffer.allocate(Long.BYTES).putLong(entry.size()).array());
+                if (entry.kind() == CopyFingerprintEntry.FILE_KIND) {
+                    directoryDigest.update(entry.contentSha256());
+                }
+            }
+            return new WorkspaceDirectoryFingerprint(
+                    fileCount,
+                    totalBytes,
+                    HEX_FORMAT.formatHex(directoryDigest.digest()));
+        }
+
+        private String relativePath(Path path) {
+            Path relative = sourceRoot.relativize(path).normalize();
+            StringBuilder canonical = new StringBuilder();
+            for (Path segment : relative) {
+                if (!canonical.isEmpty()) {
+                    canonical.append('/');
+                }
+                canonical.append(segment);
+            }
+            return canonical.toString();
+        }
+    }
+
+    private static void updateLengthPrefixed(MessageDigest digest, byte[] value) {
+        digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(value.length).array());
+        digest.update(value);
+    }
+
+    private record CopyFingerprintEntry(char kind,
+                                        String relativePath,
+                                        long size,
+                                        byte[] contentSha256) {
+
+        private static final char DIRECTORY_KIND = 'D';
+        private static final char FILE_KIND = 'F';
+
+        private static CopyFingerprintEntry directory(String relativePath) {
+            return new CopyFingerprintEntry(DIRECTORY_KIND, relativePath, 0L, new byte[0]);
+        }
+
+        private static CopyFingerprintEntry file(String relativePath, long size, byte[] contentSha256) {
+            return new CopyFingerprintEntry(FILE_KIND, relativePath, size, contentSha256.clone());
         }
     }
 }

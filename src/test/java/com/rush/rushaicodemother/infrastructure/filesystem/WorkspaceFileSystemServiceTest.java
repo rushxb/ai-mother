@@ -21,6 +21,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -131,17 +132,152 @@ class WorkspaceFileSystemServiceTest {
                     source,
                     snapshots.resolve("snapshot_one")
             );
+            WorkspaceDirectoryFingerprint expectedFingerprint = WorkspaceDirectoryFingerprint.from(copy);
             WorkspaceFileSystemService.WorkspaceCopyResult restore = service.replaceDirectory(
                     copy.targetDirectory(),
-                    project
+                    project,
+                    expectedFingerprint,
+                    () -> {
+                    }
             );
 
             assertEquals(1, copy.fileCount());
             assertEquals(1, restore.fileCount());
+            assertEquals(copy.contentSha256(), restore.contentSha256());
             assertEquals("snapshot-version", Files.readString(project.resolve("src/App.vue")));
             assertFalse(Files.exists(project.resolve("src/OnlyCurrent.vue")));
             assertFalse(Files.exists(copy.targetDirectory().resolve("node_modules")));
             assertTrue(service.isDirectory(copy.targetDirectory()));
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void copyFingerprintMustBeStableAndIncludeEmptyDirectories() throws Exception {
+        Path root = createTempWorkspace("copy-fingerprint");
+        Path firstSource = root.resolve("first-source");
+        Path secondSource = root.resolve("second-source");
+        try {
+            Files.createDirectories(firstSource.resolve("empty/nested"));
+            write(firstSource, "src/B.ts", "beta");
+            write(firstSource, "src/A.ts", "alpha");
+
+            write(secondSource, "src/A.ts", "alpha");
+            write(secondSource, "src/B.ts", "beta");
+            Files.createDirectories(secondSource.resolve("empty/nested"));
+            WorkspaceFileSystemService service = serviceWithDefaults();
+
+            WorkspaceFileSystemService.WorkspaceCopyResult first = service.copyDirectory(
+                    firstSource,
+                    root.resolve("snapshots/first")
+            );
+            WorkspaceFileSystemService.WorkspaceCopyResult second = service.copyDirectory(
+                    secondSource,
+                    root.resolve("snapshots/second")
+            );
+
+            assertEquals(first.contentSha256(), second.contentSha256(),
+                    "目录遍历与创建顺序不应改变内容指纹");
+            assertEquals(64, first.contentSha256().length());
+            assertEquals(
+                    WorkspaceDirectoryFingerprint.from(first),
+                    service.fingerprintDirectory(first.targetDirectory()),
+                    "已发布目录的只读摘要必须与复制时事实一致");
+
+            Files.createDirectories(secondSource.resolve("another-empty"));
+            WorkspaceFileSystemService.WorkspaceCopyResult changedEmptyDirectory = service.copyDirectory(
+                    secondSource,
+                    root.resolve("snapshots/third")
+            );
+            assertNotEquals(first.contentSha256(), changedEmptyDirectory.contentSha256(),
+                    "空目录也属于可恢复目录树的一部分");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void copyAndFingerprintMustRejectNestedSymbolicLinks() throws Exception {
+        Path root = createTempWorkspace("copy-nested-symlink");
+        Path source = root.resolve("source");
+        Path external = root.resolve("external.txt");
+        try {
+            Files.createDirectories(source);
+            Files.writeString(external, "external");
+            createSymbolicLinkOrSkip(source.resolve("linked.txt"), external);
+            WorkspaceFileSystemService service = serviceWithDefaults();
+
+            WorkspaceFileSystemException copyFailure = assertThrows(
+                    WorkspaceFileSystemException.class,
+                    () -> service.copyDirectory(source, root.resolve("snapshot")));
+            WorkspaceFileSystemException fingerprintFailure = assertThrows(
+                    WorkspaceFileSystemException.class,
+                    () -> service.fingerprintDirectory(source));
+
+            assertEquals(WorkspaceFileSystemException.Reason.UNSAFE_SYMBOLIC_LINK,
+                    copyFailure.reason());
+            assertEquals(WorkspaceFileSystemException.Reason.UNSAFE_SYMBOLIC_LINK,
+                    fingerprintFailure.reason());
+            assertFalse(Files.exists(root.resolve("snapshot")));
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void copyMustRejectUnexpectedFingerprintBeforePublishingTarget() throws Exception {
+        Path root = createTempWorkspace("copy-fingerprint-mismatch");
+        Path source = root.resolve("source");
+        Path target = root.resolve("snapshots/rejected");
+        try {
+            write(source, "src/App.vue", "trusted-version");
+            WorkspaceFileSystemService service = serviceWithDefaults();
+            WorkspaceFileSystemService.WorkspaceCopyResult trustedCopy = service.copyDirectory(
+                    source,
+                    root.resolve("snapshots/trusted")
+            );
+            WorkspaceDirectoryFingerprint expected = WorkspaceDirectoryFingerprint.from(trustedCopy);
+            write(source, "src/App.vue", "altered-version");
+
+            WorkspaceFileSystemException exception = assertThrows(
+                    WorkspaceFileSystemException.class,
+                    () -> service.copyDirectory(source, target, expected)
+            );
+
+            assertEquals(WorkspaceFileSystemException.Reason.CONTENT_FINGERPRINT_MISMATCH, exception.reason());
+            assertFalse(Files.exists(target), "指纹不匹配时不得发布目标目录");
+            assertNoTemporarySibling(target, "copy");
+        } finally {
+            cleanup(root);
+        }
+    }
+
+    @Test
+    void replaceMustRejectUnexpectedFingerprintBeforeDisplacingCurrentTarget() throws Exception {
+        Path root = createTempWorkspace("replace-fingerprint-mismatch");
+        Path source = root.resolve("snapshot");
+        Path target = root.resolve("project");
+        try {
+            write(source, "src/App.vue", "trusted-snapshot");
+            write(target, "src/App.vue", "current-version");
+            WorkspaceFileSystemService service = serviceWithDefaults();
+            WorkspaceFileSystemService.WorkspaceCopyResult trustedCopy = service.copyDirectory(
+                    source,
+                    root.resolve("snapshots/trusted")
+            );
+            WorkspaceDirectoryFingerprint expected = WorkspaceDirectoryFingerprint.from(trustedCopy);
+            write(source, "src/App.vue", "altered-snapshot");
+
+            WorkspaceFileSystemException exception = assertThrows(
+                    WorkspaceFileSystemException.class,
+                    () -> service.replaceDirectory(source, target, expected)
+            );
+
+            assertEquals(WorkspaceFileSystemException.Reason.CONTENT_FINGERPRINT_MISMATCH, exception.reason());
+            assertEquals("current-version", Files.readString(target.resolve("src/App.vue")));
+            assertNoTemporarySibling(target, "restore");
+            assertNoTemporarySibling(target, "previous");
         } finally {
             cleanup(root);
         }

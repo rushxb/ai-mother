@@ -251,8 +251,9 @@ class AppServiceImplRegressionTest {
     private Map<String, GenerationArtifact> lifecycleArtifacts() {
         Map<String, GenerationArtifact> artifacts = new LinkedHashMap<>();
         artifacts.put("rollback_point", GenerationArtifact.of("rollback_point", "Orchestrator", "回滚点",
-                RollbackPoint.created(1L, "task-1", "snapshot-1", "/tmp/snapshot", "/tmp/project",
-                        "html", "vue_project", 2).toPayload()));
+                RollbackPoint.created(1L, "task-1", "snapshot-1",
+                        "11111111-1111-1111-1111-111111111111", "a".repeat(64), ".", 1L,
+                        "/tmp/snapshot", "/tmp/project", "html", "vue_project", 2).toPayload()));
         artifacts.put("diff_summary", GenerationArtifact.of("diff_summary", "Orchestrator", "差异摘要",
                 DiffSummary.created(1L, "task-1", "/tmp/snapshot", "/tmp/project",
                         List.of("src/App.vue"), List.of(), List.of(), List.of()).toPayload()));
@@ -265,7 +266,8 @@ class AppServiceImplRegressionTest {
                 GenerationCommitResult.committed(1L, "task-1", "/tmp/project",
                         "abcdef1234567890", "main", List.of("src/App.vue")).toPayload()));
         artifacts.put("rollback_restore", GenerationArtifact.of("rollback_restore", "Orchestrator", "回滚恢复",
-                RollbackRestore.restored(1L, "task-1", "snapshot", "/tmp/snapshot",
+                RollbackRestore.restored(1L, "task-1", "snapshot", "snapshot-1",
+                        "11111111-1111-1111-1111-111111111111", "a".repeat(64), ".", 1L, "/tmp/snapshot",
                         "/tmp/project", "/tmp/backup", 2).toPayload()));
         return artifacts;
     }

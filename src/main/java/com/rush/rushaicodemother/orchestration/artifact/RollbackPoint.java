@@ -8,12 +8,15 @@ import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * 生成前回滚点的强类型持久事实。
  *
- * <p>该 module 集中拥有制品 key、schema、状态与任务身份不变量；文件系统路径是否位于
- * 受控根目录，仍由快照和工作区 module 在真正读写文件前校验。</p>
+ * <p>v2 使用 snapshotId、manifest 摘要、逻辑 scope 与执行纪元绑定不可变快照。
+ * v1 只保留兼容解析能力，不能继续作为自动恢复或 Diff 的可信输入。</p>
  */
 public record RollbackPoint(
         String schemaVersion,
@@ -22,6 +25,10 @@ public record RollbackPoint(
         Long appId,
         String taskId,
         String snapshotName,
+        String snapshotId,
+        String manifestSha256,
+        String scope,
+        long executionEpoch,
         String snapshotPath,
         String projectPath,
         String sourceType,
@@ -32,38 +39,57 @@ public record RollbackPoint(
 ) {
 
     public static final String KEY = "rollback_point";
+    public static final String CURRENT_SCHEMA_VERSION = "v2";
+    public static final String LEGACY_SCHEMA_VERSION = "v1";
 
-    private static final String SCHEMA_VERSION = "v1";
     private static final String PROVIDER = "local_snapshot";
     private static final String STATUS_CREATED = "created";
     private static final String STATUS_SKIPPED = "skipped";
     private static final String ROLE = "Orchestrator";
     private static final String TITLE = "生成前回滚点";
+    private static final Pattern SHA256_HEX = Pattern.compile("[0-9a-f]{64}");
+    private static final Set<String> SUPPORTED_SCHEMAS = Set.of(CURRENT_SCHEMA_VERSION, LEGACY_SCHEMA_VERSION);
 
     public RollbackPoint {
-        schemaVersion = StrUtil.blankToDefault(schemaVersion, SCHEMA_VERSION);
+        schemaVersion = StrUtil.blankToDefault(schemaVersion, CURRENT_SCHEMA_VERSION);
         provider = StrUtil.blankToDefault(provider, PROVIDER);
         status = StrUtil.blankToDefault(status, STATUS_SKIPPED);
+        snapshotName = StrUtil.blankToDefault(snapshotName, "");
+        snapshotId = StrUtil.blankToDefault(snapshotId, "");
+        manifestSha256 = StrUtil.blankToDefault(manifestSha256, "").toLowerCase();
+        scope = StrUtil.blankToDefault(scope, "");
+        snapshotPath = StrUtil.blankToDefault(snapshotPath, "");
+        projectPath = StrUtil.blankToDefault(projectPath, "");
+        sourceType = StrUtil.blankToDefault(sourceType, "");
+        targetType = StrUtil.blankToDefault(targetType, "");
         reason = StrUtil.blankToDefault(reason, "");
         createdAt = createdAt == null ? LocalDateTime.now() : createdAt;
     }
 
-    /** 创建已完成快照复制的回滚点。 */
+    /** 创建绑定不可变快照身份的 v2 回滚点。 */
     public static RollbackPoint created(Long appId,
                                         String taskId,
                                         String snapshotName,
+                                        String snapshotId,
+                                        String manifestSha256,
+                                        String scope,
+                                        long executionEpoch,
                                         String snapshotPath,
                                         String projectPath,
                                         String sourceType,
                                         String targetType,
                                         int fileCount) {
         return new RollbackPoint(
-                SCHEMA_VERSION,
+                CURRENT_SCHEMA_VERSION,
                 PROVIDER,
                 STATUS_CREATED,
                 appId,
                 taskId,
                 snapshotName,
+                snapshotId,
+                manifestSha256,
+                scope,
+                executionEpoch,
                 snapshotPath,
                 projectPath,
                 sourceType,
@@ -74,7 +100,7 @@ public record RollbackPoint(
         );
     }
 
-    /** 创建未执行快照复制但保留诊断原因的回滚点。 */
+    /** 创建未执行复制但保留诊断原因的 v2 回滚点。 */
     public static RollbackPoint skipped(Long appId,
                                         String taskId,
                                         String projectPath,
@@ -82,12 +108,16 @@ public record RollbackPoint(
                                         String targetType,
                                         String reason) {
         return new RollbackPoint(
-                SCHEMA_VERSION,
+                CURRENT_SCHEMA_VERSION,
                 PROVIDER,
                 STATUS_SKIPPED,
                 appId,
                 taskId,
                 "",
+                "",
+                "",
+                "",
+                0,
                 "",
                 projectPath,
                 sourceType,
@@ -107,6 +137,12 @@ public record RollbackPoint(
         payload.put("appId", appId);
         payload.put("taskId", taskId);
         payload.put("snapshotName", snapshotName);
+        if (CURRENT_SCHEMA_VERSION.equals(schemaVersion)) {
+            payload.put("snapshotId", snapshotId);
+            payload.put("manifestSha256", manifestSha256);
+            payload.put("scope", scope);
+            payload.put("executionEpoch", executionEpoch);
+        }
         payload.put("snapshotPath", snapshotPath);
         payload.put("projectPath", projectPath);
         payload.put("sourceType", sourceType);
@@ -117,11 +153,7 @@ public record RollbackPoint(
         return payload;
     }
 
-    /**
-     * 从持久制品恢复回滚点，并校验其是否属于当前应用和任务。
-     *
-     * <p>检查点恢复必须经过该 interface，防止其他任务的快照事实抑制当前任务创建回滚点。</p>
-     */
+    /** 从持久制品恢复回滚点，并校验其是否属于当前应用和任务。 */
     public static RollbackPoint fromArtifact(GenerationArtifact artifact,
                                              Long expectedAppId,
                                              String expectedTaskId) {
@@ -135,13 +167,19 @@ public record RollbackPoint(
         if (payload == null) {
             throw invalidField("payload", "不能为空");
         }
+        String schemaVersion = requireSupportedSchema(payload.get("schemaVersion"));
+        boolean currentSchema = CURRENT_SCHEMA_VERSION.equals(schemaVersion);
         RollbackPoint rollbackPoint = new RollbackPoint(
-                requireExactText(payload, "schemaVersion", SCHEMA_VERSION),
+                schemaVersion,
                 requireExactText(payload, "provider", PROVIDER),
                 requireText(payload.get("status"), "status", false),
                 requirePositiveLong(payload.get("appId"), "appId"),
                 requireText(payload.get("taskId"), "taskId", false),
                 requireText(payload.get("snapshotName"), "snapshotName", true),
+                currentSchema ? requireText(payload.get("snapshotId"), "snapshotId", true) : "",
+                currentSchema ? requireText(payload.get("manifestSha256"), "manifestSha256", true) : "",
+                currentSchema ? requireText(payload.get("scope"), "scope", true) : "",
+                currentSchema ? requireNonNegativeLong(payload.get("executionEpoch"), "executionEpoch") : 0,
                 requireText(payload.get("snapshotPath"), "snapshotPath", true),
                 requireText(payload.get("projectPath"), "projectPath", true),
                 requireText(payload.get("sourceType"), "sourceType", true),
@@ -165,6 +203,11 @@ public record RollbackPoint(
         return STATUS_CREATED.equals(status);
     }
 
+    /** 只有 v2 created 制品可驱动恢复或 Diff。 */
+    public boolean trustedForSnapshotConsumption() {
+        return created() && CURRENT_SCHEMA_VERSION.equals(schemaVersion);
+    }
+
     private void validateContext(Long expectedAppId, String expectedTaskId) {
         if (expectedAppId != null && !Objects.equals(expectedAppId, appId)) {
             throw invalidField("appId", "与当前任务上下文不一致");
@@ -175,7 +218,7 @@ public record RollbackPoint(
     }
 
     private void validateState() {
-        if (!SCHEMA_VERSION.equals(schemaVersion)) {
+        if (!SUPPORTED_SCHEMAS.contains(schemaVersion)) {
             throw invalidField("schemaVersion", "不受支持: " + schemaVersion);
         }
         if (!PROVIDER.equals(provider)) {
@@ -194,24 +237,68 @@ public record RollbackPoint(
             throw invalidField("status", "不受支持: " + status);
         }
         if (created()) {
-            requireCreatedText(snapshotName, "snapshotName");
-            requireCreatedText(snapshotPath, "snapshotPath");
-            requireCreatedText(projectPath, "projectPath");
-            requireKnownCodeGenType(sourceType, "sourceType");
-            requireKnownCodeGenType(targetType, "targetType");
-            if (StrUtil.isNotBlank(reason)) {
-                throw invalidField("reason", "在 created 状态下必须为空");
-            }
+            validateCreatedState();
             return;
         }
         if (fileCount != 0) {
             throw invalidField("fileCount", "在 skipped 状态下必须为 0");
         }
-        if (StrUtil.isNotBlank(snapshotName) || StrUtil.isNotBlank(snapshotPath)) {
-            throw invalidField("snapshotPath", "在 skipped 状态下不能携带快照事实");
+        if (StrUtil.isNotBlank(snapshotName)
+                || StrUtil.isNotBlank(snapshotId)
+                || StrUtil.isNotBlank(manifestSha256)
+                || StrUtil.isNotBlank(scope)
+                || StrUtil.isNotBlank(snapshotPath)
+                || executionEpoch != 0) {
+            throw invalidField("snapshotId", "在 skipped 状态下不能携带快照事实");
         }
         if (StrUtil.isBlank(reason)) {
             throw invalidField("reason", "在 skipped 状态下不能为空");
+        }
+    }
+
+    private void validateCreatedState() {
+        requireCreatedText(snapshotName, "snapshotName");
+        requireCreatedText(snapshotPath, "snapshotPath");
+        requireCreatedText(projectPath, "projectPath");
+        requireKnownCodeGenType(sourceType, "sourceType");
+        requireKnownCodeGenType(targetType, "targetType");
+        if (StrUtil.isNotBlank(reason)) {
+            throw invalidField("reason", "在 created 状态下必须为空");
+        }
+        if (LEGACY_SCHEMA_VERSION.equals(schemaVersion)) {
+            if (StrUtil.isNotBlank(snapshotId)
+                    || StrUtil.isNotBlank(manifestSha256)
+                    || StrUtil.isNotBlank(scope)
+                    || executionEpoch != 0) {
+                throw invalidField("snapshotId", "v1 不能携带 v2 快照身份");
+            }
+            return;
+        }
+        requireCanonicalUuid(snapshotId, "snapshotId");
+        if (!SHA256_HEX.matcher(manifestSha256).matches()) {
+            throw invalidField("manifestSha256", "必须为小写 SHA-256");
+        }
+        requireCreatedText(scope, "scope");
+        if (executionEpoch <= 0) {
+            throw invalidField("executionEpoch", "必须为正整数");
+        }
+    }
+
+    private static String requireSupportedSchema(Object value) {
+        String schema = requireText(value, "schemaVersion", false);
+        if (!SUPPORTED_SCHEMAS.contains(schema)) {
+            throw invalidField("schemaVersion", "不受支持: " + schema);
+        }
+        return schema;
+    }
+
+    private static void requireCanonicalUuid(String value, String fieldName) {
+        try {
+            if (!UUID.fromString(value).toString().equals(value)) {
+                throw new IllegalArgumentException("not canonical");
+            }
+        } catch (RuntimeException exception) {
+            throw invalidField(fieldName, "必须为规范 UUID");
         }
     }
 
@@ -268,9 +355,17 @@ public record RollbackPoint(
         return parsed;
     }
 
-    private static int requireNonNegativeInteger(Object value, String fieldName) {
+    private static long requireNonNegativeLong(Object value, String fieldName) {
         long parsed = requireLong(value, fieldName);
-        if (parsed < 0 || parsed > Integer.MAX_VALUE) {
+        if (parsed < 0) {
+            throw invalidField(fieldName, "必须为非负整数");
+        }
+        return parsed;
+    }
+
+    private static int requireNonNegativeInteger(Object value, String fieldName) {
+        long parsed = requireNonNegativeLong(value, fieldName);
+        if (parsed > Integer.MAX_VALUE) {
             throw invalidField(fieldName, "必须为非负整数");
         }
         return (int) parsed;

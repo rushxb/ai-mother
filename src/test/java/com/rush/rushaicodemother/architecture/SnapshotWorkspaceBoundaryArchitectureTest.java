@@ -43,7 +43,8 @@ class SnapshotWorkspaceBoundaryArchitectureTest {
         assertTrue(source.contains("CodeStorageProperties"));
         assertTrue(source.contains("storageProperties.snapshotRoot()"));
         assertTrue(source.contains("WorkspaceFileSystemService"));
-        assertTrue(source.contains("resolveReportedSnapshot("));
+        assertTrue(source.contains("requireSnapshot("));
+        assertTrue(source.contains("fingerprintDirectory("));
         assertFalse(source.contains("AppConstant"));
         assertFalse(source.contains("CODE_SNAPSHOT_ROOT_DIR"));
     }
@@ -63,12 +64,14 @@ class SnapshotWorkspaceBoundaryArchitectureTest {
     }
 
     @Test
-    void snapshotConsumersMustDelegateTransactionalDirectoryChangesToWorkspaceFilesystem() throws Exception {
+    void snapshotConsumersMustDelegateSnapshotTransactionsToCanonicalBoundary() throws Exception {
         String rollbackPointSource = Files.readString(SNAPSHOT_CONSUMERS.get(0));
         String rollbackRestoreSource = Files.readString(SNAPSHOT_CONSUMERS.get(2));
 
-        assertTrue(rollbackPointSource.contains("workspaceFileSystemService.copyDirectory("));
-        assertTrue(rollbackRestoreSource.contains("workspaceFileSystemService.replaceDirectory("));
+        assertTrue(rollbackPointSource.contains("snapshotWorkspaceService.captureOrReuse("));
+        assertTrue(rollbackRestoreSource.contains("snapshotWorkspaceService.restore("));
+        assertFalse(rollbackPointSource.contains("workspaceFileSystemService.copyDirectory("));
+        assertFalse(rollbackRestoreSource.contains("workspaceFileSystemService.replaceDirectory("));
         assertFalse(rollbackPointSource.contains("Files.move("));
         assertFalse(rollbackRestoreSource.contains("Files.move("));
     }

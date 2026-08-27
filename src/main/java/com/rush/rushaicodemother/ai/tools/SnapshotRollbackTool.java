@@ -1,21 +1,24 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import cn.hutool.crypto.digest.DigestUtil;
-import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
-import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceCopyResult;
-import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceDirectoryMetadata;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
 import com.rush.rushaicodemother.orchestration.artifact.ManualSnapshot;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
+import com.rush.rushaicodemother.orchestration.snapshot.SnapshotCapture;
+import com.rush.rushaicodemother.orchestration.snapshot.SnapshotKind;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
+import com.rush.rushaicodemother.orchestration.snapshot.SnapshotScope;
+import com.rush.rushaicodemother.orchestration.snapshot.SnapshotSelector;
+import com.rush.rushaicodemother.orchestration.snapshot.SnapshotStoreException;
+import com.rush.rushaicodemother.orchestration.snapshot.StoredSnapshot;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.tool.DestructiveToolAction;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContext;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationApprovalRequiredException;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
@@ -30,7 +33,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
-import java.util.List;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 /**
@@ -41,9 +45,10 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool {
 
+    private static final DateTimeFormatter SNAPSHOT_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     private final GenerationToolExecutionContextService toolExecutionContextService;
     private final ToolWorkspaceFileService workspaceFileService;
-    private final WorkspaceFileSystemService workspaceFileSystemService;
     private final GenerationSnapshotWorkspaceService snapshotWorkspaceService;
     private final SnapshotNamePolicy snapshotNamePolicy;
     private final ToolApprovalService toolApprovalService;
@@ -72,36 +77,31 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             requireAppId(appId);
-            String approvedInvocationId = requireApprovalIfNeeded(
+            ApprovedSnapshotInvocation approvedInvocation = requireApprovalIfNeeded(
                     appId, normalizedAction, snapshotName, relativeProjectPath);
             if (!"listSnapshots".equals(normalizedAction)) {
                 assertCurrentTask(appId);
             }
-            Path snapshotRoot = snapshotWorkspaceService.resolveApplicationRoot(appId);
             return switch (normalizedAction) {
                 case "createSnapshot" -> {
                     String normalizedSnapshotName = snapshotNamePolicy.resolveOrCreate(snapshotName, "snapshot");
-                    snapshotWorkspaceService.prepareApplicationRoot(appId);
                     yield TextContent.from(createSnapshot(
                             resolveProjectPath(appId, relativeProjectPath),
                             normalizedSnapshotName,
-                            appId
+                            appId,
+                            relativeProjectPath
                     ));
                 }
-                case "listSnapshots" -> TextContent.from(listSnapshots(snapshotRoot));
+                case "listSnapshots" -> TextContent.from(listSnapshots(appId));
                 case "rollbackSnapshot" -> {
-                    String normalizedSnapshotName = validateRequiredSnapshotName(snapshotName, "回滚时必须提供快照名称");
                     yield rollbackSnapshot(
                             appId,
                             resolveProjectPath(appId, relativeProjectPath),
-                            normalizedSnapshotName,
-                            approvedInvocationId
+                            approvedInvocation
                     );
                 }
                 case "deleteSnapshot" -> TextContent.from(deleteSnapshot(
-                        appId,
-                        validateRequiredSnapshotName(snapshotName, "删除时必须提供快照名称"),
-                        approvedInvocationId
+                        approvedInvocation
                 ));
                 default -> throw toolFailure("错误：不支持的操作类型 - " + normalizedAction);
             };
@@ -116,6 +116,16 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
         } catch (GenerationExecutionPolicyException executionPolicyFailure) {
             // 围栏失效和任务取消必须终止旧 worker，不能被转换成普通快照错误。
             throw executionPolicyFailure;
+        } catch (SnapshotStoreException snapshotFailure) {
+            if (snapshotFailure.reason() == SnapshotStoreException.Reason.NOT_FOUND) {
+                throw toolFailure("错误：快照不存在 - "
+                        + StrUtil.blankToDefault(snapshotName, "(未提供)"));
+            }
+            if (snapshotFailure.reason() == SnapshotStoreException.Reason.ALREADY_EXISTS) {
+                throw toolFailure("错误：快照名称已存在 - "
+                        + StrUtil.blankToDefault(snapshotName, "(未提供)"));
+            }
+            throw toolFailure("快照校验失败，未执行任何破坏性操作");
         } catch (Exception e) {
             log.error("管理快照失败，action: {}, snapshotName: {}, exceptionType: {}",
                     action, snapshotName, e.getClass().getSimpleName());
@@ -126,48 +136,64 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
     /** 创建快照。 */
     private String createSnapshot(Path projectPath,
                                   String normalizedSnapshotName,
-                                  Long appId) throws Exception {
-        Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, normalizedSnapshotName);
-        if (workspaceFileSystemService.isDirectory(snapshotPath)) {
-            throw toolFailure("错误：快照名称已存在 - " + normalizedSnapshotName);
-        }
-        WorkspaceCopyResult copyResult = workspaceFileSystemService.copyDirectory(projectPath, snapshotPath);
-        long fileCount = copyResult.fileCount();
-        String taskId = toolExecutionContextService.getContext(appId)
-                .map(context -> context.taskId())
-                .orElse(null);
+                                  Long appId,
+                                  String relativeProjectPath) throws Exception {
+        GenerationToolExecutionContext context = requireSnapshotContext(appId);
+        SnapshotScope scope = snapshotScope(context, relativeProjectPath);
+        StoredSnapshot snapshot = snapshotWorkspaceService.capture(
+                new SnapshotCapture(
+                        normalizedSnapshotName,
+                        scope,
+                        projectPath,
+                        SnapshotKind.MANUAL,
+                        context.taskId(),
+                        context.executionFence().executionEpoch()
+                ),
+                () -> assertCurrentTask(appId)
+        );
         ManualSnapshot artifact = new ManualSnapshot(
                 "manual_snapshot",
                 "SnapshotRollbackTool",
                 "created",
-                normalizedSnapshotName,
+                snapshot.snapshotName(),
+                snapshot.snapshotId(),
+                snapshot.manifestSha256(),
+                snapshot.scope().workspaceType().getValue(),
+                snapshot.scope().relativePath(),
+                snapshot.creatorExecutionEpoch(),
                 appId,
-                taskId,
+                context.taskId(),
                 projectPath.toString(),
-                snapshotPath.toString(),
+                snapshot.containerPath().toString(),
                 "ai_tool",
-                fileCount,
+                snapshot.fingerprint().fileCount(),
                 java.time.LocalDateTime.now()
         );
-        return "快照创建成功: " + normalizedSnapshotName + "，文件数: " + fileCount
+        return "快照创建成功: " + normalizedSnapshotName
+                + "，快照ID: " + snapshot.snapshotId()
+                + "，文件数: " + snapshot.fingerprint().fileCount()
                 + "\nartifact: " + cn.hutool.json.JSONUtil.toJsonStr(artifact.toPayload());
     }
 
     /** 列出符合条件的{@code Snapshots}。 */
-    private String listSnapshots(Path snapshotRoot) throws Exception {
-        if (!workspaceFileSystemService.isDirectory(snapshotRoot)) {
-            return "当前没有可用快照";
-        }
-        List<WorkspaceDirectoryMetadata> snapshots = workspaceFileSystemService.listChildDirectories(snapshotRoot);
+    private String listSnapshots(Long appId) throws Exception {
+        java.util.List<StoredSnapshot> snapshots = snapshotWorkspaceService.listSnapshots(appId);
         if (snapshots.isEmpty()) {
             return "当前没有可用快照";
         }
         StringBuilder builder = new StringBuilder("可用快照:\n");
-        for (WorkspaceDirectoryMetadata snapshot : snapshots) {
+        for (StoredSnapshot snapshot : snapshots) {
             builder.append("- ")
-                    .append(snapshot.name())
-                    .append(" | 修改时间: ")
-                    .append(DateUtil.formatDateTime(DateUtil.date(snapshot.lastModifiedTime())))
+                    .append(snapshot.snapshotName())
+                    .append(" | ID: ")
+                    .append(snapshot.snapshotId())
+                    .append(" | 工程类型: ")
+                    .append(snapshot.scope().workspaceType().getValue())
+                    .append(" | scope: ")
+                    .append(snapshot.scope().relativePath())
+                    .append(" | 创建时间: ")
+                    .append(SNAPSHOT_TIME_FORMAT.format(
+                            snapshot.createdAt().atZone(ZoneId.systemDefault())))
                     .append('\n');
         }
         return builder.toString().trim();
@@ -176,24 +202,30 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
     /** 返回回滚快照。 */
     private TextContent rollbackSnapshot(Long appId,
                                          Path projectPath,
-                                         String normalizedSnapshotName,
-                                         String invocationId) throws Exception {
-        Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, normalizedSnapshotName);
-        if (!workspaceFileSystemService.isDirectory(snapshotPath)) {
-            throw toolFailure("错误：快照不存在 - " + normalizedSnapshotName);
-        }
+                                         ApprovedSnapshotInvocation approvedInvocation) throws Exception {
+        requireApprovedInvocation(approvedInvocation);
+        StoredSnapshot sourceSnapshot = snapshotWorkspaceService.requireSnapshot(
+                approvedInvocation.selector());
+        GenerationToolExecutionContext context = requireSnapshotContext(appId);
         String backupSnapshotName = snapshotNamePolicy.validateRequired(
-                "pre_rollback_" + DigestUtil.sha256Hex(invocationId).substring(0, 16));
-        Path backupSnapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, backupSnapshotName);
+                "pre_rollback_" + DigestUtil.sha256Hex(approvedInvocation.invocationId()).substring(0, 16));
         Runnable continuationCheck = () -> assertCurrentTask(appId);
-        if (!workspaceFileSystemService.isDirectory(backupSnapshotPath)) {
-            workspaceFileSystemService.copyDirectory(projectPath, backupSnapshotPath, continuationCheck);
-        }
+        StoredSnapshot backupSnapshot = snapshotWorkspaceService.captureOrReuse(
+                new SnapshotCapture(
+                        backupSnapshotName,
+                        sourceSnapshot.scope(),
+                        projectPath,
+                        SnapshotKind.PRE_ROLLBACK_BACKUP,
+                        context.taskId(),
+                        context.executionFence().executionEpoch()
+                ),
+                continuationCheck
+        );
         // 备份可能耗时，覆盖项目之前必须再次确认执行权，禁止旧 worker 回滚新 owner 的结果。
         assertCurrentTask(appId);
         try {
-            workspaceFileSystemService.replaceDirectory(
-                    snapshotPath,
+            snapshotWorkspaceService.restore(
+                    SnapshotSelector.exact(sourceSnapshot),
                     projectPath,
                     continuationCheck
             );
@@ -208,25 +240,23 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
             );
         }
         return ToolResultEvidence.workspaceInvalidated(
-                "已回滚到快照: " + normalizedSnapshotName
-                        + "，并自动备份当前版本为: " + backupSnapshotName
+                "已回滚到快照: " + sourceSnapshot.snapshotName()
+                        + "（" + sourceSnapshot.snapshotId() + "）"
+                        + "，并自动备份当前版本为: " + backupSnapshot.snapshotName()
+                        + "（" + backupSnapshot.snapshotId() + "）"
                         + "。回滚前的文件读取、搜索和变更事实均已失效，继续操作前请重新读取目标文件。"
         );
     }
 
     /** 删除快照。 */
-    private String deleteSnapshot(Long appId,
-                                  String normalizedSnapshotName,
-                                  String invocationId) throws Exception {
-        Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, normalizedSnapshotName);
-        if (!workspaceFileSystemService.isDirectory(snapshotPath)) {
-            if (StrUtil.isNotBlank(invocationId)) {
-                return "快照已由同一审批调用删除: " + normalizedSnapshotName;
-            }
-            throw toolFailure("错误：快照不存在 - " + normalizedSnapshotName);
-        }
-        workspaceFileSystemService.deleteDirectory(snapshotPath);
-        return "已删除快照: " + normalizedSnapshotName;
+    private String deleteSnapshot(ApprovedSnapshotInvocation approvedInvocation) throws Exception {
+        requireApprovedInvocation(approvedInvocation);
+        StoredSnapshot snapshot = snapshotWorkspaceService.requireSnapshot(approvedInvocation.selector());
+        snapshotWorkspaceService.deleteSnapshot(
+                SnapshotSelector.exact(snapshot),
+                () -> assertCurrentTask(snapshot.scope().appId())
+        );
+        return "已删除快照: " + snapshot.snapshotName() + "（" + snapshot.snapshotId() + "）";
     }
 
     private Path resolveProjectPath(Long appId, String relativeProjectPath) {
@@ -240,17 +270,41 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
                 .ifPresent(generationTaskFenceGuard::assertCurrent);
     }
 
+    private GenerationToolExecutionContext requireSnapshotContext(Long appId) {
+        GenerationToolExecutionContext context = toolExecutionContextService.getContext(appId)
+                .orElseThrow(() -> new ToolInputException("快照操作缺少生成任务上下文"));
+        if (StrUtil.isBlank(context.taskId())
+                || context.codeGenType() == null
+                || context.executionFence() == null) {
+            throw new ToolInputException("快照操作缺少工程类型或执行纪元");
+        }
+        if (!context.taskId().equals(context.executionFence().taskId())) {
+            throw new ToolInputException("快照操作的任务与执行纪元不一致");
+        }
+        return context;
+    }
+
+    private SnapshotScope snapshotScope(GenerationToolExecutionContext context,
+                                        String relativeProjectPath) {
+        return new SnapshotScope(
+                context.appId(),
+                context.codeGenType(),
+                SnapshotScope.normalizeRelativePath(relativeProjectPath)
+        );
+    }
+
+    private void requireApprovedInvocation(ApprovedSnapshotInvocation approvedInvocation) {
+        if (approvedInvocation == null
+                || StrUtil.isBlank(approvedInvocation.invocationId())
+                || approvedInvocation.selector() == null) {
+            throw new ToolInputException("破坏性快照操作缺少有效审批上下文");
+        }
+    }
+
     private void requireAppId(Long appId) {
         if (appId == null || appId <= 0) {
             throw new ToolInputException("应用标识不能为空且必须为正数");
         }
-    }
-
-    private String validateRequiredSnapshotName(String snapshotName, String missingMessage) {
-        if (StrUtil.isBlank(snapshotName)) {
-            throw new ToolInputException(missingMessage);
-        }
-        return snapshotNamePolicy.validateRequired(snapshotName);
     }
 
     /**
@@ -283,7 +337,7 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
             );
         } catch (GenerationApprovalRequiredException approvalRequired) {
             throw approvalRequired;
-        } catch (ToolInputException | SnapshotNamePolicy.ValidationException invalidInput) {
+        } catch (ToolInputException | SnapshotNamePolicy.ValidationException | SnapshotStoreException invalidInput) {
             // 工具方法渲染正常输入错误；这里不可能产生破坏性的副作用。
         } catch (Exception authorizationFailure) {
             throw new IllegalStateException("destructive snapshot authorization failed", authorizationFailure);
@@ -291,10 +345,10 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
     }
 
     /** 校验并返回有效的审批{@code If}{@code Needed}。 */
-    private String requireApprovalIfNeeded(Long appId,
-                                           String action,
-                                           String snapshotName,
-                                           String relativeProjectPath) throws Exception {
+    private ApprovedSnapshotInvocation requireApprovalIfNeeded(Long appId,
+                                                               String action,
+                                                               String snapshotName,
+                                                               String relativeProjectPath) throws Exception {
         DestructiveToolAction destructiveAction = switch (action) {
             case "rollbackSnapshot" -> DestructiveToolAction.SNAPSHOT_ROLLBACK;
             case "deleteSnapshot" -> DestructiveToolAction.SNAPSHOT_DELETE;
@@ -304,23 +358,21 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
             return null;
         }
         String normalizedSnapshotName = snapshotNamePolicy.validateRequired(snapshotName);
-        String taskId = toolExecutionContextService.getContext(appId)
-                .map(context -> context.taskId())
-                .orElse(null);
-        if (taskId == null) {
-            throw new ToolInputException("破坏性快照操作缺少生成任务上下文");
-        }
-        String normalizedProjectPath = normalizeApprovalProjectPath(relativeProjectPath);
+        GenerationToolExecutionContext context = requireSnapshotContext(appId);
+        String taskId = context.taskId();
+        SnapshotScope scope = snapshotScope(context, relativeProjectPath);
+        StoredSnapshot snapshot = snapshotWorkspaceService.requireSnapshot(
+                SnapshotSelector.forWorkspace(normalizedSnapshotName, scope));
+        SnapshotSelector exactSelector = SnapshotSelector.exact(snapshot);
         String approvalId = approvalId(
-                appId, destructiveAction, normalizedSnapshotName, normalizedProjectPath);
+                appId,
+                destructiveAction,
+                snapshot
+        );
         GenerationToolExecutionContextService.ToolInvocationExecution invocation =
                 toolExecutionContextService.currentInvocation().orElse(null);
         if (!toolApprovalService.isExecutionAuthorized(
                 taskId, destructiveAction, approvalId, invocation)) {
-            Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, normalizedSnapshotName);
-            if (!workspaceFileSystemService.isDirectory(snapshotPath)) {
-                throw new ToolInputException("快照不存在 - " + normalizedSnapshotName);
-            }
             throw new GenerationApprovalRequiredException(
                     taskId,
                     destructiveAction,
@@ -328,27 +380,30 @@ public class SnapshotRollbackTool extends BaseTool implements ApprovalGatedTool 
                     Map.of(
                             "appId", appId,
                             "snapshotName", normalizedSnapshotName,
-                            "relativeProjectPath", normalizedProjectPath,
+                            "snapshotId", snapshot.snapshotId(),
+                            "manifestSha256", snapshot.manifestSha256(),
+                            "relativeProjectPath", scope.relativePath(),
                             "action", destructiveAction.value()
                     )
             );
         }
-        return invocation.requestId();
+        if (invocation == null) {
+            throw new ToolInputException("破坏性快照操作缺少工具调用身份");
+        }
+        return new ApprovedSnapshotInvocation(invocation.requestId(), exactSelector);
     }
 
     private String approvalId(Long appId,
                               DestructiveToolAction action,
-                              String normalizedSnapshotName,
-                              String normalizedProjectPath) {
+                              StoredSnapshot snapshot) {
         return DigestUtil.sha256Hex(appId + ":" + action.name() + ":"
-                + normalizedSnapshotName + ":" + normalizedProjectPath);
+                + snapshot.snapshotId() + ":"
+                + snapshot.manifestSha256() + ":"
+                + snapshot.scope().workspaceType().getValue() + ":"
+                + snapshot.scope().relativePath());
     }
 
-    private String normalizeApprovalProjectPath(String relativeProjectPath) {
-        if (StrUtil.isBlank(relativeProjectPath)) {
-            return "";
-        }
-        return relativeProjectPath.trim().replace('\\', '/');
+    private record ApprovedSnapshotInvocation(String invocationId, SnapshotSelector selector) {
     }
 
     @Override

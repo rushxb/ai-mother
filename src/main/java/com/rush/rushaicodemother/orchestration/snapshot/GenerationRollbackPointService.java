@@ -2,7 +2,6 @@ package com.rush.rushaicodemother.orchestration.snapshot;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
-import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceCopyResult;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.GenerationOrchestrationRequest;
@@ -119,40 +118,36 @@ public class GenerationRollbackPointService {
                 );
             }
             generationTaskFenceGuard.assertCurrent(taskId);
-            snapshotWorkspaceService.prepareApplicationRoot(appId);
+            long executionEpoch = executionContextService.getExecutionFence(taskId)
+                    .orElseThrow(() -> new GenerationExecutionPolicyException(
+                            "generation execution fence does not exist for rollback snapshot"))
+                    .executionEpoch();
             String snapshotName = buildSnapshotName(taskId);
-            Path snapshotPath = snapshotWorkspaceService.resolveSnapshot(appId, snapshotName);
             Runnable continuationCheck = () -> executionContextService.assertCanContinue(taskId);
-            if (workspaceFileSystemService.isDirectory(snapshotPath)) {
-                int existingFileCount = workspaceFileSystemService
-                        .scanProject(snapshotPath, continuationCheck)
-                        .files()
-                        .size();
-                return RollbackPoint.created(
-                        appId,
-                        taskId,
-                        snapshotName,
-                        snapshotPath.toString(),
-                        projectPath.toString(),
-                        sourceTypeValue,
-                        targetTypeValue,
-                        existingFileCount
-                );
-            }
-            WorkspaceCopyResult copyResult = workspaceFileSystemService.copyDirectory(
-                    projectPath,
-                    snapshotPath,
+            StoredSnapshot snapshot = snapshotWorkspaceService.captureOrReuse(
+                    new SnapshotCapture(
+                            snapshotName,
+                            new SnapshotScope(appId, sourceType, "."),
+                            projectPath,
+                            SnapshotKind.ROLLBACK_POINT,
+                            taskId,
+                            executionEpoch
+                    ),
                     continuationCheck
             );
             return RollbackPoint.created(
                     appId,
                     taskId,
-                    snapshotName,
-                    snapshotPath.toString(),
+                    snapshot.snapshotName(),
+                    snapshot.snapshotId(),
+                    snapshot.manifestSha256(),
+                    snapshot.scope().relativePath(),
+                    snapshot.creatorExecutionEpoch(),
+                    snapshot.containerPath().toString(),
                     projectPath.toString(),
                     sourceTypeValue,
                     targetTypeValue,
-                    copyResult.fileCount()
+                    snapshot.fingerprint().fileCount()
             );
         } catch (GenerationExecutionPolicyException exception) {
             throw exception;

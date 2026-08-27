@@ -1,11 +1,18 @@
 package com.rush.rushaicodemother.ai.tools;
 
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
-import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService.WorkspaceDirectoryMetadata;
+import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceDirectoryFingerprint;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationDiffSummaryService;
 import com.rush.rushaicodemother.orchestration.snapshot.GenerationSnapshotWorkspaceService;
 import com.rush.rushaicodemother.orchestration.snapshot.SnapshotNamePolicy;
+import com.rush.rushaicodemother.orchestration.snapshot.SnapshotKind;
+import com.rush.rushaicodemother.orchestration.snapshot.SnapshotScope;
+import com.rush.rushaicodemother.orchestration.snapshot.SnapshotSelector;
+import com.rush.rushaicodemother.orchestration.snapshot.StoredSnapshot;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContext;
+import com.rush.rushaicodemother.orchestration.tool.GenerationToolExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,7 +20,9 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -38,6 +47,7 @@ class DiffSummaryToolTest {
     private ToolWorkspaceFileService workspaceFileService;
     private WorkspaceFileSystemService workspaceFileSystemService;
     private GenerationSnapshotWorkspaceService snapshotWorkspaceService;
+    private GenerationToolExecutionContextService executionContextService;
     private DiffSummaryTool tool;
     private Path projectPath;
 
@@ -47,18 +57,27 @@ class DiffSummaryToolTest {
         workspaceFileService = mock(ToolWorkspaceFileService.class);
         workspaceFileSystemService = mock(WorkspaceFileSystemService.class);
         snapshotWorkspaceService = mock(GenerationSnapshotWorkspaceService.class);
+        executionContextService = mock(GenerationToolExecutionContextService.class);
         tool = new DiffSummaryTool(
                 diffSummaryService,
                 workspaceFileService,
                 workspaceFileSystemService,
                 snapshotWorkspaceService,
-                new SnapshotNamePolicy()
+                new SnapshotNamePolicy(),
+                executionContextService
         );
         projectPath = tempDirectory.resolve("project");
-        Path snapshotRoot = tempDirectory.resolve("code_snapshot").resolve(String.valueOf(APP_ID));
-        when(snapshotWorkspaceService.resolveApplicationRoot(APP_ID)).thenReturn(snapshotRoot);
-        when(snapshotWorkspaceService.resolveSnapshot(eq(APP_ID), anyString()))
-                .thenAnswer(invocation -> snapshotRoot.resolve(invocation.getArgument(1, String.class)));
+        when(executionContextService.getContext(APP_ID)).thenReturn(Optional.of(
+                new GenerationToolExecutionContext(
+                        APP_ID, "task-7", "agent_edit", CodeGenTypeEnum.VUE_PROJECT,
+                        null, false, "test"
+                )
+        ));
+        when(snapshotWorkspaceService.requireSnapshot(any(SnapshotSelector.class)))
+                .thenAnswer(invocation -> snapshot(
+                        invocation.getArgument(0, SnapshotSelector.class).snapshotName(),
+                        "."
+                ));
         when(workspaceFileService.resolveDirectory(APP_ID, "src"))
                 .thenReturn(new ToolWorkspaceFileService.ToolWorkspaceDirectory("", projectPath, null));
         when(workspaceFileSystemService.isDirectory(any(Path.class))).thenReturn(true);
@@ -79,9 +98,9 @@ class DiffSummaryToolTest {
 
     @Test
     void shouldSelectLatestSnapshotFromBoundedDirectoryListing() throws Exception {
-        when(workspaceFileSystemService.listChildDirectories(any(Path.class))).thenReturn(List.of(
-                new WorkspaceDirectoryMetadata("latest_snapshot", 200L),
-                new WorkspaceDirectoryMetadata("older_snapshot", 100L)
+        when(snapshotWorkspaceService.listSnapshots(APP_ID)).thenReturn(List.of(
+                snapshot("latest_snapshot", "src"),
+                snapshot("older_snapshot", "src")
         ));
 
         String result = tool.summarizeDiff("compareLatestSnapshot", null, null, "src", APP_ID);
@@ -89,7 +108,8 @@ class DiffSummaryToolTest {
         assertTrue(result.startsWith("差异对比: latest_snapshot -> current"));
         ArgumentCaptor<Path> basePath = ArgumentCaptor.forClass(Path.class);
         verify(diffSummaryService).summarizePaths(eq(null), eq(""), basePath.capture(), eq(projectPath));
-        assertEquals("latest_snapshot", basePath.getValue().getFileName().toString());
+        assertEquals("payload", basePath.getValue().getFileName().toString());
+        assertTrue(basePath.getValue().toString().contains("latest_snapshot"));
     }
 
     @Test
@@ -135,7 +155,7 @@ class DiffSummaryToolTest {
 
     @Test
     void missingLatestSnapshotMustBeReportedAsProtocolFailure() throws Exception {
-        when(workspaceFileSystemService.isDirectory(any(Path.class))).thenReturn(false);
+        when(snapshotWorkspaceService.listSnapshots(APP_ID)).thenReturn(List.of());
 
         ToolPublicFailureException failure = assertThrows(
                 ToolPublicFailureException.class,
@@ -197,5 +217,25 @@ class DiffSummaryToolTest {
 
         assertFalse(failure.publicMessage().contains("secret-value"));
         assertEquals("错误：差异摘要生成失败，请稍后重试", failure.publicMessage());
+    }
+
+    private StoredSnapshot snapshot(String name, String scope) {
+        String id = "latest_snapshot".equals(name)
+                ? "11111111-1111-1111-1111-111111111111"
+                : "22222222-2222-2222-2222-222222222222";
+        Path container = tempDirectory.resolve("code_snapshot").resolve(String.valueOf(APP_ID)).resolve(name);
+        return new StoredSnapshot(
+                name,
+                id,
+                new SnapshotScope(APP_ID, CodeGenTypeEnum.VUE_PROJECT, scope),
+                SnapshotKind.MANUAL,
+                "task-7",
+                1L,
+                container,
+                container.resolve("payload"),
+                new WorkspaceDirectoryFingerprint(1, 1, "a".repeat(64)),
+                "b".repeat(64),
+                Instant.parse("2026-08-27T10:00:00Z")
+        );
     }
 }

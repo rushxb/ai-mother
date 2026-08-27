@@ -94,39 +94,50 @@ class GenerationDiffSummaryServiceTest {
     }
 
     @Test
-    void shouldRejectSnapshotOutsideCurrentApplicationBoundary() {
+    void missingImmutableSnapshotMustNotProduceDiffEvidence() {
         Path tempDir = cleanTestRoot("cross-app");
         Path codeOutputRoot = tempDir.resolve("code_output");
         Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
-        Path anotherApplicationSnapshot = codeSnapshotRoot.resolve("12").resolve("pre_generation_task-12");
-        GenerationArtifact rollbackPoint = rollbackPoint(
+        Path currentProject = codeOutputRoot.resolve("vue_project_11");
+        GenerationArtifact rollbackPoint = RollbackPoint.created(
                 11L,
                 "task-11",
-                anotherApplicationSnapshot,
-                codeOutputRoot.resolve("vue_project_11")
-        );
+                "missing",
+                "11111111-1111-1111-1111-111111111111",
+                "a".repeat(64),
+                ".",
+                1L,
+                codeSnapshotRoot.resolve("11/11111111-1111-1111-1111-111111111111").toString(),
+                currentProject.toString(),
+                "vue_project",
+                "vue_project",
+                1
+        ).toArtifact();
 
         DiffSummary summary = SnapshotServiceTestFixture.diffSummaryService(codeOutputRoot, codeSnapshotRoot).summarize(11L, CodeGenTypeEnum.VUE_PROJECT, "task-11", rollbackPoint);
 
         assertEquals("skipped", summary.status());
-        assertEquals("rollback_path_out_of_root", summary.reason());
+        assertEquals("rollback_snapshot_validation_failed", summary.reason());
     }
 
     @Test
-    void shouldRejectApplicationSnapshotRootAsSnapshotPath() {
+    void legacyRollbackPointMustNotProduceDiffEvidence() {
         Path tempDir = cleanTestRoot("snapshot-root");
         Path codeSnapshotRoot = tempDir.resolve("code_snapshot");
-        Path applicationSnapshotRoot = codeSnapshotRoot.resolve("11");
-        GenerationArtifact rollbackPoint = rollbackPoint(
-                11L,
-                "task-11",
-                applicationSnapshotRoot,
-                tempDir.resolve("code_output").resolve("vue_project_11")
-        );
+        GenerationArtifact current = RollbackPoint.created(
+                11L, "task-11", "legacy", "11111111-1111-1111-1111-111111111111",
+                "a".repeat(64), ".", 1L, "/legacy/snapshot", "/legacy/project",
+                "vue_project", "vue_project", 1).toArtifact();
+        Map<String, Object> payload = new java.util.LinkedHashMap<>(current.payload());
+        payload.put("schemaVersion", RollbackPoint.LEGACY_SCHEMA_VERSION);
+        payload.keySet().removeAll(java.util.Set.of(
+                "snapshotId", "manifestSha256", "scope", "executionEpoch"));
+        GenerationArtifact rollbackPoint = GenerationArtifact.of(
+                RollbackPoint.KEY, "Orchestrator", "legacy", payload);
 
         DiffSummary summary = SnapshotServiceTestFixture.diffSummaryService(tempDir.resolve("code_output"), codeSnapshotRoot).summarize(11L, CodeGenTypeEnum.VUE_PROJECT, "task-11", rollbackPoint);
 
-        assertEquals("rollback_path_out_of_root", summary.reason());
+        assertEquals("rollback_snapshot_identity_unsupported", summary.reason());
     }
 
     private Path cleanTestRoot(String caseName) {
@@ -139,15 +150,43 @@ class GenerationDiffSummaryServiceTest {
                                              String taskId,
                                              Path snapshotRoot,
                                              Path projectRoot) {
-        return RollbackPoint.created(
-                appId,
-                taskId,
-                snapshotRoot.getFileName().toString(),
-                snapshotRoot.toString(),
-                projectRoot.toString(),
-                CodeGenTypeEnum.VUE_PROJECT.getValue(),
-                CodeGenTypeEnum.VUE_PROJECT.getValue(),
-                1
-        ).toArtifact();
+        try {
+            Path codeSnapshotRoot = snapshotRoot.getParent().getParent();
+            Path codeOutputRoot = projectRoot.getParent();
+            Path source = codeSnapshotRoot.getParent().resolve("diff-fixtures")
+                    .resolve(appId + "-" + taskId);
+            Files.createDirectories(source.getParent());
+            Files.move(snapshotRoot, source);
+            SnapshotServiceTestFixture.Components components =
+                    SnapshotServiceTestFixture.components(codeOutputRoot, codeSnapshotRoot);
+            StoredSnapshot snapshot = components.snapshotWorkspaceService().captureOrReuse(
+                    new SnapshotCapture(
+                            snapshotRoot.getFileName().toString(),
+                            new SnapshotScope(appId, CodeGenTypeEnum.VUE_PROJECT, "."),
+                            source,
+                            SnapshotKind.ROLLBACK_POINT,
+                            taskId,
+                            1L
+                    ),
+                    () -> {
+                    }
+            );
+            return RollbackPoint.created(
+                    appId,
+                    taskId,
+                    snapshot.snapshotName(),
+                    snapshot.snapshotId(),
+                    snapshot.manifestSha256(),
+                    snapshot.scope().relativePath(),
+                    snapshot.creatorExecutionEpoch(),
+                    snapshot.containerPath().toString(),
+                    projectRoot.toString(),
+                    CodeGenTypeEnum.VUE_PROJECT.getValue(),
+                    CodeGenTypeEnum.VUE_PROJECT.getValue(),
+                    snapshot.fingerprint().fileCount()
+            ).toArtifact();
+        } catch (Exception exception) {
+            throw new IllegalStateException("failed to prepare rollback point fixture", exception);
+        }
     }
 }

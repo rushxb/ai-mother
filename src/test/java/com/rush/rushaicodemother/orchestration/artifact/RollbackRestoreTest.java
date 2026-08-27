@@ -17,7 +17,12 @@ class RollbackRestoreTest {
                 7L,
                 "task-7",
                 "rollback_to_last_stable_snapshot_or_manual_retry",
-                "target/snapshots/7/task-7",
+                "pre_generation_task-7",
+                "11111111-1111-1111-1111-111111111111",
+                "b".repeat(64),
+                ".",
+                2L,
+                "target/snapshots/7/11111111-1111-1111-1111-111111111111",
                 "target/workspaces/7",
                 "target/snapshots/7/failed-task-7",
                 12
@@ -57,5 +62,28 @@ class RollbackRestoreTest {
         );
 
         assertTrue(exception.getMessage().contains("snapshotPath"));
+    }
+
+    @Test
+    void legacyRestoreMustRemainParseableButNotTrustedForReplay() {
+        Map<String, Object> payload = new LinkedHashMap<>(RollbackRestore.skipped(
+                7L,
+                "task-7",
+                "manual_retry_without_snapshot",
+                "",
+                "",
+                "legacy"
+        ).toPayload());
+        payload.put("schemaVersion", RollbackRestore.LEGACY_SCHEMA_VERSION);
+        payload.keySet().removeAll(java.util.Set.of(
+                "snapshotName", "snapshotId", "manifestSha256", "scope", "executionEpoch"));
+
+        RollbackRestore parsed = RollbackRestore.fromArtifact(
+                GenerationArtifact.of(RollbackRestore.KEY, "Orchestrator", "legacy", payload),
+                7L,
+                "task-7"
+        );
+
+        org.junit.jupiter.api.Assertions.assertFalse(parsed.trustedForReplay());
     }
 }

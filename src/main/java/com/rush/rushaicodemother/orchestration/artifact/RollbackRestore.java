@@ -6,12 +6,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * 失败后本地快照恢复结果契约。
  *
- * <p>该 module 集中拥有恢复结果的 schema、任务身份与状态不变量。持久检查点恢复时
- * 必须先通过本类型校验，不能仅凭同名 key 或 raw status 判断已经完成恢复。</p>
+ * <p>v2 记录实际消费的不可变快照身份；v1 仅供历史数据解析，不能作为重放时
+ * “已经安全恢复”的判定依据。</p>
  */
 public record RollbackRestore(
         String schemaVersion,
@@ -20,6 +22,11 @@ public record RollbackRestore(
         Long appId,
         String taskId,
         String rollbackStrategy,
+        String snapshotName,
+        String snapshotId,
+        String manifestSha256,
+        String scope,
+        long executionEpoch,
         String snapshotPath,
         String projectPath,
         String backupPath,
@@ -29,23 +36,26 @@ public record RollbackRestore(
 ) {
 
     public static final String KEY = "rollback_restore";
+    public static final String CURRENT_SCHEMA_VERSION = "v2";
+    public static final String LEGACY_SCHEMA_VERSION = "v1";
 
     private static final String ROLE = "Orchestrator";
     private static final String TITLE = "Rollback restore";
-    private static final String SCHEMA_VERSION = "v1";
     private static final String PROVIDER = "local_snapshot";
     private static final String STATUS_RESTORED = "restored";
     private static final String STATUS_SKIPPED = "skipped";
     private static final String STATUS_FAILED = "failed";
+    private static final Pattern SHA256_HEX = Pattern.compile("[0-9a-f]{64}");
+    private static final Set<String> SUPPORTED_SCHEMAS = Set.of(CURRENT_SCHEMA_VERSION, LEGACY_SCHEMA_VERSION);
     private static final Set<String> SUPPORTED_STATUSES = Set.of(
             STATUS_RESTORED,
             STATUS_SKIPPED,
             STATUS_FAILED
     );
 
-    /** 创建回滚恢复实例并校验规范 schema、身份与状态不变量。 */
+    /** 创建实例并校验 schema、身份与状态不变量。 */
     public RollbackRestore {
-        schemaVersion = requireExactText(schemaVersion, SCHEMA_VERSION, "schemaVersion");
+        schemaVersion = requireSupportedSchema(schemaVersion);
         provider = requireExactText(provider, PROVIDER, "provider");
         status = requireText(status, "status");
         if (!SUPPORTED_STATUSES.contains(status)) {
@@ -56,6 +66,10 @@ public record RollbackRestore(
         }
         taskId = requireText(taskId, "taskId");
         rollbackStrategy = requireText(rollbackStrategy, "rollbackStrategy");
+        snapshotName = requireString(snapshotName, "snapshotName");
+        snapshotId = requireString(snapshotId, "snapshotId");
+        manifestSha256 = requireString(manifestSha256, "manifestSha256").toLowerCase();
+        scope = requireString(scope, "scope");
         snapshotPath = requireString(snapshotPath, "snapshotPath");
         projectPath = requireString(projectPath, "projectPath");
         backupPath = requireString(backupPath, "backupPath");
@@ -64,35 +78,47 @@ public record RollbackRestore(
             throw invalidField("restoredFileCount", "不能为负数");
         }
         restoredAt = Objects.requireNonNull(restoredAt, "回滚恢复制品字段 restoredAt 不能为空");
-        validateState(status, snapshotPath, projectPath, backupPath, restoredFileCount, reason);
+        validateState(
+                schemaVersion,
+                status,
+                snapshotName,
+                snapshotId,
+                manifestSha256,
+                scope,
+                executionEpoch,
+                snapshotPath,
+                projectPath,
+                backupPath,
+                restoredFileCount,
+                reason
+        );
     }
 
-    /**
- * 返回{@code restored}。
- *
- * @param appId 应用编号
- * @param taskId 任务编号
- * @param rollbackStrategy {@code rollbackStrategy} 对应的调用参数
- * @param snapshotPath 快照路径
- * @param projectPath 项目路径
- * @param backupPath {@code backupPath} 对应的调用参数
- * @param restoredFileCount {@code restoredFileCount} 对应的调用参数
- * @return 回滚恢复
- */
+    /** 创建已完成且绑定精确快照身份的 v2 恢复事实。 */
     public static RollbackRestore restored(Long appId,
                                            String taskId,
                                            String rollbackStrategy,
+                                           String snapshotName,
+                                           String snapshotId,
+                                           String manifestSha256,
+                                           String scope,
+                                           long executionEpoch,
                                            String snapshotPath,
                                            String projectPath,
                                            String backupPath,
                                            int restoredFileCount) {
         return new RollbackRestore(
-                SCHEMA_VERSION,
+                CURRENT_SCHEMA_VERSION,
                 PROVIDER,
                 STATUS_RESTORED,
                 appId,
                 taskId,
                 rollbackStrategy,
+                snapshotName,
+                snapshotId,
+                manifestSha256,
+                scope,
+                executionEpoch,
                 snapshotPath,
                 projectPath,
                 backupPath,
@@ -102,17 +128,7 @@ public record RollbackRestore(
         );
     }
 
-    /**
- * 返回{@code skipped}。
- *
- * @param appId 应用编号
- * @param taskId 任务编号
- * @param rollbackStrategy {@code rollbackStrategy} 对应的调用参数
- * @param snapshotPath 快照路径
- * @param projectPath 项目路径
- * @param reason 原因
- * @return 回滚恢复
- */
+    /** 创建不携带快照成功事实的 v2 跳过结果。 */
     public static RollbackRestore skipped(Long appId,
                                           String taskId,
                                           String rollbackStrategy,
@@ -120,12 +136,17 @@ public record RollbackRestore(
                                           String projectPath,
                                           String reason) {
         return new RollbackRestore(
-                SCHEMA_VERSION,
+                CURRENT_SCHEMA_VERSION,
                 PROVIDER,
                 STATUS_SKIPPED,
                 appId,
                 taskId,
                 rollbackStrategy,
+                "",
+                "",
+                "",
+                "",
+                0,
                 snapshotPath,
                 projectPath,
                 "",
@@ -135,32 +156,31 @@ public record RollbackRestore(
         );
     }
 
-    /**
- * 将{@code ed}标记为失败并记录原因。
- *
- * @param appId 应用编号
- * @param taskId 任务编号
- * @param rollbackStrategy {@code rollbackStrategy} 对应的调用参数
- * @param snapshotPath 快照路径
- * @param projectPath 项目路径
- * @param backupPath {@code backupPath} 对应的调用参数
- * @param reason 原因
- * @return {@code ed}
- */
+    /** 创建已绑定待恢复快照身份的 v2 失败结果。 */
     public static RollbackRestore failed(Long appId,
                                          String taskId,
                                          String rollbackStrategy,
+                                         String snapshotName,
+                                         String snapshotId,
+                                         String manifestSha256,
+                                         String scope,
+                                         long executionEpoch,
                                          String snapshotPath,
                                          String projectPath,
                                          String backupPath,
                                          String reason) {
         return new RollbackRestore(
-                SCHEMA_VERSION,
+                CURRENT_SCHEMA_VERSION,
                 PROVIDER,
                 STATUS_FAILED,
                 appId,
                 taskId,
                 rollbackStrategy,
+                snapshotName,
+                snapshotId,
+                manifestSha256,
+                scope,
+                executionEpoch,
                 snapshotPath,
                 projectPath,
                 backupPath,
@@ -170,13 +190,7 @@ public record RollbackRestore(
         );
     }
 
-    /**
-     * 从持久化制品恢复并校验当前应用与任务身份。
-     *
-     * @param artifact 持久化制品
-     * @param expectedAppId 期望应用；为 {@code null} 时只校验载荷本身
-     * @param expectedTaskId 期望任务；为空时只校验载荷本身
-     */
+    /** 从持久化制品恢复并校验当前应用与任务身份。 */
     public static RollbackRestore fromArtifact(
             GenerationArtifact artifact,
             Long expectedAppId,
@@ -192,13 +206,20 @@ public record RollbackRestore(
         if (payload == null) {
             throw invalidField("payload", "不能为空");
         }
+        String schemaVersion = requireSupportedSchema(requireTextValue(payload.get("schemaVersion"), "schemaVersion"));
+        boolean currentSchema = CURRENT_SCHEMA_VERSION.equals(schemaVersion);
         RollbackRestore restored = new RollbackRestore(
-                requireTextValue(payload.get("schemaVersion"), "schemaVersion"),
+                schemaVersion,
                 requireTextValue(payload.get("provider"), "provider"),
                 requireTextValue(payload.get("status"), "status"),
                 requireLong(payload.get("appId"), "appId"),
                 requireTextValue(payload.get("taskId"), "taskId"),
                 requireTextValue(payload.get("rollbackStrategy"), "rollbackStrategy"),
+                currentSchema ? requireStringValue(payload.get("snapshotName"), "snapshotName") : "",
+                currentSchema ? requireStringValue(payload.get("snapshotId"), "snapshotId") : "",
+                currentSchema ? requireStringValue(payload.get("manifestSha256"), "manifestSha256") : "",
+                currentSchema ? requireStringValue(payload.get("scope"), "scope") : "",
+                currentSchema ? requireNonNegativeLong(payload.get("executionEpoch"), "executionEpoch") : 0,
                 requireStringValue(payload.get("snapshotPath"), "snapshotPath"),
                 requireStringValue(payload.get("projectPath"), "projectPath"),
                 requireStringValue(payload.get("backupPath"), "backupPath"),
@@ -223,11 +244,7 @@ public record RollbackRestore(
         return restored;
     }
 
-    /**
- * 将当前对象转换为载荷。
- *
- * @return 载荷集合
- */
+    /** 将当前对象转换为稳定载荷。 */
     public Map<String, Object> toPayload() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("schemaVersion", schemaVersion);
@@ -236,6 +253,13 @@ public record RollbackRestore(
         payload.put("appId", appId);
         payload.put("taskId", taskId);
         payload.put("rollbackStrategy", rollbackStrategy);
+        if (CURRENT_SCHEMA_VERSION.equals(schemaVersion)) {
+            payload.put("snapshotName", snapshotName);
+            payload.put("snapshotId", snapshotId);
+            payload.put("manifestSha256", manifestSha256);
+            payload.put("scope", scope);
+            payload.put("executionEpoch", executionEpoch);
+        }
         payload.put("snapshotPath", snapshotPath);
         payload.put("projectPath", projectPath);
         payload.put("backupPath", backupPath);
@@ -250,8 +274,19 @@ public record RollbackRestore(
         return GenerationArtifact.of(KEY, ROLE, TITLE, toPayload());
     }
 
+    /** 只有当前 schema 的结果可抑制后续恢复重放。 */
+    public boolean trustedForReplay() {
+        return CURRENT_SCHEMA_VERSION.equals(schemaVersion);
+    }
+
     private static void validateState(
+            String schemaVersion,
             String status,
+            String snapshotName,
+            String snapshotId,
+            String manifestSha256,
+            String scope,
+            long executionEpoch,
             String snapshotPath,
             String projectPath,
             String backupPath,
@@ -264,18 +299,87 @@ public record RollbackRestore(
             if (!reason.isEmpty()) {
                 throw invalidField("reason", "恢复成功时必须为空");
             }
+            validateSnapshotIdentity(
+                    schemaVersion,
+                    snapshotName,
+                    snapshotId,
+                    manifestSha256,
+                    scope,
+                    executionEpoch
+            );
             return;
         }
         if (restoredFileCount != 0) {
             throw invalidField("restoredFileCount", "未恢复成功时必须为 0");
         }
         requireText(reason, "reason");
-        if (STATUS_SKIPPED.equals(status) && !backupPath.isEmpty()) {
-            throw invalidField("backupPath", "跳过恢复时必须为空");
+        if (STATUS_SKIPPED.equals(status)) {
+            if (!backupPath.isEmpty()) {
+                throw invalidField("backupPath", "跳过恢复时必须为空");
+            }
+            if (!snapshotName.isEmpty()
+                    || !snapshotId.isEmpty()
+                    || !manifestSha256.isEmpty()
+                    || !scope.isEmpty()
+                    || executionEpoch != 0) {
+                throw invalidField("snapshotId", "跳过恢复时不能携带成功快照身份");
+            }
+            return;
         }
-        if (STATUS_FAILED.equals(status)) {
-            requireText(snapshotPath, "snapshotPath");
-            requireText(projectPath, "projectPath");
+        requireText(snapshotPath, "snapshotPath");
+        requireText(projectPath, "projectPath");
+        validateSnapshotIdentity(
+                schemaVersion,
+                snapshotName,
+                snapshotId,
+                manifestSha256,
+                scope,
+                executionEpoch
+        );
+    }
+
+    private static void validateSnapshotIdentity(String schemaVersion,
+                                                 String snapshotName,
+                                                 String snapshotId,
+                                                 String manifestSha256,
+                                                 String scope,
+                                                 long executionEpoch) {
+        if (LEGACY_SCHEMA_VERSION.equals(schemaVersion)) {
+            if (!snapshotName.isEmpty()
+                    || !snapshotId.isEmpty()
+                    || !manifestSha256.isEmpty()
+                    || !scope.isEmpty()
+                    || executionEpoch != 0) {
+                throw invalidField("snapshotId", "v1 不能携带 v2 快照身份");
+            }
+            return;
+        }
+        requireText(snapshotName, "snapshotName");
+        requireCanonicalUuid(snapshotId, "snapshotId");
+        if (!SHA256_HEX.matcher(manifestSha256).matches()) {
+            throw invalidField("manifestSha256", "必须为小写 SHA-256");
+        }
+        requireText(scope, "scope");
+        if (executionEpoch <= 0) {
+            throw invalidField("executionEpoch", "必须为正整数");
+        }
+    }
+
+    private static String requireSupportedSchema(String schemaVersion) {
+        String value = requireText(schemaVersion, "schemaVersion");
+        if (!SUPPORTED_SCHEMAS.contains(value)) {
+            throw invalidField("schemaVersion", "不受支持: " + value);
+        }
+        return value;
+    }
+
+    private static void requireCanonicalUuid(String value, String field) {
+        try {
+            if (!UUID.fromString(value).toString().equals(value)) {
+                throw new IllegalArgumentException("not canonical");
+            }
+        } catch (RuntimeException exception) {
+            throw invalidField(field, "必须为规范 UUID");
         }
     }
 
@@ -285,6 +389,14 @@ public record RollbackRestore(
             return ((Number) value).longValue();
         }
         throw invalidField(field, "必须为整数");
+    }
+
+    private static long requireNonNegativeLong(Object value, String field) {
+        long parsed = requireLong(value, field);
+        if (parsed < 0) {
+            throw invalidField(field, "必须为非负整数");
+        }
+        return parsed;
     }
 
     private static int requireInteger(Object value, String field) {

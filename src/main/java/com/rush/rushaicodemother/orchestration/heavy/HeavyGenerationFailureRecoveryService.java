@@ -166,8 +166,24 @@ public class HeavyGenerationFailureRecoveryService {
         GenerationArtifact existingRestore = preparation.artifact(RollbackRestore.KEY);
         if (existingRestore != null) {
             try {
-                RollbackRestore.fromArtifact(existingRestore, appId, preparation.taskId());
-                return;
+                RollbackRestore parsed = RollbackRestore.fromArtifact(
+                        existingRestore,
+                        appId,
+                        preparation.taskId()
+                );
+                if (parsed.trustedForReplay()) {
+                    return;
+                }
+                log.warn("Ignoring legacy rollback restore artifact, appId: {}, taskId: {}",
+                        appId, preparation.taskId());
+                preparation.putArtifact(RollbackRestore.skipped(
+                        appId,
+                        preparation.taskId(),
+                        "manual_retry_without_snapshot",
+                        "",
+                        "",
+                        "rollback_restore_identity_unsupported"
+                ).toArtifact());
             } catch (IllegalArgumentException invalidArtifact) {
                 log.warn("Ignoring invalid rollback restore artifact, appId: {}, taskId: {}, error: {}",
                         appId,

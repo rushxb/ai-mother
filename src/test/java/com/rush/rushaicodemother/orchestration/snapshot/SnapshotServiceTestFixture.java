@@ -8,12 +8,16 @@ import com.rush.rushaicodemother.infrastructure.git.GitCommandExecutor;
 import com.rush.rushaicodemother.infrastructure.git.GitTransactionResourceManager;
 import com.rush.rushaicodemother.monitor.GenerationOrchestrationMetricsCollector;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /** Production-constructor fixture for snapshot orchestration unit tests. */
 final class SnapshotServiceTestFixture {
@@ -37,7 +41,7 @@ final class SnapshotServiceTestFixture {
                 components.workspaceFileSystemService(),
                 components.snapshotNamePolicy(),
                 fenceGuard,
-                mock(GenerationExecutionContextService.class)
+                executionContextService()
         );
     }
 
@@ -66,7 +70,8 @@ final class SnapshotServiceTestFixture {
                 components.snapshotWorkspaceService(),
                 components.workspaceFileSystemService(),
                 components.snapshotNamePolicy(),
-                fenceGuard
+                fenceGuard,
+                executionContextService()
         );
     }
 
@@ -122,6 +127,14 @@ final class SnapshotServiceTestFixture {
         Path absoluteOutputRoot = outputRoot.toAbsolutePath().normalize();
         Path parent = absoluteOutputRoot.getParent();
         return (parent == null ? absoluteOutputRoot.resolveSibling(name) : parent.resolve(name)).normalize();
+    }
+
+    private static GenerationExecutionContextService executionContextService() {
+        GenerationExecutionContextService service = mock(GenerationExecutionContextService.class);
+        when(service.getExecutionFence(anyString())).thenAnswer(invocation -> Optional.of(
+                new GenerationExecutionFence(invocation.getArgument(0), "test-worker", 1L)
+        ));
+        return service;
     }
 
     record Components(

@@ -142,23 +142,45 @@ public class GenerationDiffSummaryService {
                     "rollback_point_not_created"
             );
         }
+        if (!rollbackPoint.trustedForSnapshotConsumption()) {
+            return DiffSummary.skipped(
+                    appId,
+                    taskId,
+                    rollbackPoint.snapshotPath(),
+                    currentPath.toString(),
+                    "rollback_snapshot_identity_unsupported"
+            );
+        }
         String snapshotPathValue = rollbackPoint.snapshotPath();
 
         Path basePath;
-        // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
-            basePath = snapshotWorkspaceService.resolveReportedSnapshot(
-                    appId,
+            CodeGenTypeEnum sourceType = CodeGenTypeEnum.getEnumByValue(rollbackPoint.sourceType());
+            if (sourceType == null) {
+                throw new IllegalArgumentException("rollback source type is unsupported");
+            }
+            SnapshotScope scope = new SnapshotScope(appId, sourceType, rollbackPoint.scope());
+            if (!".".equals(scope.relativePath())) {
+                throw new IllegalArgumentException("automatic diff only supports the project root scope");
+            }
+            StoredSnapshot snapshot = snapshotWorkspaceService.requireSnapshot(SnapshotSelector.persisted(
                     rollbackPoint.snapshotName(),
-                    snapshotPathValue
-            );
-        } catch (RuntimeException exception) {
+                    scope,
+                    rollbackPoint.snapshotId(),
+                    SnapshotKind.ROLLBACK_POINT,
+                    taskId,
+                    rollbackPoint.executionEpoch(),
+                    rollbackPoint.manifestSha256()
+            ));
+            basePath = snapshot.payloadPath();
+            snapshotPathValue = snapshot.containerPath().toString();
+        } catch (Exception exception) {
             return DiffSummary.skipped(
                     appId,
                     taskId,
                     snapshotPathValue,
                     currentPath.toString(),
-                    "rollback_path_out_of_root"
+                    "rollback_snapshot_validation_failed"
             );
         }
         try {

@@ -12,16 +12,7 @@ class RollbackPointTest {
 
     @Test
     void createdRollbackPointWithoutSnapshotPathMustBeRejected() {
-        RollbackPoint rollbackPoint = RollbackPoint.created(
-                7L,
-                "task-7",
-                "pre_generation_task-7",
-                "/snapshots/7/pre_generation_task-7",
-                "/projects/vue_project_7",
-                "vue_project",
-                "vue_project",
-                3
-        );
+        RollbackPoint rollbackPoint = created(3);
         Map<String, Object> damagedPayload = new LinkedHashMap<>(rollbackPoint.toPayload());
         damagedPayload.put("snapshotPath", "");
         GenerationArtifact damagedArtifact = new GenerationArtifact(
@@ -40,16 +31,7 @@ class RollbackPointTest {
 
     @Test
     void unknownRollbackPointStatusMustBeRejected() {
-        RollbackPoint rollbackPoint = RollbackPoint.created(
-                7L,
-                "task-7",
-                "pre_generation_task-7",
-                "/snapshots/7/pre_generation_task-7",
-                "/projects/vue_project_7",
-                "vue_project",
-                "vue_project",
-                3
-        );
+        RollbackPoint rollbackPoint = created(3);
         Map<String, Object> damagedPayload = new LinkedHashMap<>(rollbackPoint.toPayload());
         damagedPayload.put("status", "restored");
         GenerationArtifact damagedArtifact = new GenerationArtifact(
@@ -96,17 +78,44 @@ class RollbackPointTest {
 
     @Test
     void negativeFileCountMustBeRejectedBeforePersistence() {
-        RollbackPoint rollbackPoint = RollbackPoint.created(
+        RollbackPoint rollbackPoint = created(-1);
+
+        assertThrows(IllegalArgumentException.class, rollbackPoint::toArtifact);
+    }
+
+    @Test
+    void legacyRollbackPointMustRemainParseableButUntrusted() {
+        Map<String, Object> payload = new LinkedHashMap<>(created(1).toPayload());
+        payload.put("schemaVersion", RollbackPoint.LEGACY_SCHEMA_VERSION);
+        payload.remove("snapshotId");
+        payload.remove("manifestSha256");
+        payload.remove("scope");
+        payload.remove("executionEpoch");
+
+        RollbackPoint parsed = RollbackPoint.fromArtifact(
+                GenerationArtifact.of(RollbackPoint.KEY, "Orchestrator", "legacy", payload),
+                7L,
+                "task-7"
+        );
+
+        org.junit.jupiter.api.Assertions.assertTrue(parsed.created());
+        org.junit.jupiter.api.Assertions.assertFalse(parsed.trustedForSnapshotConsumption());
+    }
+
+    private RollbackPoint created(int fileCount) {
+        return RollbackPoint.created(
                 7L,
                 "task-7",
                 "pre_generation_task-7",
-                "/snapshots/7/pre_generation_task-7",
+                "11111111-1111-1111-1111-111111111111",
+                "a".repeat(64),
+                ".",
+                2L,
+                "/snapshots/7/11111111-1111-1111-1111-111111111111",
                 "/projects/vue_project_7",
                 "vue_project",
                 "vue_project",
-                -1
+                fileCount
         );
-
-        assertThrows(IllegalArgumentException.class, rollbackPoint::toArtifact);
     }
 }

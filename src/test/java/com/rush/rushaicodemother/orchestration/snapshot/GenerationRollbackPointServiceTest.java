@@ -47,8 +47,8 @@ class GenerationRollbackPointServiceTest {
         assertEquals("created", artifact.payload().get("status"));
         assertEquals(1, artifact.payload().get("fileCount"));
         Path snapshotPath = Path.of(String.valueOf(artifact.payload().get("snapshotPath")));
-        assertTrue(Files.exists(snapshotPath.resolve("src/App.vue")));
-        assertFalse(Files.exists(snapshotPath.resolve("node_modules/pkg/index.js")));
+        assertTrue(Files.exists(snapshotPath.resolve("payload/src/App.vue")));
+        assertFalse(Files.exists(snapshotPath.resolve("payload/node_modules/pkg/index.js")));
         verify(fenceGuard).assertCurrent("task-7");
     }
 
@@ -82,7 +82,12 @@ class GenerationRollbackPointServiceTest {
         GenerationOrchestrationRequest request = frozenRequest(
                 app, "修改页面", CodeGenTypeEnum.HTML, "update", true);
 
-        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackPointService(codeOutputRoot, codeSnapshotRoot).prepareRollbackPoint(request, CodeGenTypeEnum.HTML, "../" + "very-long-task-id".repeat(20));
+        GenerationArtifact artifact = SnapshotServiceTestFixture.rollbackPointService(codeOutputRoot, codeSnapshotRoot)
+                .prepareRollbackPoint(
+                        request,
+                        CodeGenTypeEnum.HTML,
+                        "very-long-task-id-".repeat(6) + "task"
+                );
 
         String snapshotName = String.valueOf(artifact.payload().get("snapshotName"));
         assertEquals("created", artifact.payload().get("status"));

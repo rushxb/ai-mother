@@ -99,6 +99,17 @@ class FlywaySchemaMigrationIntegrationTest {
                     SELECT COUNT(*)
                     FROM information_schema.tables
                     WHERE table_schema = DATABASE()
+                      AND table_name = 'generation_model_prompt_selection'
+                    """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(*)
+                    FROM flyway_schema_history
+                    WHERE version = '20260828.6' AND success = 1
+                    """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(*)
+                    FROM information_schema.tables
+                    WHERE table_schema = DATABASE()
                       AND table_name = 'ai_prompt_release'
                     """));
             assertEquals(1, scalar(connection, """

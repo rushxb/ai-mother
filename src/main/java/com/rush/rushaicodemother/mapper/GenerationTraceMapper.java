@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.mapper;
 
 import com.rush.rushaicodemother.model.entity.GenerationBuildLog;
 import com.rush.rushaicodemother.model.entity.GenerationModelCall;
+import com.rush.rushaicodemother.model.entity.GenerationModelPromptSelection;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Options;
@@ -293,6 +294,28 @@ public interface GenerationTraceMapper {
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insertModelCall(GenerationModelCall modelCall);
+
+    @Insert("""
+            INSERT INTO generation_model_prompt_selection (
+                callId, taskId, promptKey, promptVersion, channel,
+                contentHash, bundleId, createTime, isDelete
+            ) VALUES (
+                #{callId}, #{taskId}, #{promptKey}, #{promptVersion}, #{channel},
+                #{contentHash}, #{bundleId}, #{createTime}, 0
+            )
+            """)
+    int insertModelPromptSelection(GenerationModelPromptSelection selection);
+
+    @Select("""
+            SELECT id, callId, taskId, promptKey, promptVersion, channel,
+                   contentHash, bundleId, createTime, isDelete
+            FROM generation_model_prompt_selection
+            WHERE callId = #{callId}
+              AND isDelete = 0
+            ORDER BY promptKey, promptVersion
+            """)
+    List<GenerationModelPromptSelection> selectModelPromptSelectionsByCallId(
+            @Param("callId") String callId);
 
     @Update("""
             UPDATE generation_model_call

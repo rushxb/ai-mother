@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.service.trace;
 
+import java.util.List;
+
 /**
  * 模型请求的内容寻址、生产安全沿袭。
  *
@@ -13,6 +15,11 @@ public record GenerationModelCallProvenance(
         String modelConfigHash,
         Integer requestMessageCount,
         Integer toolCount,
-        String rawMetadataJson
+        String rawMetadataJson,
+        List<GenerationPromptSelectionProvenance> promptSelections
 ) {
+
+    public GenerationModelCallProvenance {
+        promptSelections = GenerationPromptSelectionProvenance.canonicalize(promptSelections);
+    }
 }

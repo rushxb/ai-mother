@@ -122,6 +122,13 @@ class AiModelProvenanceFactoryTest {
         assertTrue(provenance.rawMetadataJson().contains("\"version\":\"v2\""));
         assertTrue(provenance.rawMetadataJson().contains("\"channel\":\"canary\""));
         assertTrue(provenance.rawMetadataJson().contains(selection.bundleId()));
+        assertEquals(1, provenance.promptSelections().size());
+        assertEquals(selection.promptKey(), provenance.promptSelections().getFirst().promptKey());
+        assertEquals(selection.version(), provenance.promptSelections().getFirst().version());
+        assertEquals("canary", provenance.promptSelections().getFirst().channel());
+        assertEquals(selection.contentHash(),
+                provenance.promptSelections().getFirst().contentHash());
+        assertEquals(selection.bundleId(), provenance.promptSelections().getFirst().bundleId());
         assertFalse(provenance.rawMetadataJson().contains("system-v1"));
         assertFalse(provenance.rawMetadataJson().contains("private-user-request"));
     }

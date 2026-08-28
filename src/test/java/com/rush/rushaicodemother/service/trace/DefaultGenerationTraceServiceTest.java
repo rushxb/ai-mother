@@ -18,6 +18,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -289,6 +290,8 @@ class DefaultGenerationTraceServiceTest {
         assertEquals(GenerationModelCallStatus.ERROR, captor.getValue().status());
         assertEquals(GenerationModelUsageSource.UNAVAILABLE, captor.getValue().usageSource());
         assertEquals(null, captor.getValue().totalTokens());
+        assertEquals("codegen-vue-project",
+                captor.getValue().promptSelections().getFirst().promptKey());
     }
 
     @Test
@@ -357,7 +360,7 @@ class DefaultGenerationTraceServiceTest {
                 CALL_ID, "task-1", 1L, 2L, "openai", model,
                 GenerationModelCallStatus.SUCCESS, "response-1",
                 8, 5, 13, 125L, "STOP", GenerationModelUsageSource.OFFICIAL,
-                null, HASH, HASH, HASH, HASH, 2, 3, "{}"
+                null, HASH, HASH, HASH, HASH, 2, 3, "{}", promptSelections()
         );
     }
 
@@ -366,12 +369,18 @@ class DefaultGenerationTraceServiceTest {
                 CALL_ID, "task-1", 1L, 2L, "openai", "gpt-test",
                 GenerationModelCallStatus.STARTED, null,
                 8, 0, 8, 0L, null, GenerationModelUsageSource.ESTIMATED,
-                null, HASH, HASH, HASH, HASH, 2, 3, "{}"
+                null, HASH, HASH, HASH, HASH, 2, 3, "{}", promptSelections()
         );
     }
 
     private GenerationModelCallProvenance provenance() {
-        return new GenerationModelCallProvenance(HASH, HASH, HASH, HASH, 2, 3, "{}");
+        return new GenerationModelCallProvenance(
+                HASH, HASH, HASH, HASH, 2, 3, "{}", promptSelections());
+    }
+
+    private List<GenerationPromptSelectionProvenance> promptSelections() {
+        return List.of(new GenerationPromptSelectionProvenance(
+                "codegen-vue-project", "v2", "canary", HASH, HASH));
     }
 
     private TaskRecord runtimeShell(long appId, long userId) {

@@ -478,7 +478,8 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 requireNonNegative(provenance.requestMessageCount(), "请求消息数量"),
                 requireNonNegative(provenance.toolCount(), "工具数量"),
                 boundedNullable(provenance.rawMetadataJson(), MAX_MODEL_METADATA_LENGTH, "模型元数据"),
-                LocalDateTime.now(clock)
+                LocalDateTime.now(clock),
+                provenance.promptSelections()
         );
     }
 
@@ -560,7 +561,8 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 && Objects.equals(existing.modelConfigHash(), requested.modelConfigHash())
                 && Objects.equals(existing.requestMessageCount(), requested.requestMessageCount())
                 && Objects.equals(existing.toolCount(), requested.toolCount())
-                && Objects.equals(existing.rawMetadataJson(), requested.rawMetadataJson());
+                && Objects.equals(existing.rawMetadataJson(), requested.rawMetadataJson())
+                && Objects.equals(existing.promptSelections(), requested.promptSelections());
     }
 
     /** STARTED 只能单向完成为终态，请求身份与 provenance 必须完全一致。 */
@@ -582,7 +584,8 @@ public class DefaultGenerationTraceService implements GenerationTraceService {
                 && Objects.equals(existing.modelConfigHash(), requested.modelConfigHash())
                 && Objects.equals(existing.requestMessageCount(), requested.requestMessageCount())
                 && Objects.equals(existing.toolCount(), requested.toolCount())
-                && Objects.equals(existing.rawMetadataJson(), requested.rawMetadataJson());
+                && Objects.equals(existing.rawMetadataJson(), requested.rawMetadataJson())
+                && Objects.equals(existing.promptSelections(), requested.promptSelections());
     }
 
     private Long normalizeInvocationAppId(Long appId, ModelInvocationPurpose purpose) {

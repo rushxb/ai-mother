@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.service.trace;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.mapper.GenerationTraceMapper;
 import com.rush.rushaicodemother.model.entity.GenerationModelCall;
+import com.rush.rushaicodemother.model.entity.GenerationModelPromptSelection;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
@@ -16,6 +17,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -95,6 +97,15 @@ class DefaultGenerationTracePersistenceServiceTest {
     }
 
     @Test
+    void promptSelectionConflictAfterModelCallInsertMustPropagateForTransactionRollback() {
+        when(mapper.insertModelCall(any())).thenReturn(1);
+        when(mapper.insertModelPromptSelection(any()))
+                .thenThrow(new DuplicateKeyException("uk_call_prompt_version"));
+
+        assertThrows(DuplicateKeyException.class, () -> service.insertModelCall(newModelCall()));
+    }
+
+    @Test
     void writeOperationsMustRequireExactlyOneAffectedRow() {
         when(mapper.updateRunningTaskStage(
                 10L, "build", "正在构建", null, 0L, NOW)).thenReturn(0);
@@ -118,6 +129,7 @@ class DefaultGenerationTracePersistenceServiceTest {
     @Test
     void modelCallMustPersistEnumAsStableDatabaseValue() {
         when(mapper.insertModelCall(any())).thenReturn(1);
+        when(mapper.insertModelPromptSelection(any())).thenReturn(1);
 
         assertTrue(service.insertModelCall(newModelCall()));
 
@@ -127,6 +139,14 @@ class DefaultGenerationTracePersistenceServiceTest {
         assertEquals(GenerationModelCallStatus.SUCCESS.name(), captor.getValue().getCallStatus());
         assertEquals(HASH, captor.getValue().getPromptTemplateHash());
         assertEquals("c47e4463-57c6-4e72-8424-fd5c1873a64e", captor.getValue().getCallId());
+        ArgumentCaptor<GenerationModelPromptSelection> selectionCaptor =
+                ArgumentCaptor.forClass(GenerationModelPromptSelection.class);
+        verify(mapper).insertModelPromptSelection(selectionCaptor.capture());
+        assertEquals("codegen-vue-project", selectionCaptor.getValue().getPromptKey());
+        assertEquals("v2", selectionCaptor.getValue().getPromptVersion());
+        assertEquals("canary", selectionCaptor.getValue().getChannel());
+        assertEquals(HASH, selectionCaptor.getValue().getContentHash());
+        assertEquals(HASH, selectionCaptor.getValue().getBundleId());
     }
 
     @Test
@@ -169,7 +189,9 @@ class DefaultGenerationTracePersistenceServiceTest {
                 "openai", "gpt-test", GenerationModelCallStatus.SUCCESS, "response-1",
                 8, 5, 13, 125L,
                 "STOP", GenerationModelUsageSource.OFFICIAL, null,
-                HASH, HASH, HASH, HASH, 2, 3, "{}", NOW
+                HASH, HASH, HASH, HASH, 2, 3, "{}", NOW,
+                List.of(new GenerationPromptSelectionProvenance(
+                        "codegen-vue-project", "v2", "canary", HASH, HASH))
         );
     }
 }

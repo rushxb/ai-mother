@@ -168,9 +168,14 @@ public interface GenerationTracePersistenceService {
             Integer requestMessageCount,
             Integer toolCount,
             String rawMetadataJson,
-            LocalDateTime createTime
+            LocalDateTime createTime,
+            List<GenerationPromptSelectionProvenance> promptSelections
     ) {
-        /** 兼容仅属于生成任务的持久化测试与 adapter。 */
+        public NewModelCall {
+            promptSelections = GenerationPromptSelectionProvenance.canonicalize(promptSelections);
+        }
+
+        /** 仅属于生成任务的持久化测试与 adapter 使用的明确构造入口。 */
         public NewModelCall(String callId, String taskId, long appId, long userId,
                             String provider, String model, GenerationModelCallStatus status,
                             String providerRequestId, Integer promptTokens,
@@ -179,13 +184,14 @@ public interface GenerationTracePersistenceService {
                             String errorCategory, String requestHash,
                             String promptTemplateHash, String toolSchemaHash,
                             String modelConfigHash, Integer requestMessageCount,
-                            Integer toolCount, String rawMetadataJson, LocalDateTime createTime) {
+                            Integer toolCount, String rawMetadataJson, LocalDateTime createTime,
+                            List<GenerationPromptSelectionProvenance> promptSelections) {
             this(callId, taskId, appId, userId,
                     ModelInvocationPurpose.GENERATION, ModelInvocationBillingMode.BILLABLE, null,
                     provider, model, status, providerRequestId, promptTokens, completionTokens,
                     totalTokens, latencyMs, finishReason, usageSource, errorCategory, requestHash,
                     promptTemplateHash, toolSchemaHash, modelConfigHash, requestMessageCount,
-                    toolCount, rawMetadataJson, createTime);
+                    toolCount, rawMetadataJson, createTime, promptSelections);
         }
     }
 
@@ -214,9 +220,14 @@ public interface GenerationTracePersistenceService {
             String modelConfigHash,
             Integer requestMessageCount,
             Integer toolCount,
-            String rawMetadataJson
+            String rawMetadataJson,
+            List<GenerationPromptSelectionProvenance> promptSelections
     ) {
-        /** 兼容仅属于生成任务的 trace 测试与 adapter。 */
+        public ModelCallRecord {
+            promptSelections = GenerationPromptSelectionProvenance.canonicalize(promptSelections);
+        }
+
+        /** 仅属于生成任务的 trace 测试与 adapter 使用的明确构造入口。 */
         public ModelCallRecord(String callId, String taskId, long appId, long userId,
                                String provider, String model, GenerationModelCallStatus status,
                                String providerRequestId, Integer promptTokens,
@@ -225,13 +236,14 @@ public interface GenerationTracePersistenceService {
                                String errorCategory, String requestHash,
                                String promptTemplateHash, String toolSchemaHash,
                                String modelConfigHash, Integer requestMessageCount,
-                               Integer toolCount, String rawMetadataJson) {
+                               Integer toolCount, String rawMetadataJson,
+                               List<GenerationPromptSelectionProvenance> promptSelections) {
             this(callId, taskId, appId, userId,
                     ModelInvocationPurpose.GENERATION, ModelInvocationBillingMode.BILLABLE, null,
                     provider, model, status, providerRequestId, promptTokens, completionTokens,
                     totalTokens, latencyMs, finishReason, usageSource, errorCategory, requestHash,
                     promptTemplateHash, toolSchemaHash, modelConfigHash, requestMessageCount,
-                    toolCount, rawMetadataJson);
+                    toolCount, rawMetadataJson, promptSelections);
         }
     }
 }

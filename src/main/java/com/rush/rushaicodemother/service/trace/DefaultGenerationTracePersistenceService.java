@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.mapper.GenerationTraceMapper;
 import com.rush.rushaicodemother.model.entity.GenerationBuildLog;
 import com.rush.rushaicodemother.model.entity.GenerationModelCall;
+import com.rush.rushaicodemother.model.entity.GenerationModelPromptSelection;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.GenerationModelCallStatus;
 import com.rush.rushaicodemother.model.enums.GenerationModelUsageSource;
@@ -317,10 +318,27 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                 .build();
         try {
             requireOneAffectedRow(mapper.insertModelCall(entity), "记录生成模型调用");
-            return true;
         } catch (DuplicateKeyException exception) {
             return false;
         }
+        for (GenerationPromptSelectionProvenance selection : modelCall.promptSelections()) {
+            GenerationModelPromptSelection selectionEntity =
+                    GenerationModelPromptSelection.builder()
+                            .callId(modelCall.callId())
+                            .taskId(modelCall.taskId())
+                            .promptKey(selection.promptKey())
+                            .promptVersion(selection.version())
+                            .channel(selection.channel())
+                            .contentHash(selection.contentHash())
+                            .bundleId(selection.bundleId())
+                            .createTime(modelCall.createTime())
+                            .build();
+            // 主调用已成功插入后，子事实写入失败必须抛出并触发同一事务回滚，不能伪装成幂等重复。
+            requireOneAffectedRow(
+                    mapper.insertModelPromptSelection(selectionEntity),
+                    "记录模型调用 Prompt 版本");
+        }
+        return true;
     }
 
     /**
@@ -332,7 +350,8 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
     @Override
     public ModelCallRecord findModelCallByCallId(String callId) {
         GenerationModelCall entity = mapper.selectModelCallByCallId(requireText(callId, "模型调用 ID"));
-        return entity == null ? null : toModelCallRecord(entity);
+        return entity == null ? null : toModelCallRecord(
+                entity, mapper.selectModelPromptSelectionsByCallId(entity.getCallId()));
     }
 
     @Override
@@ -471,7 +490,10 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
     }
 
     /** 将当前对象转换为模型调用记录。 */
-    private ModelCallRecord toModelCallRecord(GenerationModelCall entity) {
+    private ModelCallRecord toModelCallRecord(
+            GenerationModelCall entity,
+            List<GenerationModelPromptSelection> promptSelections
+    ) {
         GenerationModelUsageSource usageSource;
         GenerationModelCallStatus status;
         ModelInvocationPurpose invocationPurpose;
@@ -500,7 +522,15 @@ public class DefaultGenerationTracePersistenceService implements GenerationTrace
                 entity.getFinishReason(), usageSource, entity.getErrorCategory(),
                 entity.getRequestHash(), entity.getPromptTemplateHash(), entity.getToolSchemaHash(),
                 entity.getModelConfigHash(), entity.getRequestMessageCount(), entity.getToolCount(),
-                entity.getRawMetadataJson()
+                entity.getRawMetadataJson(),
+                promptSelections == null ? List.of() : promptSelections.stream()
+                        .map(selection -> new GenerationPromptSelectionProvenance(
+                                selection.getPromptKey(),
+                                selection.getPromptVersion(),
+                                selection.getChannel(),
+                                selection.getContentHash(),
+                                selection.getBundleId()))
+                        .toList()
         );
     }
 

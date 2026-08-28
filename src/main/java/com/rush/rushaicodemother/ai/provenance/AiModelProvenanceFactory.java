@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.ai.prompt.PromptCatalog;
 import com.rush.rushaicodemother.ai.prompt.PromptSelection;
 import com.rush.rushaicodemother.service.trace.GenerationModelCallProvenance;
+import com.rush.rushaicodemother.service.trace.GenerationPromptSelectionProvenance;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -80,6 +81,7 @@ public class AiModelProvenanceFactory {
         String toolSchemaHash = hash(canonicalTools(tools));
         String modelConfigHash = hash(canonicalModelConfiguration(
                 request, provider, configuredModel, toolSchemaHash));
+        List<GenerationPromptSelectionProvenance> promptSelections = promptSelections(messages);
 
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("schemaVersion", SCHEMA_VERSION);
@@ -89,7 +91,9 @@ public class AiModelProvenanceFactory {
         metadata.put("requestHash", requestHash);
         metadata.put("promptTemplateHash", promptTemplateHash);
         metadata.put("promptCatalogBundleId", promptCatalog.bundleId());
-        metadata.put("promptVersions", promptVersions(messages));
+        metadata.put("promptVersions", promptSelections.stream()
+                .map(this::promptSelectionMetadata)
+                .toList());
         metadata.put("toolSchemaHash", toolSchemaHash);
         metadata.put("modelConfigHash", modelConfigHash);
         metadata.put("requestMessageCount", messages.size());
@@ -125,13 +129,16 @@ public class AiModelProvenanceFactory {
                 modelConfigHash,
                 messages.size(),
                 tools.size(),
-                toJson(metadata)
+                toJson(metadata),
+                promptSelections
         );
     }
 
-    /** 返回提示词{@code Versions}。 */
-    private List<Map<String, Object>> promptVersions(List<ChatMessage> messages) {
-        Map<String, Map<String, Object>> identified = new LinkedHashMap<>();
+    /** 返回模型调用实际使用的去重 Prompt 版本身份。 */
+    private List<GenerationPromptSelectionProvenance> promptSelections(
+            List<ChatMessage> messages
+    ) {
+        Map<String, GenerationPromptSelectionProvenance> identified = new LinkedHashMap<>();
         for (ChatMessage message : messages) {
             if (!(message instanceof SystemMessage systemMessage)) {
                 continue;
@@ -140,14 +147,28 @@ public class AiModelProvenanceFactory {
             if (selection == null) {
                 continue;
             }
-            Map<String, Object> metadata = new LinkedHashMap<>();
-            metadata.put("promptKey", selection.promptKey());
-            metadata.put("version", selection.version());
-            metadata.put("channel", selection.channel().name().toLowerCase(java.util.Locale.ROOT));
-            metadata.put("contentHash", selection.contentHash());
-            identified.putIfAbsent(selection.promptKey() + "@" + selection.version(), Map.copyOf(metadata));
+            GenerationPromptSelectionProvenance provenance =
+                    new GenerationPromptSelectionProvenance(
+                            selection.promptKey(),
+                            selection.version(),
+                            selection.channel().name().toLowerCase(java.util.Locale.ROOT),
+                            selection.contentHash(),
+                            selection.bundleId());
+            identified.putIfAbsent(
+                    selection.promptKey() + "@" + selection.version(), provenance);
         }
         return List.copyOf(identified.values());
+    }
+
+    private Map<String, Object> promptSelectionMetadata(
+            GenerationPromptSelectionProvenance selection
+    ) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("promptKey", selection.promptKey());
+        metadata.put("version", selection.version());
+        metadata.put("channel", selection.channel());
+        metadata.put("contentHash", selection.contentHash());
+        return Map.copyOf(metadata);
     }
 
     private String canonicalMessages(List<ChatMessage> messages) {

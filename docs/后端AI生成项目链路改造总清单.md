@@ -661,6 +661,14 @@
 - 使用 MySQL Community Server `8.0.38` 和正式 `integration-test` profile 执行场景容量及离线在线关联：2 tests、0 failure、0 error、0 skipped；46 条迁移资源校验通过，空库在 baseline 后成功应用 34 条迁移到 `20260828.5`。测试从真实 `generation_task`、`generation_feedback` 和 `generation_model_call` 聚合生产失败、返工、评分与容量后再执行关联，专用数据库由测试清理。
 - 本轮闭合第 401 项的确定性 E2 与单机真实 MySQL E3。第 399 项的真实模型/浏览器/Backend/Full Stack 报告尚未运行，因此当前证明的是“真实证据到生产事实的关联机制”，不是某个候选已取得真实离线质量收益；第 402 项的 shadow/canary、小流量晋级和自动回滚仍未完成。
 
+### 11.15 Prompt 灰度结构化归因前置证据
+
+- 2026-08-28 提交 `e6f5aa6`：模型调用 provenance 将运行时实际识别到的 Prompt 选择提升为类型化事实，固定记录 `promptKey/version/channel/contentHash/bundleId`；原有 `rawMetadataJson` 继续用于诊断兼容，但不再是灰度归因的唯一来源，也没有把 Prompt 正文写入结构化事实。
+- 新增 `generation_model_prompt_selection` 表，以 `callId` 关联物理模型调用，并为任务归因和 `promptKey + channel + contentHash + createTime` 灰度窗口建立索引。主调用与 Prompt 子事实在同一事务写入：只有主调用唯一键冲突可以进入幂等恢复，子事实冲突必须抛出并回滚，禁止提交只有主记录而缺失版本归因的半成品。
+- Prompt 选择集合在进入调用命令、持久化对象和回读记录时统一按不可变身份排序；重复调用会把数据库结构化事实纳入完整 payload 比较，消息排列不同不产生伪冲突，版本或内容指纹变化则失败关闭。
+- 在干净 detached `e6f5aa6` 工作树使用 JDK 21 执行默认 `.\mvnw.cmd test`：799 reports、3531 tests、0 failure、0 error、42 skipped。使用 MySQL Community Server `8.0.38` 和正式 `integration-test` profile 执行空库迁移及 Prompt 选择幂等/冲突测试：2 tests、0 failure、0 error、0 skipped；47 条迁移资源校验通过，空库在 baseline 后成功应用 35 条迁移到 `20260828.6`，专用数据库由测试清理。
+- 本轮只建立第 402 项所需的“实际命中版本可区分归因”前置条件，因此第 402 项保持未完成。后续仍需按 Prompt 候选 cohort 聚合质量、尾延迟和成本，定义晋级/回滚阈值，保留旧 release identity，并完成 shadow、小流量晋级与自动回滚的真实演练。
+
 ## 12. 推荐执行顺序
 
 ### 第一阶段：事实正确性

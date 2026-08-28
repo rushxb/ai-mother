@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.benchmark;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.ai.prompt.PromptCatalog;
 import com.rush.rushaicodemother.ai.prompt.PromptCatalogSnapshot;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -17,27 +18,42 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GenerationBenchmarkCatalogTest {
 
     @Test
-    void shouldExposeCreateAndEditBenchmarkTasks() {
+    void shouldExposeExplicitCapabilityMatrix() {
         GenerationBenchmarkCatalog catalog = catalog();
 
         assertTrue(catalog.tasks().stream().anyMatch(task -> "CREATE".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "LIGHT_EDIT".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "AGENT_EDIT".equals(task.mode())));
-        assertTrue(catalog.tasks().size() >= 32);
+        assertTrue(catalog.tasks().stream().anyMatch(task -> "READ_ONLY".equals(task.mode())));
+        assertTrue(catalog.tasks().stream().anyMatch(task -> "HEAVY_EXPERT".equals(task.mode())));
+        assertTrue(catalog.tasks().size() >= 50);
         assertEquals(catalog.tasks().size(), catalog.tasks().stream()
                 .map(GenerationBenchmarkTask::id)
                 .distinct()
                 .count());
         assertCoverage(catalog.tasks(), GenerationBenchmarkTask::mode, Map.of(
                 "CREATE", 10L,
+                "READ_ONLY", 9L,
                 "LIGHT_EDIT", 6L,
-                "AGENT_EDIT", 10L
+                "AGENT_EDIT", 10L,
+                "HEAVY_EXPERT", 3L
         ));
         assertCoverage(catalog.tasks(), GenerationBenchmarkTask::codeGenType, Map.of(
                 "vue_project", 12L,
                 "backend_project", 5L,
-                "full_stack_project", 5L
+                "full_stack_project", 5L,
+                "html", 3L,
+                "multi_file", 3L
         ));
+        assertCoverage(catalog.tasks(), GenerationBenchmarkTask::operation, Map.of(
+                IntentOperationType.EXPLAIN, 3L,
+                IntentOperationType.AUDIT, 3L,
+                IntentOperationType.PLAN, 3L
+        ));
+        assertTrue(catalog.tasks().stream().allMatch(task -> task.expectedRoute() != null
+                && !task.expectedRoute().isBlank()
+                && task.operation() != null
+                && task.fixtureKind() != null));
         Set<GenerationBenchmarkDifficulty> difficulties = catalog.tasks().stream()
                 .map(GenerationBenchmarkTask::difficulty)
                 .collect(Collectors.toSet());
@@ -48,16 +64,46 @@ class GenerationBenchmarkCatalogTest {
         ), difficulties);
         assertTrue(catalog.tasks().stream().map(GenerationBenchmarkTask::scenario).distinct().count() >= 10);
         assertTrue(catalog.tasks().stream().filter(task -> !task.sourceAssertions().isEmpty()).count() >= 14);
-        assertTrue(catalog.tasks().stream().allMatch(task -> task.requiredQualityDimensions()
-                .contains(GenerationBenchmarkQualityDimension.RUNTIME)));
         assertTrue(catalog.tasks().stream()
-                .filter(task -> !"backend_project".equals(task.codeGenType()))
+                .filter(task -> !"READ_ONLY".equals(task.mode()))
+                .filter(task -> !"html".equals(task.codeGenType()))
+                .filter(task -> !"multi_file".equals(task.codeGenType()))
+                .allMatch(task -> task.requiredQualityDimensions()
+                        .contains(GenerationBenchmarkQualityDimension.RUNTIME)));
+        assertTrue(catalog.tasks().stream()
+                .filter(task -> "READ_ONLY".equals(task.mode()))
+                .allMatch(task -> task.requiredQualityDimensions().containsAll(List.of(
+                        GenerationBenchmarkQualityDimension.FUNCTIONAL,
+                        GenerationBenchmarkQualityDimension.DIFF_SCOPE,
+                        GenerationBenchmarkQualityDimension.SECURITY))));
+        assertTrue(catalog.tasks().stream()
+                .filter(task -> !"READ_ONLY".equals(task.mode()))
+                .filter(task -> "vue_project".equals(task.codeGenType())
+                        || "full_stack_project".equals(task.codeGenType()))
                 .allMatch(task -> task.requiredQualityDimensions()
                         .contains(GenerationBenchmarkQualityDimension.VISUAL)));
         assertTrue(catalog.tasks().stream()
-                .filter(task -> "backend_project".equals(task.codeGenType()))
+                .filter(task -> "READ_ONLY".equals(task.mode())
+                        || "backend_project".equals(task.codeGenType())
+                        || "html".equals(task.codeGenType())
+                        || "multi_file".equals(task.codeGenType()))
                 .noneMatch(task -> task.requiredQualityDimensions()
                         .contains(GenerationBenchmarkQualityDimension.VISUAL)));
+    }
+
+    @Test
+    void datasetMustRejectMissingExecutionContract() {
+        GenerationBenchmarkCatalog catalog = catalog();
+        GenerationBenchmarkDataset dataset = catalog.dataset();
+        GenerationBenchmarkTask task = dataset.tasks().getFirst();
+        GenerationBenchmarkTask invalid = new GenerationBenchmarkTask(
+                task.id(), task.mode(), task.codeGenType(), task.prompt(), task.expectedValidation(),
+                task.scenario(), task.difficulty(), task.capabilities(), task.requiredQualityDimensions(),
+                task.fixtureFiles(), task.sourceAssertions(), task.expectedRoute(), task.forbiddenRoutes(),
+                null, null);
+
+        assertThrows(IllegalStateException.class, () -> catalog.validate(
+                replace(dataset, 0, invalid)));
     }
 
     @Test
@@ -324,6 +370,15 @@ class GenerationBenchmarkCatalogTest {
         return new GenerationBenchmarkCatalog(new ObjectMapper());
     }
 
+    private GenerationBenchmarkDataset replace(GenerationBenchmarkDataset dataset,
+                                               int index,
+                                               GenerationBenchmarkTask replacement) {
+        List<GenerationBenchmarkTask> tasks = new java.util.ArrayList<>(dataset.tasks());
+        tasks.set(index, replacement);
+        return new GenerationBenchmarkDataset(
+                dataset.schemaVersion(), dataset.datasetId(), dataset.version(), tasks);
+    }
+
     private void assertDimensionCannotBeRemoved(
             GenerationBenchmarkCatalog catalog,
             GenerationBenchmarkDataset dataset,
@@ -360,10 +415,10 @@ class GenerationBenchmarkCatalogTest {
                 dataset.schemaVersion(), dataset.datasetId(), dataset.version(), tasks)));
     }
 
-    private void assertCoverage(List<GenerationBenchmarkTask> tasks,
-                                java.util.function.Function<GenerationBenchmarkTask, String> classifier,
-                                Map<String, Long> minimums) {
-        Map<String, Long> counts = tasks.stream().collect(Collectors.groupingBy(
+    private <T> void assertCoverage(List<GenerationBenchmarkTask> tasks,
+                                    java.util.function.Function<GenerationBenchmarkTask, T> classifier,
+                                    Map<T, Long> minimums) {
+        Map<T, Long> counts = tasks.stream().collect(Collectors.groupingBy(
                 classifier,
                 Collectors.counting()
         ));

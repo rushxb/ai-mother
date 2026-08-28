@@ -18,6 +18,7 @@ import java.util.List;
 public class GenerationBenchmarkValidationEngine {
 
     private final List<GenerationBenchmarkValidationRule> rules;
+    private final List<GenerationBenchmarkResponseRule> responseRules;
     private final List<GenerationBenchmarkRuntimeGrader> runtimeGraders;
     private final GenerationBenchmarkWorkspaceInspector inspector;
     private final GenerationBenchmarkGraderMetricsCollector metricsCollector;
@@ -25,6 +26,7 @@ public class GenerationBenchmarkValidationEngine {
     @Autowired
     public GenerationBenchmarkValidationEngine(
             List<GenerationBenchmarkValidationRule> rules,
+            List<GenerationBenchmarkResponseRule> responseRules,
             List<GenerationBenchmarkRuntimeGrader> runtimeGraders,
             GenerationBenchmarkWorkspaceInspector inspector,
             GenerationBenchmarkGraderMetricsCollector metricsCollector
@@ -32,6 +34,10 @@ public class GenerationBenchmarkValidationEngine {
         this.rules = rules == null ? List.of() : rules.stream()
                 .sorted(Comparator.comparingInt(GenerationBenchmarkValidationRule::order)
                         .thenComparing(GenerationBenchmarkValidationRule::id))
+                .toList();
+        this.responseRules = responseRules == null ? List.of() : responseRules.stream()
+                .sorted(Comparator.comparingInt(GenerationBenchmarkResponseRule::order)
+                        .thenComparing(GenerationBenchmarkResponseRule::id))
                 .toList();
         this.runtimeGraders = runtimeGraders == null ? List.of() : runtimeGraders.stream()
                 .sorted(Comparator.comparingInt(GenerationBenchmarkRuntimeGrader::order)
@@ -43,10 +49,20 @@ public class GenerationBenchmarkValidationEngine {
 
     public GenerationBenchmarkValidationEngine(
             List<GenerationBenchmarkValidationRule> rules,
+            List<GenerationBenchmarkRuntimeGrader> runtimeGraders,
+            GenerationBenchmarkWorkspaceInspector inspector,
+            GenerationBenchmarkGraderMetricsCollector metricsCollector
+    ) {
+        this(rules, List.of(), runtimeGraders, inspector, metricsCollector);
+    }
+
+    public GenerationBenchmarkValidationEngine(
+            List<GenerationBenchmarkValidationRule> rules,
             GenerationBenchmarkWorkspaceInspector inspector
     ) {
         this(
                 rules,
+                List.of(),
                 List.of(),
                 inspector,
                 GenerationBenchmarkGraderMetricsCollector.noOp()
@@ -96,6 +112,14 @@ public class GenerationBenchmarkValidationEngine {
     }
 
     public GenerationBenchmarkQualityEvidence evaluate(GenerationBenchmarkValidationPlan plan) {
+        return evaluate(plan, "");
+    }
+
+    /** 同时评估工作区事实和最终响应事实。 */
+    public GenerationBenchmarkQualityEvidence evaluate(
+            GenerationBenchmarkValidationPlan plan,
+            String responseText
+    ) {
         if (plan == null || plan.task() == null || plan.workspace() == null) {
             return GenerationBenchmarkQualityEvidence.empty();
         }
@@ -119,8 +143,37 @@ public class GenerationBenchmarkValidationEngine {
                 record("workspace", failed, "error", "error", startedAt);
             }
         }
+        evaluateResponseRules(plan.task(), responseText, results);
         evaluateRuntimeGraders(plan, results);
         return new GenerationBenchmarkQualityEvidence(results);
+    }
+
+    private void evaluateResponseRules(
+            GenerationBenchmarkTask task,
+            String responseText,
+            List<GenerationBenchmarkRuleResult> results
+    ) {
+        for (GenerationBenchmarkResponseRule rule : responseRules) {
+            if (!rule.supports(task)) {
+                continue;
+            }
+            long startedAt = System.nanoTime();
+            try {
+                GenerationBenchmarkRuleResult result = rule.evaluate(task, responseText);
+                if (result == null) {
+                    throw new IllegalStateException("Benchmark 响应评分器未返回结果");
+                }
+                results.add(result);
+                record("response", result, "passed", "failed", startedAt);
+            } catch (RuntimeException failure) {
+                log.warn("Benchmark 响应评分失败，taskId={}, ruleId={}, error={}",
+                        task.id(), rule.id(), LogExceptionSanitizer.sanitizeMessage(failure));
+                GenerationBenchmarkRuleResult failed = GenerationBenchmarkRuleResult.failed(
+                        rule.id(), rule.dimension(), "grader_execution_failed");
+                results.add(failed);
+                record("response", failed, "error", "error", startedAt);
+            }
+        }
     }
 
     private void evaluateRuntimeGraders(

@@ -13,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.GenerationPlanningVariant;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -33,6 +34,7 @@ import reactor.core.publisher.Flux;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -229,7 +231,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                 GenerationBenchmarkRuleResult.passed(
                         "functional", GenerationBenchmarkQualityDimension.FUNCTIONAL)
         ));
-        when(validationEngine.evaluate(any())).thenReturn(evidence);
+        when(validationEngine.evaluate(any(), anyString())).thenReturn(evidence);
 
         GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
                 "edit_quality", "AGENT_EDIT", "vue_project", "edit", "build"
@@ -238,8 +240,50 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         assertTrue(result.qualityEvidence().passed(GenerationBenchmarkQualityDimension.FUNCTIONAL));
         ArgumentCaptor<GenerationBenchmarkValidationPlan> plan =
                 ArgumentCaptor.forClass(GenerationBenchmarkValidationPlan.class);
-        verify(validationEngine).evaluate(plan.capture());
+        verify(validationEngine).evaluate(plan.capture(), anyString());
         assertSame(publishedWorkspace, plan.getValue().workspace());
+    }
+
+    @Test
+    void readOnlyBenchmarkMustGradeResponseWithoutResolvingPublishedWorkspace() {
+        String report = "## 分析结论\n仓库已具备基础页面。\n\n## 文件依据\n- src/App.vue\n\n## 未改动说明\n本次仅分析，未修改任何文件。";
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(generationResult(
+                "bench-read-only", "read_only", Flux.just(GenerationStreamEvent.aiDelta(report))));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        GenerationBenchmarkQualityEvidence evidence = new GenerationBenchmarkQualityEvidence(List.of(
+                GenerationBenchmarkRuleResult.passed(
+                        "read_only_response", GenerationBenchmarkQualityDimension.FUNCTIONAL)
+        ));
+        when(validationEngine.evaluate(any(), eq(report))).thenReturn(evidence);
+
+        GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
+                "repository-explain",
+                "READ_ONLY",
+                "vue_project",
+                "说明当前项目结构",
+                "fast",
+                "repository_explain",
+                GenerationBenchmarkDifficulty.MEDIUM,
+                List.of("repository_context"),
+                List.of(
+                        GenerationBenchmarkQualityDimension.FUNCTIONAL,
+                        GenerationBenchmarkQualityDimension.DIFF_SCOPE,
+                        GenerationBenchmarkQualityDimension.SECURITY
+                ),
+                List.of(),
+                List.of(),
+                "READ_ONLY",
+                List.of("CREATE", "LIGHT_EDIT", "AGENT_EDIT", "HEAVY_EXPERT"),
+                IntentOperationType.EXPLAIN,
+                GenerationBenchmarkFixtureKind.TEMPLATE_PROJECT
+        ));
+
+        assertTrue(result.success());
+        assertEquals("READ_ONLY", result.mode());
+        assertSame(evidence, result.qualityEvidence());
+        verify(validationEngine).evaluate(any(), eq(report));
+        verify(workspaceService, never()).resolvePublished(anyLong(), any(), anyString());
     }
 
     @ParameterizedTest
@@ -470,13 +514,14 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         assertFalse(result.success());
         assertFalse(cleaned.get());
         verify(runtimeLifecycleService).requestCancellation("bench-stuck", "benchmark_timeout");
-        verify(validationEngine, never()).evaluate(any());
+        verify(validationEngine, never()).evaluate(any(), anyString());
     }
 
     private OrchestratedGenerationBenchmarkExecutor executor(GenerationTaskOrchestrator orchestrator) {
         when(fixtureService.create(any())).thenAnswer(invocation -> fixture(invocation.getArgument(0)));
         when(usageRepository.findByTaskId(any())).thenReturn(GenerationBenchmarkUsage.empty());
-        when(validationEngine.evaluate(any())).thenReturn(GenerationBenchmarkQualityEvidence.empty());
+        when(validationEngine.evaluate(any(), anyString()))
+                .thenReturn(GenerationBenchmarkQualityEvidence.empty());
         when(spanQueryService.findByTaskId(anyString(), eq(GenerationSpanQueryService.MAX_LIMIT)))
                 .thenReturn(java.util.List.of());
         when(runtimeLifecycleService.findByTaskId(anyString())).thenAnswer(invocation -> Optional.of(

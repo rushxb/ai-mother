@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
+
 import java.util.List;
 
 /**
@@ -18,7 +20,9 @@ public record GenerationBenchmarkTask(
         List<GenerationBenchmarkFixtureFile> fixtureFiles,
         List<GenerationBenchmarkSourceAssertion> sourceAssertions,
         String expectedRoute,
-        List<String> forbiddenRoutes
+        List<String> forbiddenRoutes,
+        IntentOperationType operation,
+        GenerationBenchmarkFixtureKind fixtureKind
 ) {
 
     public GenerationBenchmarkTask(String id,
@@ -39,7 +43,9 @@ public record GenerationBenchmarkTask(
                 List.of(),
                 List.of(),
                 mode,
-                List.of()
+                List.of(),
+                inferOperation(mode),
+                inferFixtureKind(mode)
         );
     }
 
@@ -50,8 +56,26 @@ public record GenerationBenchmarkTask(
                 : List.copyOf(requiredQualityDimensions);
         fixtureFiles = fixtureFiles == null ? List.of() : List.copyOf(fixtureFiles);
         sourceAssertions = sourceAssertions == null ? List.of() : List.copyOf(sourceAssertions);
-        expectedRoute = expectedRoute == null || expectedRoute.isBlank() ? mode : expectedRoute;
         forbiddenRoutes = forbiddenRoutes == null ? List.of() : List.copyOf(forbiddenRoutes);
+    }
+
+    /** 保留旧调用方构造合同；版本化数据集必须显式声明 operation 与 fixtureKind。 */
+    public GenerationBenchmarkTask(String id,
+                                   String mode,
+                                   String codeGenType,
+                                   String prompt,
+                                   String expectedValidation,
+                                   String scenario,
+                                   GenerationBenchmarkDifficulty difficulty,
+                                   List<String> capabilities,
+                                   List<GenerationBenchmarkQualityDimension> requiredQualityDimensions,
+                                   List<GenerationBenchmarkFixtureFile> fixtureFiles,
+                                   List<GenerationBenchmarkSourceAssertion> sourceAssertions,
+                                   String expectedRoute,
+                                   List<String> forbiddenRoutes) {
+        this(id, mode, codeGenType, prompt, expectedValidation, scenario, difficulty, capabilities,
+                requiredQualityDimensions, fixtureFiles, sourceAssertions, expectedRoute, forbiddenRoutes,
+                inferOperation(mode), inferFixtureKind(mode));
     }
 
     public GenerationBenchmarkTask(String id,
@@ -66,6 +90,19 @@ public record GenerationBenchmarkTask(
                                    List<GenerationBenchmarkFixtureFile> fixtureFiles,
                                    List<GenerationBenchmarkSourceAssertion> sourceAssertions) {
         this(id, mode, codeGenType, prompt, expectedValidation, scenario, difficulty, capabilities,
-                requiredQualityDimensions, fixtureFiles, sourceAssertions, mode, List.of());
+                requiredQualityDimensions, fixtureFiles, sourceAssertions, mode, List.of(),
+                inferOperation(mode), inferFixtureKind(mode));
+    }
+
+    private static IntentOperationType inferOperation(String mode) {
+        return "CREATE".equalsIgnoreCase(mode)
+                ? IntentOperationType.CREATE
+                : IntentOperationType.EDIT;
+    }
+
+    private static GenerationBenchmarkFixtureKind inferFixtureKind(String mode) {
+        return "CREATE".equalsIgnoreCase(mode)
+                ? GenerationBenchmarkFixtureKind.EMPTY_PROJECT
+                : GenerationBenchmarkFixtureKind.TEMPLATE_PROJECT;
     }
 }

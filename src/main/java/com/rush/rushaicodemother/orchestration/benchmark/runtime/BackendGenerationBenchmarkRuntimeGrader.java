@@ -46,6 +46,7 @@ public class BackendGenerationBenchmarkRuntimeGrader implements GenerationBenchm
     public boolean supports(GenerationBenchmarkTask task) {
         return properties.isEnabled()
                 && task != null
+                && !"READ_ONLY".equalsIgnoreCase(task.mode())
                 && CodeGenTypeEnum.getEnumByValue(task.codeGenType())
                 == CodeGenTypeEnum.BACKEND_PROJECT;
     }

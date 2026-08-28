@@ -143,7 +143,7 @@ public class GenerationBenchmarkFixtureService {
     }
 
     private boolean requiresExistingWorkspace(GenerationBenchmarkTask task) {
-        return task.mode() != null && !"CREATE".equalsIgnoreCase(task.mode());
+        return task.fixtureKind() == GenerationBenchmarkFixtureKind.TEMPLATE_PROJECT;
     }
 
     /**

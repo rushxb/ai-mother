@@ -63,6 +63,7 @@ public class FullStackGenerationBenchmarkRuntimeGrader implements GenerationBenc
         return backendProperties.isEnabled()
                 && browserProperties.isEnabled()
                 && task != null
+                && !"READ_ONLY".equalsIgnoreCase(task.mode())
                 && CodeGenTypeEnum.getEnumByValue(task.codeGenType())
                 == CodeGenTypeEnum.FULL_STACK_PROJECT;
     }

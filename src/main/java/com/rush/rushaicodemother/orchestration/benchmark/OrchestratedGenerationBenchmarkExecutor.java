@@ -46,6 +46,8 @@ import java.util.concurrent.atomic.AtomicReference;
 @Slf4j
 public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchmarkExecutor {
 
+    private static final int MAX_CAPTURED_RESPONSE_CHARS = 100_000;
+
     private final GenerationBenchmarkFixtureService fixtureService;
     private final GenerationTaskOrchestrator orchestrator;
     private final GenerationEventPublisher eventPublisher;
@@ -110,6 +112,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         AtomicBoolean buildObserved = new AtomicBoolean(false);
         AtomicBoolean fallback = new AtomicBoolean(false);
         AtomicReference<String> failureReason = new AtomicReference<>("");
+        AtomicReference<String> responseText = new AtomicReference<>("");
         FirstPreviewObservation firstPreviewObservation = new FirstPreviewObservation();
 
         Disposable eventSubscription = null;
@@ -135,7 +138,8 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             if (taskResult.contentFlux() != null) {
                 streamSubscription = taskResult.contentFlux().subscribe(
                         event -> handleStreamEvent(
-                                event, buildObserved, buildPassed, failureReason, firstPreviewObservation),
+                            event, buildObserved, buildPassed, failureReason,
+                            firstPreviewObservation, responseText),
                         error -> {
                             log.warn("Benchmark generation stream failed, benchmarkTaskId: {}, error: {}",
                                     task.id(), LogExceptionSanitizer.sanitizeMessage(error));
@@ -178,13 +182,15 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             boolean success = !timedOut && publicationSucceeded && failureReason.get().isBlank();
             boolean expectedBuildPassed = resolveBuildPassed(
                     task, success, buildObserved.get(), buildPassed.get());
+            String actualMode = resolvedMode(task, telemetry);
             GenerationBenchmarkQualityEvidence qualityEvidence = terminalObserved
-                    ? validationEngine.evaluate(validationPlan(
-                            fixture, taskId, publicationSucceeded))
+                    ? validationEngine.evaluate(
+                            validationPlan(fixture, taskId, publicationSucceeded, actualMode),
+                            responseText.get())
                     : GenerationBenchmarkQualityEvidence.empty();
             return new GenerationBenchmarkRunResult(
                     task.id(),
-                    resolvedMode(task, telemetry),
+                    actualMode,
                     success,
                     expectedBuildPassed,
                     durationMs,
@@ -199,7 +205,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                     firstPreviewLatencyMs,
                     qualityEvidence,
                     task.expectedRoute(),
-                    routeAllowed(task, resolvedMode(task, telemetry)),
+                    routeAllowed(task, actualMode),
                     variant,
                     preparationDurationMs
             );
@@ -302,12 +308,16 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                                    AtomicBoolean buildObserved,
                                    AtomicBoolean buildPassed,
                                    AtomicReference<String> failureReason,
-                                   FirstPreviewObservation firstPreviewObservation) {
+                                   FirstPreviewObservation firstPreviewObservation,
+                                   AtomicReference<String> responseText) {
         if (event == null) {
             return;
         }
         firstPreviewObservation.observe(event);
         Map<String, Object> data = event.getData();
+        if (GenerationStreamEvent.AI_DELTA.equals(event.getType())) {
+            appendBoundedResponse(responseText, event.getText());
+        }
         if (GenerationStreamEvent.BUILD_RESULT.equals(event.getType())) {
             buildObserved.set(true);
             boolean success = boolValue(data == null ? null : data.get("success"));
@@ -404,9 +414,10 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
     private GenerationBenchmarkValidationPlan validationPlan(
             GenerationBenchmarkFixture fixture,
             String taskId,
-            boolean publicationSucceeded) {
+            boolean publicationSucceeded,
+            String actualMode) {
         GenerationBenchmarkValidationPlan plan = fixture.validationPlan();
-        if (!publicationSucceeded) {
+        if (!publicationSucceeded || "READ_ONLY".equalsIgnoreCase(actualMode)) {
             return plan;
         }
         CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(
@@ -417,6 +428,20 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         GenerationWorkspace publishedWorkspace = workspaceService.resolvePublished(
                 fixture.request().app().getId(), codeGenType, taskId);
         return plan.withWorkspace(publishedWorkspace);
+    }
+
+    private void appendBoundedResponse(AtomicReference<String> responseText, String chunk) {
+        if (responseText == null || chunk == null || chunk.isEmpty()) {
+            return;
+        }
+        responseText.updateAndGet(current -> {
+            String existing = current == null ? "" : current;
+            int remaining = MAX_CAPTURED_RESPONSE_CHARS - existing.length();
+            if (remaining <= 0) {
+                return existing;
+            }
+            return existing + chunk.substring(0, Math.min(remaining, chunk.length()));
+        });
     }
 
     /** 关闭{@code Fixture}安全处理并释放资源。 */

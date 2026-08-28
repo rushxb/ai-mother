@@ -7,6 +7,7 @@ import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkValidationRule;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkWorkspaceInspector;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkWorkspaceSnapshot;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import org.springframework.stereotype.Component;
 
@@ -43,7 +44,8 @@ public class EditDiffScopeBenchmarkRule implements GenerationBenchmarkValidation
 
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
-        return task != null && !"CREATE".equalsIgnoreCase(task.mode());
+        return task != null && (task.operation() == IntentOperationType.EDIT
+                || task.operation() == IntentOperationType.REPAIR);
     }
 
     @Override

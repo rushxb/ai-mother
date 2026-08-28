@@ -38,7 +38,7 @@ public class WorkspaceStructuralBenchmarkRule implements GenerationBenchmarkVali
 
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
-        return task != null;
+        return task != null && !"READ_ONLY".equalsIgnoreCase(task.mode());
     }
 
     @Override
@@ -72,9 +72,22 @@ public class WorkspaceStructuralBenchmarkRule implements GenerationBenchmarkVali
             if (files.keySet().stream().noneMatch(path -> path.startsWith("backend/") && path.endsWith(".go"))) {
                 violations.add("backend_source_missing");
             }
+        } else if (type == CodeGenTypeEnum.HTML) {
+            require(files, "index.html", violations, "html_entry_missing");
+        } else if (type == CodeGenTypeEnum.MULTI_FILE
+                && files.keySet().stream().filter(this::isSourceFile).count() < 2) {
+            violations.add("multi_file_sources_insufficient");
         }
         return new GenerationBenchmarkRuleResult(
                 RULE_ID, dimension(), violations.isEmpty(), violations, 0);
+    }
+
+    private boolean isSourceFile(String path) {
+        String normalized = path.toLowerCase(java.util.Locale.ROOT);
+        return normalized.endsWith(".html")
+                || normalized.endsWith(".css")
+                || normalized.endsWith(".js")
+                || normalized.endsWith(".ts");
     }
 
     private void require(Map<String, String> files,

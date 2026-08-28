@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.orchestration.benchmark;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
@@ -21,12 +22,13 @@ import java.util.stream.Collectors;
 @Component
 public class GenerationBenchmarkCatalog {
 
-    private static final String DATASET_RESOURCE = "benchmark/generation-benchmark-dataset-v2.json";
-    private static final int SUPPORTED_SCHEMA_VERSION = 2;
-    private static final int MINIMUM_TASK_COUNT = 32;
+    private static final String DATASET_RESOURCE = "benchmark/generation-benchmark-dataset-v3.json";
+    private static final int SUPPORTED_SCHEMA_VERSION = 3;
+    private static final int MINIMUM_TASK_COUNT = 50;
     private static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9][a-z0-9_-]{0,63}");
     private static final Pattern VERSION_PATTERN = Pattern.compile("[0-9][A-Za-z0-9._-]{0,31}");
-    private static final Set<String> MODES = Set.of("CREATE", "LIGHT_EDIT", "AGENT_EDIT", "HEAVY_EXPERT");
+    private static final Set<String> MODES = Set.of(
+            "CREATE", "READ_ONLY", "LIGHT_EDIT", "AGENT_EDIT", "HEAVY_EXPERT");
     private static final Set<String> VALIDATIONS = Set.of("fast", "build");
     private static final Set<String> SPECIALIZED_FUNCTIONAL_TASK_IDS = Set.of(
             "edit_copy",
@@ -89,7 +91,7 @@ public class GenerationBenchmarkCatalog {
             throw new IllegalStateException("生成质量评测任务标识无效或重复");
         }
         if (!MODES.contains(task.mode())
-                || !MODES.contains(task.expectedRoute())
+                || task.expectedRoute() == null || !MODES.contains(task.expectedRoute())
                 || CodeGenTypeEnum.getEnumByValue(task.codeGenType()) == null
                 || task.prompt() == null || task.prompt().isBlank() || task.prompt().length() > 2_000
                 || !VALIDATIONS.contains(task.expectedValidation())) {
@@ -101,25 +103,37 @@ public class GenerationBenchmarkCatalog {
         }
         if (task.scenario() == null || !ID_PATTERN.matcher(task.scenario()).matches()
                 || task.difficulty() == null
+                || task.operation() == null
+                || task.fixtureKind() == null
                 || task.capabilities().isEmpty() || task.capabilities().size() > 16
                 || task.capabilities().stream().anyMatch(capability -> capability == null
                 || !ID_PATTERN.matcher(capability).matches())
                 || task.capabilities().stream().distinct().count() != task.capabilities().size()) {
             throw new IllegalStateException("生成质量评测任务元数据无效: " + task.id());
         }
+        validateExecutionContract(task);
         CodeGenTypeEnum type = CodeGenTypeEnum.getEnumByValue(task.codeGenType());
-        boolean edit = !"CREATE".equals(task.mode());
-        boolean runtimeCapable = type == CodeGenTypeEnum.VUE_PROJECT
+        boolean readOnly = "READ_ONLY".equals(task.mode());
+        boolean edit = task.operation() == IntentOperationType.EDIT
+                || task.operation() == IntentOperationType.REPAIR;
+        boolean runtimeCapable = !readOnly && (type == CodeGenTypeEnum.VUE_PROJECT
                 || type == CodeGenTypeEnum.BACKEND_PROJECT
-                || type == CodeGenTypeEnum.FULL_STACK_PROJECT;
-        boolean visualCapable = type == CodeGenTypeEnum.VUE_PROJECT
-                || type == CodeGenTypeEnum.FULL_STACK_PROJECT;
+                || type == CodeGenTypeEnum.FULL_STACK_PROJECT);
+        boolean visualCapable = !readOnly && (type == CodeGenTypeEnum.VUE_PROJECT
+                || type == CodeGenTypeEnum.FULL_STACK_PROJECT);
         if (task.requiredQualityDimensions().isEmpty()
                 || task.requiredQualityDimensions().stream().anyMatch(dimension -> dimension == null)
                 || task.requiredQualityDimensions().stream().distinct().count()
                 != task.requiredQualityDimensions().size()
-                || !task.requiredQualityDimensions().contains(GenerationBenchmarkQualityDimension.STRUCTURAL)
                 || !task.requiredQualityDimensions().contains(GenerationBenchmarkQualityDimension.SECURITY)
+                || (!readOnly && !task.requiredQualityDimensions().contains(
+                GenerationBenchmarkQualityDimension.STRUCTURAL))
+                || (readOnly && task.requiredQualityDimensions().contains(
+                GenerationBenchmarkQualityDimension.STRUCTURAL))
+                || (readOnly && !task.requiredQualityDimensions().contains(
+                GenerationBenchmarkQualityDimension.FUNCTIONAL))
+                || (readOnly && !task.requiredQualityDimensions().contains(
+                GenerationBenchmarkQualityDimension.DIFF_SCOPE))
                 || (edit && !task.requiredQualityDimensions().contains(
                 GenerationBenchmarkQualityDimension.FUNCTIONAL))
                 || (edit && !task.requiredQualityDimensions().contains(
@@ -155,9 +169,42 @@ public class GenerationBenchmarkCatalog {
         }
     }
 
+    private void validateExecutionContract(GenerationBenchmarkTask task) {
+        boolean readOnlyOperation = task.operation() == IntentOperationType.EXPLAIN
+                || task.operation() == IntentOperationType.AUDIT
+                || task.operation() == IntentOperationType.PLAN;
+        if (readOnlyOperation != "READ_ONLY".equals(task.mode())
+                || readOnlyOperation != "READ_ONLY".equals(task.expectedRoute())) {
+            throw new IllegalStateException("生成质量评测只读操作与路由合同不一致: " + task.id());
+        }
+        if (task.operation() == IntentOperationType.CREATE
+                && task.fixtureKind() != GenerationBenchmarkFixtureKind.EMPTY_PROJECT) {
+            throw new IllegalStateException("首次创建评测必须使用空项目夹具: " + task.id());
+        }
+        if (task.operation() == IntentOperationType.PLAN
+                && task.fixtureKind() != GenerationBenchmarkFixtureKind.EMPTY_PROJECT) {
+            throw new IllegalStateException("空项目规划评测必须使用空项目夹具: " + task.id());
+        }
+        if ((task.operation() == IntentOperationType.EXPLAIN
+                || task.operation() == IntentOperationType.AUDIT)
+                && task.fixtureKind() != GenerationBenchmarkFixtureKind.TEMPLATE_PROJECT) {
+            throw new IllegalStateException("仓库说明或审计评测必须使用模板项目夹具: " + task.id());
+        }
+        if ((task.operation() == IntentOperationType.EDIT
+                || task.operation() == IntentOperationType.REPAIR)
+                && task.fixtureKind() != GenerationBenchmarkFixtureKind.TEMPLATE_PROJECT) {
+            throw new IllegalStateException("编辑或修复评测必须使用模板项目夹具: " + task.id());
+        }
+    }
+
     private void validateCoverage(List<GenerationBenchmarkTask> tasks) {
         Map<String, Long> modes = count(tasks, GenerationBenchmarkTask::mode);
         Map<String, Long> types = count(tasks, GenerationBenchmarkTask::codeGenType);
+        Map<IntentOperationType, Long> operations = tasks.stream().collect(Collectors.groupingBy(
+                GenerationBenchmarkTask::operation,
+                () -> new EnumMap<>(IntentOperationType.class),
+                Collectors.counting()
+        ));
         Map<GenerationBenchmarkDifficulty, Long> difficulties = tasks.stream().collect(Collectors.groupingBy(
                 GenerationBenchmarkTask::difficulty,
                 () -> new EnumMap<>(GenerationBenchmarkDifficulty.class),
@@ -165,12 +212,18 @@ public class GenerationBenchmarkCatalog {
         ));
         long scenarioCount = tasks.stream().map(GenerationBenchmarkTask::scenario).distinct().count();
         if (modes.getOrDefault("CREATE", 0L) < 10
+                || modes.getOrDefault("READ_ONLY", 0L) < 9
                 || modes.getOrDefault("LIGHT_EDIT", 0L) < 6
                 || modes.getOrDefault("AGENT_EDIT", 0L) < 10
-                || modes.getOrDefault("HEAVY_EXPERT", 0L) < 1
+                || modes.getOrDefault("HEAVY_EXPERT", 0L) < 3
+                || operations.getOrDefault(IntentOperationType.EXPLAIN, 0L) < 3
+                || operations.getOrDefault(IntentOperationType.AUDIT, 0L) < 3
+                || operations.getOrDefault(IntentOperationType.PLAN, 0L) < 3
                 || types.getOrDefault("vue_project", 0L) < 12
                 || types.getOrDefault("backend_project", 0L) < 5
                 || types.getOrDefault("full_stack_project", 0L) < 5
+                || types.getOrDefault("html", 0L) < 3
+                || types.getOrDefault("multi_file", 0L) < 3
                 || difficulties.getOrDefault(GenerationBenchmarkDifficulty.EASY, 0L) < 6
                 || difficulties.getOrDefault(GenerationBenchmarkDifficulty.MEDIUM, 0L) < 10
                 || difficulties.getOrDefault(GenerationBenchmarkDifficulty.HARD, 0L) < 6

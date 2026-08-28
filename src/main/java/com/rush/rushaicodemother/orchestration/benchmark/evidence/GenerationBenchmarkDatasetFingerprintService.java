@@ -37,7 +37,7 @@ public class GenerationBenchmarkDatasetFingerprintService {
         if (dataset == null) {
             throw new IllegalArgumentException("评测数据集不能为空");
         }
-        StringBuilder canonical = new StringBuilder("generation-benchmark-dataset-v2|");
+        StringBuilder canonical = new StringBuilder("generation-benchmark-dataset-v3|");
         ReleaseCandidateFingerprint.appendField(canonical, Integer.toString(dataset.schemaVersion()));
         ReleaseCandidateFingerprint.appendField(canonical, dataset.datasetId());
         ReleaseCandidateFingerprint.appendField(canonical, dataset.version());
@@ -45,7 +45,11 @@ public class GenerationBenchmarkDatasetFingerprintService {
         // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationBenchmarkTask task : dataset.tasks()) {
             ReleaseCandidateFingerprint.appendField(canonical, task.id());
+            ReleaseCandidateFingerprint.appendField(
+                    canonical, task.operation() == null ? null : task.operation().name());
             ReleaseCandidateFingerprint.appendField(canonical, task.mode());
+            ReleaseCandidateFingerprint.appendField(
+                    canonical, task.fixtureKind() == null ? null : task.fixtureKind().name());
             ReleaseCandidateFingerprint.appendField(canonical, task.codeGenType());
             ReleaseCandidateFingerprint.appendField(canonical, task.prompt());
             ReleaseCandidateFingerprint.appendField(canonical, task.expectedValidation());

@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.tool;
 
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
+import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
@@ -31,6 +32,9 @@ import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -119,6 +123,28 @@ class GenerationToolContinuationSchedulerTest {
         order.verify(runtimeLifecycle).activate(FENCE);
         order.verify(heavyCoordinator).resumeAfterToolDecision(
                 fixture.decision(), fixture.state(), fixture.session());
+        assertApprovalEvent(fixture.session(), "approval_approved");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "REJECTED, approval_rejected",
+            "EXPIRED, approval_expired"
+    })
+    void negativeApprovalDecisionMustEmitStableActionableEventBeforeContinuation(
+            ToolApprovalStatus decisionStatus,
+            String publicStatus) {
+        Fixture fixture = fixture();
+        ToolApprovalRecord decision = withStatus(fixture.decision(), decisionStatus);
+        when(checkpointFactory.restore(decision.invocationCheckpoint())).thenReturn(fixture.state());
+        when(executionContexts.getByTaskId("task-1")).thenReturn(Optional.of(fixture.context()));
+        when(sessions.getByTaskId("task-1")).thenReturn(fixture.session());
+        when(fixture.session().executionContext()).thenReturn(fixture.context());
+
+        scheduler.schedule(decision);
+
+        assertApprovalEvent(fixture.session(), publicStatus);
+        verify(heavyCoordinator).resumeAfterToolDecision(decision, fixture.state(), fixture.session());
     }
 
     @Test
@@ -232,6 +258,28 @@ class GenerationToolContinuationSchedulerTest {
                 User.builder().id(7L).build()
         ));
         return new Fixture(decision, state, context, session);
+    }
+
+    private ToolApprovalRecord withStatus(ToolApprovalRecord source, ToolApprovalStatus status) {
+        return new ToolApprovalRecord(
+                source.approvalId(), source.taskId(), source.requestExecutionEpoch(),
+                source.appId(), source.userId(), source.action(), source.requestJson(), status,
+                source.requestedAt(), source.expiresAt(), source.decidedBy(), source.decidedAt(),
+                source.consumedAt(), source.version(), source.invocationCheckpoint(),
+                source.executionStartedAt(), source.executionOutcome(), source.executionAttempt());
+    }
+
+    private void assertApprovalEvent(GenerationSession session, String status) {
+        ArgumentCaptor<GenerationStreamEvent> captor =
+                ArgumentCaptor.forClass(GenerationStreamEvent.class);
+        verify(session).emit(captor.capture());
+        GenerationStreamEvent event = captor.getValue();
+        assertEquals(GenerationStreamEvent.AGENT_EVENT, event.getType());
+        assertEquals("approval", event.getData().get("stage"));
+        assertEquals(status, event.getData().get("status"));
+        assertEquals(
+                "approval:task-1:1:" + "a".repeat(64) + ":" + status,
+                event.getData().get("eventId"));
     }
 
     private record Fixture(ToolApprovalRecord decision,

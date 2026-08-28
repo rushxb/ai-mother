@@ -31,10 +31,11 @@ public record GenerationTaskStatusVO(
         GenerationValidationSummary validationSummary,
         GenerationDeliveryReceipt deliveryReceipt,
         GenerationCostSummary costSummary,
+        GenerationTaskGuidanceVO guidance,
         int contractVersion
 ) {
-    /** 增量字段从版本 2 起可用；旧客户端可继续忽略未知 JSON 字段。 */
-    public static final int CURRENT_CONTRACT_VERSION = 2;
+    /** 可行动指引从版本 3 起可用；旧客户端可继续忽略未知 JSON 字段。 */
+    public static final int CURRENT_CONTRACT_VERSION = 3;
 
     /**
  * 根据输入数据创建当前对象。
@@ -56,6 +57,7 @@ public record GenerationTaskStatusVO(
                 receipt == null ? null : receipt.validationSummary(),
                 receipt,
                 receipt == null ? null : receipt.costSummary(),
+                GenerationTaskGuidanceVO.from(snapshot),
                 CURRENT_CONTRACT_VERSION);
     }
 

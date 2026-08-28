@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.tool;
 
+import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
+import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
@@ -25,16 +27,19 @@ import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import com.rush.rushaicodemother.service.user.UserPersistenceService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
 /** 重新接受决定性批准并恢复确切的持久模型工具调用。 */
 @Service
+@Slf4j
 @RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class GenerationToolContinuationScheduler {
 
@@ -177,7 +182,39 @@ public class GenerationToolContinuationScheduler {
         preparationService.restoreToolExecutionContext(
                 request.app(), state.preparation(), executionFence, executionWorkspace);
         runtimeLifecycleService.activate(executionFence);
+        emitApprovalDecision(session, decision);
         heavyGenerationCoordinator.resumeAfterToolDecision(decision, state, session);
+    }
+
+    /** 发布幂等审批结果事件；事件投递失败不得阻断已持久化决定的恢复执行。 */
+    private void emitApprovalDecision(GenerationSession session, ToolApprovalRecord decision) {
+        String status = switch (decision.status()) {
+            case APPROVED, CONSUMED -> "approval_approved";
+            case REJECTED -> "approval_rejected";
+            case EXPIRED -> "approval_expired";
+            default -> null;
+        };
+        if (status == null) {
+            return;
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("agent", "PermissionPolicy");
+        data.put("stage", "approval");
+        data.put("status", status);
+        data.put("taskId", decision.taskId());
+        data.put("action", decision.action().value());
+        data.put("approvalId", decision.approvalId());
+        data.put("eventId", "approval:" + decision.taskId()
+                + ":" + decision.requestExecutionEpoch()
+                + ":" + decision.approvalId()
+                + ":" + status);
+        try {
+            session.emit(GenerationStreamEvent.agentEvent("", Map.copyOf(data)));
+        } catch (RuntimeException emissionFailure) {
+            log.warn("审批结果事件发布失败，不阻断恢复执行，taskId={}, status={}, error={}",
+                    decision.taskId(), status,
+                    LogExceptionSanitizer.sanitizeMessage(emissionFailure));
+        }
     }
 
     private Void runInExecutionWorkspace(GenerationExecutionFence executionFence,

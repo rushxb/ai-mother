@@ -74,4 +74,21 @@ class GenerationErrorClassifierTest {
         assertFalse(sessionStop.recoverable());
         assertFalse(providerSignal.recoverable());
     }
+
+    @Test
+    void workspaceOutcomeUnknownMustRequireManualReconciliationWithoutBlindRetry() {
+        GenerationErrorClassifier.GenerationError typed = GenerationErrorClassifier.classify(
+                new IllegalStateException("wrapped",
+                        new IllegalStateException("physical outcome unknown")));
+        GenerationErrorClassifier.GenerationError durableReason =
+                GenerationErrorClassifier.classify("rollback_restore_outcome_unknown");
+
+        assertEquals(GenerationErrorClassifier.CATEGORY_WORKSPACE_RESULT_UNKNOWN, typed.category());
+        assertEquals(GenerationErrorClassifier.CATEGORY_WORKSPACE_RESULT_UNKNOWN,
+                durableReason.category());
+        assertEquals("工作区操作结果无法确认，请先刷新并核对当前文件状态；确认前请勿重试或回滚。",
+                typed.message());
+        assertFalse(typed.recoverable());
+        assertFalse(durableReason.recoverable());
+    }
 }

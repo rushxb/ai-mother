@@ -24,6 +24,7 @@ public final class GenerationErrorClassifier {
     public static final String CATEGORY_ROUTING = "routing";
     public static final String CATEGORY_PERMISSION = "permission";
     public static final String CATEGORY_AGENT_LOOP = "agent_loop";
+    public static final String CATEGORY_WORKSPACE_RESULT_UNKNOWN = "workspace_result_unknown";
     public static final String CATEGORY_RUNTIME = "runtime";
 
     private static final String MODEL_QUOTA_MESSAGE =
@@ -39,6 +40,8 @@ public final class GenerationErrorClassifier {
     private static final String ROUTING_MESSAGE = "项目路由验证失败，请检查路由配置后重试。";
     private static final String PERMISSION_MESSAGE = "项目文件访问失败，请检查项目权限后重试。";
     private static final String AGENT_LOOP_MESSAGE = "AI 生成连续重复相同操作且未取得新进展，已提前停止。";
+    private static final String WORKSPACE_RESULT_UNKNOWN_MESSAGE =
+            "工作区操作结果无法确认，请先刷新并核对当前文件状态；确认前请勿重试或回滚。";
     private static final String GENERIC_MESSAGE = "代码生成失败，请稍后重试。";
 
     private GenerationErrorClassifier() {
@@ -53,6 +56,9 @@ public final class GenerationErrorClassifier {
     public static GenerationError classify(Throwable throwable) {
         Throwable current = throwable;
         while (current != null) {
+            if (isWorkspaceResultUnknown(current.getMessage())) {
+                return workspaceResultUnknown();
+            }
             if (current instanceof CancellationException
                     || current instanceof InterruptedException
                     || current instanceof GenerationCancellationSignal) {
@@ -83,6 +89,9 @@ public final class GenerationErrorClassifier {
             return new GenerationError(CATEGORY_UNKNOWN, GENERIC_MESSAGE, true);
         }
         String normalized = errorMessage.toLowerCase(Locale.ROOT);
+        if (isWorkspaceResultUnknown(normalized)) {
+            return workspaceResultUnknown();
+        }
         if (containsAny(normalized,
                 "canceled",
                 "cancelled",
@@ -157,6 +166,29 @@ public final class GenerationErrorClassifier {
             return new GenerationError(CATEGORY_PERMISSION, PERMISSION_MESSAGE, false);
         }
         return new GenerationError(CATEGORY_RUNTIME, GENERIC_MESSAGE, true);
+    }
+
+    /** 工作区交换或回滚结果未知时必须由人工核对，不得进入自动重试。 */
+    private static boolean isWorkspaceResultUnknown(String message) {
+        if (StrUtil.isBlank(message)) {
+            return false;
+        }
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return containsAny(normalized,
+                "workspace_result_unknown",
+                "replace_outcome_unknown",
+                "rollback_restore_outcome_unknown",
+                "physical outcome unknown",
+                "工作区目录交换后无法确认",
+                "回滚结果无法确认",
+                "工作区操作结果未知");
+    }
+
+    private static GenerationError workspaceResultUnknown() {
+        return new GenerationError(
+                CATEGORY_WORKSPACE_RESULT_UNKNOWN,
+                WORKSPACE_RESULT_UNKNOWN_MESSAGE,
+                false);
     }
 
     /** 返回{@code contains}{@code Any}。 */

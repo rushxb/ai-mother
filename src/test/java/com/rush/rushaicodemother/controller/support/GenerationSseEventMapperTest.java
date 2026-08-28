@@ -219,6 +219,7 @@ class GenerationSseEventMapperTest {
                                 "taskId", "task-1",
                                 "action", "delete_file",
                                 "approvalId", "approval-1",
+                                "eventId", "approval:task-1:1:approval-1:approval_required",
                                 "reason", "private-policy"
                         ))
                 ))
@@ -229,8 +230,9 @@ class GenerationSseEventMapperTest {
         String payload = mapped.getFirst().data();
         assertEquals(GenerationStreamEvent.AGENT_EVENT, mapped.getFirst().event());
         assertTrue(payload.contains("操作确认"));
-        assertTrue(payload.contains("需要你确认"));
+        assertTrue(payload.contains("请批准或拒绝本次操作"));
         assertTrue(payload.contains("approval-1"));
+        assertTrue(payload.contains("approval:task-1:1:approval-1:approval_required"));
         assertFalse(payload.contains("PermissionPolicy"));
         assertFalse(payload.contains("private-policy"));
     }

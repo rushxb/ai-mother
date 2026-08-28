@@ -31,7 +31,7 @@ public class GenerationExperienceEventMapper {
     private static final Map<String, UserProgressStage> INTERNAL_STAGE_MAPPINGS =
             internalStageMappings();
     private static final Set<String> APPROVAL_PUBLIC_FIELDS = Set.of(
-            "taskId", "action", "approvalId", "request", "oneTime", "expiresAt"
+            "taskId", "action", "approvalId", "request", "oneTime", "expiresAt", "eventId"
     );
 
     /** 将可观察性领域事件转换成面向用户的阶段；无用户语义的事件不会公开。 */
@@ -122,23 +122,26 @@ public class GenerationExperienceEventMapper {
         data.put("agent", "操作确认");
         data.put("stage", "approval");
         data.put("status", status.isBlank() ? "running" : status);
-        data.put("summary", approvalSummary(status));
+        String message = approvalSummary(status);
+        data.put("summary", message);
         data.put(USER_PROGRESS_STAGE_FIELD, progressStage.getCode());
-        data.put(USER_PROGRESS_MESSAGE_FIELD, progressStage.getDefaultMessage());
+        data.put(USER_PROGRESS_MESSAGE_FIELD, message);
         for (String field : APPROVAL_PUBLIC_FIELDS) {
             Object value = source.get(field);
             if (value != null) {
                 data.put(field, value);
             }
         }
-        return GenerationStreamEvent.agentEvent("", Map.copyOf(data));
+        return GenerationStreamEvent.agentEvent(message, Map.copyOf(data));
     }
 
     private String approvalSummary(String status) {
         return switch (status) {
-            case "approval_required", "waiting_approval" -> "此操作需要你确认后才能继续";
-            case "approval_rejected" -> "你已拒绝本次操作";
-            case "approval_approved" -> "你已确认，正在继续处理";
+            case "approval_required", "waiting_approval" ->
+                    "请批准或拒绝本次操作；如不再继续，也可以取消任务";
+            case "approval_rejected" -> "你已拒绝本次操作，系统不会执行它，并将尝试安全方案";
+            case "approval_approved" -> "你已批准本次操作，系统正在继续执行";
+            case "approval_expired" -> "审批已过期，系统不会执行该操作，并将尝试安全方案";
             default -> "正在处理操作确认";
         };
     }

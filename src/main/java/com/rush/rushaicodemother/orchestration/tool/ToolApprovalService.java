@@ -198,19 +198,6 @@ public class ToolApprovalService {
                 throw unavailableApproval();
             }
         }
-        GenerationSession session = sessionRegistry.getByTaskId(taskId);
-        if (session != null) {
-            session.emit(GenerationStreamEvent.agentEvent("", Map.of(
-                    "agent", "PermissionPolicy",
-                    "stage", "approval",
-                    "status", "approval_rejected",
-                    "summary", "The project owner rejected the destructive tool action",
-                    "taskId", taskId,
-                    "action", action.value(),
-                    "approvalId", approvalId,
-                    "rejectedBy", rejectedBy
-            )));
-        }
         return requireDecision(taskId, requestExecutionEpoch, action, approvalId,
                 ToolApprovalStatus.REJECTED, rejectedBy);
     }

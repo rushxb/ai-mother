@@ -210,10 +210,15 @@ class GenerationTaskControllerTest {
 
         mockMvc.perform(get("/generation/tasks/task-api-1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.contractVersion").value(2))
+                .andExpect(jsonPath("$.data.contractVersion")
+                        .value(GenerationTaskStatusVO.CURRENT_CONTRACT_VERSION))
                 .andExpect(jsonPath("$.data.failureCategory").value("model_timeout"))
                 .andExpect(jsonPath("$.data.retryable").value(true))
                 .andExpect(jsonPath("$.data.recoveryAction").value("retry"))
+                .andExpect(jsonPath("$.data.guidance.code").value("model_timeout"))
+                .andExpect(jsonPath("$.data.guidance.message")
+                        .value("模型响应超时，可重试或缩小本次生成范围"))
+                .andExpect(jsonPath("$.data.guidance.action").value("retry"))
                 .andExpect(jsonPath("$.data.validationSummary.status").value("incomplete"))
                 .andExpect(jsonPath("$.data.deliveryReceipt.schemaVersion").value(1))
                 .andExpect(jsonPath("$.data.costSummary.settlementStatus").value("pending"));

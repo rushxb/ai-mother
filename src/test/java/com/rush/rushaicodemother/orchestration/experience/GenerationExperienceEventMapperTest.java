@@ -132,18 +132,37 @@ class GenerationExperienceEventMapperTest {
                 "taskId", "task-1",
                 "action", "delete_file",
                 "approvalId", "approval-1",
+                "eventId", "approval:task-1:1:approval-1:approval_required",
                 "reason", "internal_policy",
                 "remainingMs", 20_000
         ))).orElseThrow();
 
         assertEquals(GenerationStreamEvent.AGENT_EVENT, event.getType());
         assertEquals("操作确认", event.getData().get("agent"));
-        assertEquals("需要你确认", event.getData().get("userProgressMessage"));
+        assertEquals("请批准或拒绝本次操作；如不再继续，也可以取消任务",
+                event.getData().get("userProgressMessage"));
         assertEquals("awaiting_approval", event.getData().get("userProgressStage"));
-        assertEquals("此操作需要你确认后才能继续", event.getData().get("summary"));
+        assertEquals("请批准或拒绝本次操作；如不再继续，也可以取消任务",
+                event.getData().get("summary"));
+        assertEquals(event.getData().get("summary"), event.getText());
         assertEquals("task-1", event.getData().get("taskId"));
+        assertEquals("approval:task-1:1:approval-1:approval_required",
+                event.getData().get("eventId"));
         assertFalse(event.getData().containsKey("reason"));
         assertFalse(event.getData().containsKey("remainingMs"));
+    }
+
+    @Test
+    void approvalDecisionsMustExposeActionableChineseOutcomeMessages() {
+        assertApprovalDecision(
+                "approval_approved",
+                "你已批准本次操作，系统正在继续执行");
+        assertApprovalDecision(
+                "approval_rejected",
+                "你已拒绝本次操作，系统不会执行它，并将尝试安全方案");
+        assertApprovalDecision(
+                "approval_expired",
+                "审批已过期，系统不会执行该操作，并将尝试安全方案");
     }
 
     @Test
@@ -160,5 +179,24 @@ class GenerationExperienceEventMapperTest {
         assertTrue(mapper.isUserProgressEvent(event));
         assertEquals(expectedStage.getCode(), mapper.userProgressStageCode(event));
         assertEquals(expectedStage.getDefaultMessage(), event.getText());
+    }
+
+    private void assertApprovalDecision(String status, String expectedMessage) {
+        GenerationStreamEvent event = mapper.map(GenerationStreamEvent.agentEvent("internal", Map.of(
+                "agent", "PermissionPolicy",
+                "stage", "approval",
+                "status", status,
+                "taskId", "task-1",
+                "action", "delete_file",
+                "approvalId", "approval-1",
+                "eventId", "approval:task-1:1:approval-1:" + status,
+                "decidedBy", "private"
+        ))).orElseThrow();
+
+        assertEquals(expectedMessage, event.getText());
+        assertEquals(expectedMessage, event.getData().get("summary"));
+        assertEquals(expectedMessage, event.getData().get("userProgressMessage"));
+        assertEquals("implementing", event.getData().get("userProgressStage"));
+        assertFalse(event.getData().containsKey("decidedBy"));
     }
 }

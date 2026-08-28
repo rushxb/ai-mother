@@ -16,10 +16,11 @@ final class GenerationFailureRecoveryAdvisor {
             return new Advice(null, false, "none", "可查看或继续编辑已交付项目");
         }
         if (status == GenerationTaskStatus.CANCELLED) {
-            return new Advice("cancelled", true, "resubmit", "如仍需生成，可重新提交任务");
+            return new Advice("cancelled", true, "resubmit", "任务已取消；如仍需生成，请重新提交任务");
         }
         if (status == GenerationTaskStatus.DEADLINE_EXCEEDED) {
-            return new Advice("deadline_exceeded", true, "retry", "可稍后重试，或缩小本次生成范围");
+            return new Advice("deadline_exceeded", true, "retry",
+                    "任务超过截止时间；可稍后重试或缩小本次生成范围");
         }
 
         String category = normalizeCategory(observedCategory);
@@ -28,8 +29,17 @@ final class GenerationFailureRecoveryAdvisor {
                     new Advice(category, false, "check_model_account", "请检查模型账户额度后再提交");
             case GenerationErrorClassifier.CATEGORY_MODEL_AUTH ->
                     new Advice(category, false, "contact_admin", "请联系管理员检查模型认证配置");
+            case GenerationErrorClassifier.CATEGORY_MODEL_RATE_LIMIT ->
+                    new Advice(category, true, "retry_later", "模型请求过于频繁，请稍后重新提交任务");
+            case GenerationErrorClassifier.CATEGORY_MODEL_TIMEOUT ->
+                    new Advice(category, true, "retry", "模型响应超时，可重试或缩小本次生成范围");
+            case GenerationErrorClassifier.CATEGORY_MODEL_UNAVAILABLE ->
+                    new Advice(category, true, "retry_later", "模型服务暂时不可用，请稍后重新提交任务");
             case GenerationErrorClassifier.CATEGORY_PERMISSION ->
                     new Advice(category, false, "check_permissions", "请检查项目目录权限后再提交");
+            case GenerationErrorClassifier.CATEGORY_WORKSPACE_RESULT_UNKNOWN ->
+                    new Advice(category, false, "reconcile_workspace",
+                            "请刷新并核对当前文件与保留目录；确认实际结果前请勿重试或回滚");
             case GenerationErrorClassifier.CATEGORY_AGENT_LOOP ->
                     new Advice(category, false, "refine_request", "请明确或缩小需求后重新提交");
             case GenerationErrorClassifier.CATEGORY_BUILD ->

@@ -79,4 +79,60 @@ class GenerationDeliveryReceiptFactoryTest {
         assertEquals("not_observed", receipt.validationSummary().status());
         assertEquals("not_observed", receipt.validationSummary().highestLevel());
     }
+
+    @Test
+    void providerTemporaryFailuresMustExposeSpecificRetryActions() {
+        GenerationDeliveryReceipt rateLimited = failedReceipt("model_rate_limit");
+        GenerationDeliveryReceipt timedOut = failedReceipt("model_timeout");
+        GenerationDeliveryReceipt unavailable = failedReceipt("model_unavailable");
+
+        assertEquals("retry_later", rateLimited.recoveryAction());
+        assertEquals("模型请求过于频繁，请稍后重新提交任务", rateLimited.nextStep());
+        assertEquals("retry", timedOut.recoveryAction());
+        assertEquals("模型响应超时，可重试或缩小本次生成范围", timedOut.nextStep());
+        assertEquals("retry_later", unavailable.recoveryAction());
+        assertEquals("模型服务暂时不可用，请稍后重新提交任务", unavailable.nextStep());
+        assertTrue(rateLimited.retryable());
+        assertTrue(timedOut.retryable());
+        assertTrue(unavailable.retryable());
+    }
+
+    @Test
+    void workspaceUnknownFailureMustForbidAutomaticRetryAndGiveReconciliationAction() {
+        GenerationDeliveryReceipt receipt = failedReceipt("workspace_result_unknown");
+
+        assertFalse(receipt.retryable());
+        assertEquals("reconcile_workspace", receipt.recoveryAction());
+        assertEquals("请刷新并核对当前文件与保留目录；确认实际结果前请勿重试或回滚",
+                receipt.nextStep());
+    }
+
+    @Test
+    void cancellationAndDeadlineMustExposeDifferentRecoveryGuidance() {
+        GenerationDeliveryReceipt cancelled = terminalReceipt(GenerationTaskStatus.CANCELLED);
+        GenerationDeliveryReceipt deadline = terminalReceipt(GenerationTaskStatus.DEADLINE_EXCEEDED);
+
+        assertEquals("resubmit", cancelled.recoveryAction());
+        assertEquals("任务已取消；如仍需生成，请重新提交任务", cancelled.nextStep());
+        assertEquals("retry", deadline.recoveryAction());
+        assertEquals("任务超过截止时间；可稍后重试或缩小本次生成范围", deadline.nextStep());
+    }
+
+    private GenerationDeliveryReceipt failedReceipt(String category) {
+        return GenerationDeliveryReceiptFactory.fromTerminal(
+                "agent_edit",
+                GenerationTaskStatus.FAILED,
+                GenerationCompletionEvidenceSet.empty(),
+                GenerationOutcomeQuality.ofFailure(category, 0, 0, null)
+        );
+    }
+
+    private GenerationDeliveryReceipt terminalReceipt(GenerationTaskStatus status) {
+        return GenerationDeliveryReceiptFactory.fromTerminal(
+                "agent_edit",
+                status,
+                GenerationCompletionEvidenceSet.empty(),
+                GenerationOutcomeQuality.empty()
+        );
+    }
 }

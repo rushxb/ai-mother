@@ -165,7 +165,7 @@
 | 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt | 缺 kill/DB/Redis/磁盘/移动窗口故障矩阵；刷新后终态仍过度泛化 |
 | 快照/回滚 | ✅ P0 代码闭环 / 🟡 跨平台补证 | UUID 自包含 bundle、Manifest/provenance/tree hash、v2 制品、统一消费者与恢复前 fail-closed | 当前 Windows 有 3 项 symlink 测试因权限跳过，仍需支持环境补证与完整故障矩阵 |
 | 成本/容量 | ✅ E1-E2 / 🟡 E3-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算 | 用户看不到预计上限、实际扣费和退还；缺跨实例公平压测和租户管理员视图 |
-| Benchmark/学习 | ✅ 基础 / 🟡 E4-E5 | Dataset、Runtime Grader、Evidence Provenance、Release Gate、Outcome Promotion、Planning Ablation | 当前 33 条数据仅覆盖 Vue/Backend/Full Stack，无 READ_ONLY，HEAVY 仅 1 条，32 条无显式 expectedRoute |
+| Benchmark/学习 | 🚧 E2 / 🟡 E3-E5 | v3 Dataset 已扩充为 50 条，覆盖五路 route、READ_ONLY 三种操作及 HTML/MULTI_FILE；operation、fixture 与 expectedRoute 均显式入指纹 | 尚缺高风险中文变体、完整故障样本、真实模型/浏览器/Backend/Full Stack 基线与线上关联 |
 | 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
 | 安全/应用治理 | ✅ 基础 / 🟡 E3-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界 | 需端到端 RBAC/所有权矩阵、威胁模型、审计事件、租户/应用控制面和真实攻防验收 |
 
@@ -212,7 +212,7 @@
 | P0-2 | Observed Validation Evidence + Fallback Attribution | ✅ | 已完成观察证据、完成门禁和 effective request 归因 | `e31082e`、`fc86efc`；进入故障注入与真实成本验收 |
 | P0-3 | Capability Negotiation 单一事实源 | ✅ | 已删除重复 Catalog，并从 Registry 协商可执行 route | `1abd79b`；不支持组合在模型调用与计费前拒绝 |
 | P0-4 | Snapshot Provenance 与恢复身份 | ✅ 代码 / 🟡 跨平台证据 | 已完成 UUID bundle、Manifest、v2 制品、树摘要与全部消费者迁移 | `c338e14`、`2874c2e`、`3ace480`；尚缺支持 symlink 的环境补证和完整故障矩阵 |
-| P0-5 | 真实交付基线与故障矩阵 | ⬜ | 没有 E3-E5 数据就无法判断继续重构、路由学习或增加 Agent 是否有收益 | 核心场景 Benchmark、真实浏览器/Backend、故障注入、成本与终态体验形成首份可重复基线 |
+| P0-5 | 真实交付基线与故障矩阵 | 🚧 E2 | 能力矩阵和只读评分合同已建立；没有 E3-E5 数据仍无法判断路由或 Agent 改造收益 | 继续补齐高风险变体、故障注入，再运行真实模型/浏览器/Backend/Full Stack 基线 |
 
 ### 7.1 并行与文件边界
 
@@ -387,7 +387,7 @@
 - [x] ✅ Benchmark Evidence 绑定候选身份、模型/Prompt/数据集指纹并支持 provenance 校验。
 - [x] ✅ 策略晋级已纳入结果质量、尾延迟和单位成功成本。
 - [x] ✅ NO_PLAN/COMPACT_PLAN/CURRENT_DAG 消融基础设施已存在。
-- [ ] **P0** 扩充能力矩阵数据：CREATE、READ_ONLY、LIGHT、AGENT、HEAVY，以及 HTML/MULTI_FILE 的支持或拒绝合同。
+- [x] ✅ E2 **P0** 扩充能力矩阵数据：CREATE、READ_ONLY、LIGHT、AGENT、HEAVY，以及 HTML/MULTI_FILE 的支持合同。
 - [ ] 每个受支持矩阵单元至少 3 个确定性 Fixture；高风险路由至少 10 个中文表达变体与负例。
 - [ ] 补齐空项目 PLAN、仓库 AUDIT、提示注入、秘密文件、跨类型升级、部分读取、Fallback、取消、审批、恢复和发布故障样本。
 - [ ] 运行真实模型、真实浏览器、Backend/Full Stack，并保留候选、数据、环境和报告身份；Mock 结果不进入晋级。
@@ -489,6 +489,14 @@
 - 当前 Windows 环境有 3 项快照 symlink 测试因权限跳过；P0-4 的跨平台 E3 证据仍未完成，不能把代码测试写成真实文件系统验收。
 - 未恢复或修改已暂存删除的旧蓝图；未提交 SQL、Execution preview、Execution workspace 等所有权未核清的并行 WIP。
 
+### 11.2 P0-5 能力矩阵交付证据
+
+- 2026-08-28 提交 `783e5dd`：v3 Dataset 从 33 条扩充为 50 条，route 分布为 CREATE 12、READ_ONLY 9、LIGHT_EDIT 8、AGENT_EDIT 12、HEAVY_EXPERT 9。
+- READ_ONLY 对 EXPLAIN、AUDIT、空项目 PLAN 各提供 3 条确定性样本；HTML 与 MULTI_FILE 各提供 3 条 HEAVY 首次生成支持合同。
+- 只读 Benchmark 独立评估最终响应合同与执行前后工作区摘要；成功终态不解析发布目录，也不运行 Runtime/Visual Grader。
+- 使用 JDK 21 执行整个 `orchestration/benchmark` 测试包：169 tests、0 failure、0 error、0 skipped；该结果仅属于 E2，未运行真实模型、真实浏览器或容器故障基线。
+- 本轮未调整 Prompt、模型池、规划 DAG 或路由阈值；历史 `buildPassRate` 字段仍是兼容报告口径，READ_ONLY 的有效性由 FUNCTIONAL/DIFF_SCOPE/SECURITY 证据评估，不表示执行了构建。
+
 ## 12. 推荐执行顺序
 
 ### 第一阶段：事实正确性
@@ -569,4 +577,4 @@
 
 ---
 
-最后更新：2026-08-27。下一轮从 P0-5 开始，先冻结真实交付基线与故障矩阵环境，再执行 E3-E5 验收。
+最后更新：2026-08-28。下一轮继续 P0-5，先补齐高风险中文变体与发布/终态/快照/计费故障矩阵，再执行 E3-E5 验收。

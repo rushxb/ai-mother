@@ -1,11 +1,13 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemTestFactory;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -57,6 +59,7 @@ class GenerationSnapshotWorkspaceServiceTest {
     }
 
     @Test
+    @Tag(GenerationFailureMatrix.TAG)
     void snapshotFromFrontendScopeMustNotRestoreIntoBackendScope() throws Exception {
         GenerationSnapshotWorkspaceService service = service(tempDirectory.resolve("code_snapshot"));
         Path frontend = Files.createDirectories(tempDirectory.resolve("workspace/frontend"));
@@ -94,6 +97,7 @@ class GenerationSnapshotWorkspaceServiceTest {
     }
 
     @Test
+    @Tag(GenerationFailureMatrix.TAG)
     void tamperedPayloadMustFailBeforeTargetDirectoryMoves() throws Exception {
         GenerationSnapshotWorkspaceService service = service(tempDirectory.resolve("code_snapshot"));
         Path source = Files.createDirectories(tempDirectory.resolve("workspace/source"));
@@ -115,6 +119,7 @@ class GenerationSnapshotWorkspaceServiceTest {
     }
 
     @Test
+    @Tag(GenerationFailureMatrix.TAG)
     void crossApplicationTypeTaskAndEpochSelectorsMustNeverMoveTarget() throws Exception {
         GenerationSnapshotWorkspaceService service = service(tempDirectory.resolve("code_snapshot"));
         Path source = Files.createDirectories(tempDirectory.resolve("workspace/source"));
@@ -157,6 +162,7 @@ class GenerationSnapshotWorkspaceServiceTest {
     }
 
     @Test
+    @Tag(GenerationFailureMatrix.TAG)
     void malformedManifestMustFailClosed() throws Exception {
         GenerationSnapshotWorkspaceService service = service(tempDirectory.resolve("code_snapshot"));
         Path source = Files.createDirectories(tempDirectory.resolve("workspace/source"));

@@ -110,6 +110,25 @@ class FlywaySchemaMigrationIntegrationTest {
                     SELECT COUNT(*)
                     FROM information_schema.tables
                     WHERE table_schema = DATABASE()
+                      AND table_name = 'ai_prompt_canary_assessment'
+                    """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(*)
+                    FROM information_schema.columns
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'ai_prompt_canary_assessment'
+                      AND column_name = 'evidenceHash'
+                      AND character_maximum_length = 64
+                    """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(*)
+                    FROM flyway_schema_history
+                    WHERE version = '20260828.7' AND success = 1
+                    """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(*)
+                    FROM information_schema.tables
+                    WHERE table_schema = DATABASE()
                       AND table_name = 'ai_prompt_release'
                     """));
             assertEquals(1, scalar(connection, """

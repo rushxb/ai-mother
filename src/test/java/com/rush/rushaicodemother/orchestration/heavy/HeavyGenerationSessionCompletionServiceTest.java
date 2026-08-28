@@ -114,6 +114,8 @@ class HeavyGenerationSessionCompletionServiceTest {
                         && command.appId().equals(1L)
                         && command.status() == GenerationTaskStatus.SUCCESS
                         && command.reason() == null
+                        && command.deliveryReceipt() != null
+                        && "heavy_generation".equals(command.deliveryReceipt().actualRoute())
                         && command.memorySummary() != null));
         verifyNoInteractions(semanticMemoryService);
     }
@@ -136,6 +138,8 @@ class HeavyGenerationSessionCompletionServiceTest {
                         && command.appId().equals(1L)
                         && command.status() == GenerationTaskStatus.FAILED
                         && command.reason().equals("failed")
+                        && command.deliveryReceipt() != null
+                        && "unknown".equals(command.deliveryReceipt().failureCategory())
                         && command.memorySummary() != null));
         verifyNoInteractions(terminalIntentService);
     }

@@ -11,6 +11,9 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
 import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEvent;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionSnapshot;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
@@ -19,6 +22,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationT
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationTaskProgressEstimator;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
+import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -222,6 +226,31 @@ class GenerationTaskQueryServiceDurableFallbackTest {
         assertEquals("success", events.getFirst().getData().get("status"));
         assertEquals("task-durable:success:durable-terminal",
                 events.getFirst().getData().get("eventId"));
+    }
+
+    @Test
+    void statusAndDurableTerminalEventMustExposeTheSameDeliveryReceipt() {
+        GenerationDeliveryReceipt receipt = GenerationDeliveryReceiptFactory.fromTerminal(
+                "heavy_generation", GenerationTaskStatus.FAILED,
+                GenerationCompletionEvidenceSet.empty(),
+                GenerationOutcomeQuality.ofFailure("model_timeout", 2, 1, 900L));
+        DurableGenerationTaskRecord record = new DurableGenerationTaskRecord(
+                "task-durable", 1L, 2L, 100L, "heavy_generation",
+                GenerationTaskStatus.FAILED, "completed", null,
+                SUBMITTED_AT, SUBMITTED_AT.plusSeconds(1_200), false, null,
+                null, null, SUBMITTED_AT, 3L, 1, 4L,
+                SUBMITTED_AT.plusSeconds(30), "internal failure", receipt);
+        when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(record));
+
+        GenerationTaskSnapshot snapshot = service.get("task-durable", user(2L));
+        GenerationStreamEvent event = service.events("task-durable", user(2L))
+                .blockFirst(Duration.ofSeconds(1));
+
+        assertEquals(receipt, snapshot.deliveryReceipt());
+        assertEquals("heavy_generation", ((java.util.Map<?, ?>)
+                event.getData().get("deliveryReceipt")).get("actualRoute"));
+        assertEquals("model_timeout", event.getData().get("failureCategory"));
+        assertEquals("retry", event.getData().get("recoveryAction"));
     }
 
     @Test

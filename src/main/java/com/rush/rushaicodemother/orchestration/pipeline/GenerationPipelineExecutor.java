@@ -13,11 +13,13 @@ import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionPolicy;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.intent.IntentClarificationStage;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationDeferredException;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
@@ -254,7 +256,9 @@ public class GenerationPipelineExecutor {
                 status,
                 outcome.reason(),
                 outcome.resultSummary(),
-                outcomeQuality
+                outcomeQuality,
+                GenerationDeliveryReceiptFactory.fromTerminal(
+                        outcome.route(), status, outcome.completionEvidence(), outcomeQuality)
         );
         if (status == GenerationTaskStatus.SUCCESS) {
             session.throwIfCancelled();
@@ -325,7 +329,10 @@ public class GenerationPipelineExecutor {
                 outcome.taskStatus(),
                 terminalReason,
                 resultSummary,
-                outcomeQuality
+                outcomeQuality,
+                GenerationDeliveryReceiptFactory.fromTerminal(
+                        request.modeDecision().route(), outcome.taskStatus(),
+                        GenerationCompletionEvidenceSet.empty(), outcomeQuality)
         ));
         if (outcome == GenerationTerminalOutcome.CANCELLED) {
             session.emitStopped();

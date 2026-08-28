@@ -11,6 +11,8 @@ import com.rush.rushaicodemother.orchestration.artifact.DiffSummary;
 import com.rush.rushaicodemother.orchestration.artifact.GenerationArtifact;
 import com.rush.rushaicodemother.orchestration.artifact.PatchResult;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.attempt.completion.HeavyGenerationCompletionEvidenceFactory;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalIntentService;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
@@ -67,7 +69,11 @@ public class HeavyGenerationSessionCompletionService {
                 outcome.taskStatus(),
                 outcome == GenerationTerminalOutcome.SUCCESS ? null : outcome.status(),
                 memorySummary,
-                outcomeQuality
+                outcomeQuality,
+                GenerationDeliveryReceiptFactory.fromTerminal(
+                        "heavy_generation", outcome.taskStatus(),
+                        HeavyGenerationCompletionEvidenceFactory.collect(preparation, session),
+                        outcomeQuality)
         );
         GenerationFinalizationCommand finalizationCommand = command;
         if (outcome == GenerationTerminalOutcome.SUCCESS) {
@@ -82,13 +88,20 @@ public class HeavyGenerationSessionCompletionService {
     public GenerationFinalizationCommand publishedSuccessCommand(Long appId,
                                                                  GenerationSession session,
                                                                  GenerationPreparation preparation) {
+        GenerationOutcomeQuality outcomeQuality = resolveOutcomeQuality(
+                appId, preparation, session, GenerationTerminalOutcome.SUCCESS);
         GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
                 preparation.taskId(), appId,
                 session.executionContext() == null ? null : session.executionContext().executionFence(),
                 com.rush.rushaicodemother.model.enums.GenerationTaskStatus.SUCCESS,
                 null,
                 buildMemorySummary(appId, preparation, GenerationTerminalOutcome.SUCCESS.status()),
-                resolveOutcomeQuality(appId, preparation, session, GenerationTerminalOutcome.SUCCESS));
+                outcomeQuality,
+                GenerationDeliveryReceiptFactory.fromTerminal(
+                        "heavy_generation",
+                        com.rush.rushaicodemother.model.enums.GenerationTaskStatus.SUCCESS,
+                        HeavyGenerationCompletionEvidenceFactory.collect(preparation, session),
+                        outcomeQuality));
         return command;
     }
 

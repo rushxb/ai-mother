@@ -59,7 +59,10 @@ class GenerationTerminalEffectServiceTest {
                 org.mockito.ArgumentMatchers.argThat(event ->
                         com.rush.rushaicodemother.core.handler.GenerationStreamEvent.TASK_TERMINAL
                                 .equals(event.getType())
-                                && "success".equals(event.getData().get("status"))));
+                                && "success".equals(event.getData().get("status"))
+                                && event.getData().get("deliveryReceipt")
+                                instanceof java.util.Map<?, ?> receipt
+                                && "heavy_generation".equals(receipt.get("actualRoute"))));
         verify(preview).stopForTerminal(11L, fence);
         verify(workspace).clear(fence, 11L, GenerationExecutionWorkspaceService.CleanupPolicy.DELETE);
         verify(repository).markCompleted("task-1", 7L, "worker-test", NOW);

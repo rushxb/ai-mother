@@ -2,6 +2,9 @@ package com.rush.rushaicodemother.model.vo;
 
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSnapshot;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostSummary;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationValidationSummary;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -21,8 +24,18 @@ public record GenerationTaskStatusVO(
         String cancellationReason,
         Map<String, Integer> usages,
         Map<String, Integer> limits,
-        GenerationTaskProgressVO progress
+        GenerationTaskProgressVO progress,
+        String failureCategory,
+        Boolean retryable,
+        String recoveryAction,
+        GenerationValidationSummary validationSummary,
+        GenerationDeliveryReceipt deliveryReceipt,
+        GenerationCostSummary costSummary,
+        int contractVersion
 ) {
+    /** 增量字段从版本 2 起可用；旧客户端可继续忽略未知 JSON 字段。 */
+    public static final int CURRENT_CONTRACT_VERSION = 2;
+
     /**
  * 根据输入数据创建当前对象。
  *
@@ -30,12 +43,20 @@ public record GenerationTaskStatusVO(
  * @return 生成任务状态视图对象
  */
     public static GenerationTaskStatusVO from(GenerationTaskSnapshot snapshot) {
+        GenerationDeliveryReceipt receipt = snapshot.deliveryReceipt();
         return new GenerationTaskStatusVO(
                 snapshot.taskId(), snapshot.appId(), snapshot.route(), snapshot.status(),
                 snapshot.stage(), snapshot.stageMessage(), snapshot.submittedAt(), snapshot.deadlineAt(),
                 snapshot.cancellationRequested(), snapshot.cancellationReason(),
                 stringifyKeys(snapshot.usages()), stringifyKeys(snapshot.limits()),
-                GenerationTaskProgressVO.from(snapshot.progress()));
+                GenerationTaskProgressVO.from(snapshot.progress()),
+                receipt == null ? null : receipt.failureCategory(),
+                receipt == null ? null : receipt.retryable(),
+                receipt == null ? null : receipt.recoveryAction(),
+                receipt == null ? null : receipt.validationSummary(),
+                receipt,
+                receipt == null ? null : receipt.costSummary(),
+                CURRENT_CONTRACT_VERSION);
     }
 
     private static Map<String, Integer> stringifyKeys(Map<GenerationBudgetKind, Integer> source) {

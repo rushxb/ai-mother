@@ -10,6 +10,9 @@ import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationTerminalStreamEventFactory;
 import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEvent;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspaceService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationProvisionalPreviewLifecycle;
 import lombok.extern.slf4j.Slf4j;
@@ -147,7 +150,8 @@ public class GenerationTerminalEffectService {
         if (!attempt(effect, GenerationTerminalEffectOperation.TASK_STREAM_COMPLETE,
                 () -> generationEventStream.complete(
                         effect.taskId(), GenerationTerminalStreamEventFactory.create(
-                                effect.taskId(), effect.command().status())), failures)) {
+                                effect.taskId(), effect.command().status(),
+                                deliveryReceipt(effect))), failures)) {
             return false;
         }
         if (!attempt(effect, GenerationTerminalEffectOperation.PREVIEW_STOP,
@@ -263,6 +267,17 @@ public class GenerationTerminalEffectService {
                         "route", effect.route() == null ? "unknown" : effect.route(),
                         "status", effect.command().status().getValue()),
                 clock.instant()));
+    }
+
+    /** 新旧终态命令统一进入同一公开投影；旧命令只从稳定字段补齐。 */
+    private GenerationDeliveryReceipt deliveryReceipt(GenerationTerminalEffect effect) {
+        GenerationDeliveryReceipt receipt = effect.command().deliveryReceipt();
+        if (receipt == null) {
+            receipt = GenerationDeliveryReceiptFactory.fromTerminal(
+                    effect.route(), effect.command().status(),
+                    GenerationCompletionEvidenceSet.empty(), effect.command().outcomeQuality());
+        }
+        return receipt.withActualRoute(effect.route());
     }
 
     private enum NoOpGenerationEventStream implements GenerationEventStream {

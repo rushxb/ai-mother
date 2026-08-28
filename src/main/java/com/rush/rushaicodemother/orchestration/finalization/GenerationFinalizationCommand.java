@@ -1,6 +1,8 @@
 package com.rush.rushaicodemother.orchestration.finalization;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 
@@ -12,7 +14,8 @@ public record GenerationFinalizationCommand(
         GenerationTaskStatus status,
         String reason,
         String memorySummary,
-        GenerationOutcomeQuality outcomeQuality
+        GenerationOutcomeQuality outcomeQuality,
+        @JsonInclude(JsonInclude.Include.NON_NULL) GenerationDeliveryReceipt deliveryReceipt
 ) {
 
     public GenerationFinalizationCommand {
@@ -30,6 +33,18 @@ public record GenerationFinalizationCommand(
         }
     }
 
+    /** 兼容旧终态命令构造；新执行链应显式携带交付回执。 */
+    public GenerationFinalizationCommand(
+            String taskId,
+            Long appId,
+            GenerationExecutionFence executionFence,
+            GenerationTaskStatus status,
+            String reason,
+            String memorySummary,
+            GenerationOutcomeQuality outcomeQuality) {
+        this(taskId, appId, executionFence, status, reason, memorySummary, outcomeQuality, null);
+    }
+
     public static GenerationFinalizationCommand of(
             String taskId,
             Long appId,
@@ -39,6 +54,20 @@ public record GenerationFinalizationCommand(
             String memorySummary,
             GenerationOutcomeQuality outcomeQuality) {
         return new GenerationFinalizationCommand(
-                taskId, appId, executionFence, status, reason, memorySummary, outcomeQuality);
+                taskId, appId, executionFence, status, reason, memorySummary, outcomeQuality, null);
+    }
+
+    public static GenerationFinalizationCommand of(
+            String taskId,
+            Long appId,
+            GenerationExecutionFence executionFence,
+            GenerationTaskStatus status,
+            String reason,
+            String memorySummary,
+            GenerationOutcomeQuality outcomeQuality,
+            GenerationDeliveryReceipt deliveryReceipt) {
+        return new GenerationFinalizationCommand(
+                taskId, appId, executionFence, status, reason, memorySummary,
+                outcomeQuality, deliveryReceipt);
     }
 }

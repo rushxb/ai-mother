@@ -161,6 +161,8 @@ public interface GenerationTaskRuntimeMapper {
                    submittedAt, deadlineAt, cancellationRequested, cancellationReason,
                    leaseOwner, leaseUntil, heartbeatAt, executionEpoch, attempt, version,
                    endTime, errorMessage,
+                   changedFileCount, firstBuildPassed, repairRounds, firstPreviewMillis,
+                   failureCategory, totalTokens, creditCost, creditCharged,
                    terminalIntentSchemaVersion, terminalIntentPayloadJson,
                    terminalIntentExecutionEpoch, terminalIntentPreparedAt, terminalIntentFinalizedAt
             FROM generation_task
@@ -230,7 +232,11 @@ public interface GenerationTaskRuntimeMapper {
                    dispatchAt, dispatchAttempt, dispatchError,
                    submittedAt, deadlineAt, cancellationRequested, cancellationReason,
                    leaseOwner, leaseUntil, heartbeatAt, executionEpoch, attempt, version,
-                   endTime, errorMessage
+                   endTime, errorMessage,
+                   changedFileCount, firstBuildPassed, repairRounds, firstPreviewMillis,
+                   failureCategory, totalTokens, creditCost, creditCharged,
+                   terminalIntentSchemaVersion, terminalIntentPayloadJson,
+                   terminalIntentExecutionEpoch, terminalIntentPreparedAt, terminalIntentFinalizedAt
             FROM generation_task
             WHERE appId = #{appId}
               AND status IN ('queued', 'running', 'waiting_approval')

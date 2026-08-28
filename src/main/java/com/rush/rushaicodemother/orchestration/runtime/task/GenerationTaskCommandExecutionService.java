@@ -12,6 +12,8 @@ import com.rush.rushaicodemother.orchestration.GenerationSessionFactory;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineExecutor;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
@@ -450,7 +452,10 @@ public class GenerationTaskCommandExecutionService {
             String reason) {
         return GenerationFinalizationCommand.of(
                 task.taskId(), task.appId(), fence, GenerationTaskStatus.FAILED,
-                reason, null, null);
+                reason, null, null,
+                GenerationDeliveryReceiptFactory.fromTerminal(
+                        task.route(), GenerationTaskStatus.FAILED,
+                        GenerationCompletionEvidenceSet.empty(), null));
     }
 
     /** 记录工作器{@code Queue}{@code Wait}相关指标或状态。 */

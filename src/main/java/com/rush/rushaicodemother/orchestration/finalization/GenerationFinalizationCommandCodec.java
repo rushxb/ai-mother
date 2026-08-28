@@ -7,7 +7,8 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 /** 发布恢复所需终态命令的稳定 JSON 编解码器。 */
 public final class GenerationFinalizationCommandCodec {
 
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
+    private static final int MIN_SUPPORTED_SCHEMA_VERSION = 1;
 
     private static final JsonMapper MAPPER = JsonMapper.builder()
             .findAndAddModules()
@@ -15,6 +16,13 @@ public final class GenerationFinalizationCommandCodec {
             .build();
 
     private GenerationFinalizationCommandCodec() {
+    }
+
+    /** 滚动发布期间继续消费版本 1 的待处理终态副作用。 */
+    public static boolean supportsSchemaVersion(Integer schemaVersion) {
+        return schemaVersion != null
+                && schemaVersion >= MIN_SUPPORTED_SCHEMA_VERSION
+                && schemaVersion <= CURRENT_SCHEMA_VERSION;
     }
 
     public static String toJson(GenerationFinalizationCommand command) {

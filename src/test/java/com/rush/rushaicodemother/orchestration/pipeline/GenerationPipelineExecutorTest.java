@@ -126,6 +126,11 @@ class GenerationPipelineExecutorTest {
                         && command.executionFence().equals(request.execution().executionFence())
                         && command.status() == GenerationTaskStatus.SUCCESS
                         && command.reason() == null
+                        && command.deliveryReceipt() != null
+                        && GenerationRoute.LIGHTWEIGHT_EDIT.equals(
+                                command.deliveryReceipt().actualRoute())
+                        && "passed".equals(
+                                command.deliveryReceipt().validationSummary().status())
                         && command.memorySummary().equals("任务状态：成功\n结果摘要：标题已更新")));
         ArgumentCaptor<GenerationOutcomeMemoryRequest> memoryCaptor =
                 ArgumentCaptor.forClass(GenerationOutcomeMemoryRequest.class);
@@ -442,6 +447,10 @@ class GenerationPipelineExecutorTest {
         assertTrue(command.memorySummary().contains("生成任务执行失败"));
         // 失败路径必须沉淀可归因的失败分类，供 L3 复盘与后续蒸馏使用。
         assertNotNull(command.outcomeQuality().failureCategory());
+        assertNotNull(command.deliveryReceipt());
+        assertEquals(command.outcomeQuality().failureCategory(),
+                command.deliveryReceipt().failureCategory());
+        assertEquals("retry", command.deliveryReceipt().recoveryAction());
         verify(outcomeMemoryService).remember(org.mockito.ArgumentMatchers.argThat(memory ->
                 memory.status() == GenerationTaskStatus.FAILED
                         && memory.memorySummary().equals(command.memorySummary())));

@@ -23,6 +23,9 @@ import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.router.GenerationRoutingDecisionCode;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommandCodec;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
@@ -35,6 +38,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.Generati
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommandCodec;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskSubmissionRecord;
 import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceContext;
+import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -114,11 +118,42 @@ class MyBatisDurableGenerationTaskRepositoryTest {
     }
 
     @Test
+    void terminalQueryMustDecodeReceiptAndUpgradeSettledCostFromDurableColumns() {
+        GenerationDeliveryReceipt receipt = GenerationDeliveryReceiptFactory.fromTerminal(
+                "heavy_generation", GenerationTaskStatus.SUCCESS,
+                GenerationCompletionEvidenceSet.empty(),
+                GenerationOutcomeQuality.ofSuccess(4, 1, false, 800L));
+        GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
+                "task-1", 1L, FENCE, GenerationTaskStatus.SUCCESS,
+                null, "完成", GenerationOutcomeQuality.ofSuccess(4, 1, false, 800L), receipt);
+        GenerationTask entity = runtimeEntity(GenerationTaskStatus.SUCCESS, 2L, false);
+        entity.setTerminalIntentSchemaVersion(GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION);
+        entity.setTerminalIntentPayloadJson(GenerationFinalizationCommandCodec.toJson(command));
+        entity.setTerminalIntentExecutionEpoch(3L);
+        entity.setCreditCharged(1);
+        entity.setTotalTokens(12_345L);
+        entity.setCreditCost(13L);
+        when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(entity);
+
+        DurableGenerationTaskRecord restored = repository.findByTaskId("task-1").orElseThrow();
+
+        assertEquals(receipt.validationSummary(), restored.deliveryReceipt().validationSummary());
+        assertEquals("settled", restored.deliveryReceipt().costSummary().settlementStatus());
+        assertEquals(12_345L, restored.deliveryReceipt().costSummary().totalTokens());
+        assertEquals(13L, restored.deliveryReceipt().costSummary().creditCost());
+    }
+
+    @Test
     void abortFinalizationIntentMustCompareExactFrozenCommandAndFence() {
         GenerationFinalizationCommand command = GenerationFinalizationCommand.of(
                 "task-1", 1L, FENCE, GenerationTaskStatus.SUCCESS,
                 null, "冻结的成功终态", null);
         String payload = GenerationFinalizationCommandCodec.toJson(command);
+        GenerationTask existing = runtimeEntity(GenerationTaskStatus.RUNNING, 2L, false);
+        existing.setTerminalIntentSchemaVersion(GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION);
+        existing.setTerminalIntentPayloadJson(payload);
+        existing.setTerminalIntentExecutionEpoch(3L);
+        when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(existing);
         when(mapper.abortFinalizationIntent(
                 "task-1", 1L, "worker-a", 3L,
                 GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION,
@@ -130,6 +165,39 @@ class MyBatisDurableGenerationTaskRepositoryTest {
                 "task-1", 1L, "worker-a", 3L,
                 GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION,
                 payload, toLocal(NOW));
+    }
+
+    @Test
+    void versionOneIntentMustRemainIdempotentWhenVersionTwoAddsAReceipt() {
+        GenerationOutcomeQuality quality = GenerationOutcomeQuality.ofSuccess(2, 0, true, 500L);
+        GenerationFinalizationCommand oldCommand = GenerationFinalizationCommand.of(
+                "task-1", 1L, FENCE, GenerationTaskStatus.SUCCESS,
+                null, "冻结的成功终态", quality);
+        String oldPayload = GenerationFinalizationCommandCodec.toJson(oldCommand)
+                .replace(",\"deliveryReceipt\":null", "");
+        GenerationDeliveryReceipt receipt = GenerationDeliveryReceiptFactory.fromTerminal(
+                "heavy_generation", GenerationTaskStatus.SUCCESS,
+                GenerationCompletionEvidenceSet.empty(), quality);
+        GenerationFinalizationCommand upgradedCommand = GenerationFinalizationCommand.of(
+                "task-1", 1L, FENCE, GenerationTaskStatus.SUCCESS,
+                null, "冻结的成功终态", quality, receipt);
+        GenerationTask existing = runtimeEntity(GenerationTaskStatus.RUNNING, 2L, false);
+        existing.setTerminalIntentSchemaVersion(1);
+        existing.setTerminalIntentPayloadJson(oldPayload);
+        existing.setTerminalIntentExecutionEpoch(3L);
+        when(mapper.prepareFinalizationIntent(
+                eq("task-1"), eq(1L), eq("worker-a"), eq(3L),
+                eq(GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION),
+                anyString(), eq(toLocal(NOW)))).thenReturn(0);
+        when(mapper.selectRuntimeByTaskId("task-1")).thenReturn(existing);
+        when(mapper.abortFinalizationIntent(
+                "task-1", 1L, "worker-a", 3L, 1, oldPayload, toLocal(NOW))).thenReturn(1);
+
+        repository.prepareFinalizationIntent(upgradedCommand, NOW);
+
+        assertTrue(repository.abortFinalizationIntent(upgradedCommand, NOW));
+        verify(mapper).abortFinalizationIntent(
+                "task-1", 1L, "worker-a", 3L, 1, oldPayload, toLocal(NOW));
     }
 
     @Test

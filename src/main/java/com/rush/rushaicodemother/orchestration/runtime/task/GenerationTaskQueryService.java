@@ -288,7 +288,8 @@ public class GenerationTaskQueryService {
         return new GenerationTaskSnapshot(
                 task.taskId(), task.appId(), task.userId(), task.route(), status,
                 task.stage(), task.stageMessage(), task.submittedAt(), task.deadlineAt(),
-                task.cancellationRequested(), task.cancellationReason(), Map.of(), Map.of(), progress
+                task.cancellationRequested(), task.cancellationReason(), Map.of(), Map.of(), progress,
+                task.deliveryReceipt()
         );
     }
 

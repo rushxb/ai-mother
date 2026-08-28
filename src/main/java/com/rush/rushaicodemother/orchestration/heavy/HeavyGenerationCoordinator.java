@@ -22,6 +22,8 @@ import com.rush.rushaicodemother.orchestration.GenerationTerminalOutcome;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventType;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.lifecycle.GenerationTaskLifecycleService;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
@@ -423,7 +425,10 @@ public class HeavyGenerationCoordinator {
                                 GenerationTaskStatus.FAILED,
                                 "generation_start_failed",
                                 null,
-                                null
+                                null,
+                                GenerationDeliveryReceiptFactory.fromTerminal(
+                                        "heavy_generation", GenerationTaskStatus.FAILED,
+                                        GenerationCompletionEvidenceSet.empty(), null)
                         ));
                     } catch (RuntimeException cleanupFailure) {
                         startFailure.addSuppressed(cleanupFailure);

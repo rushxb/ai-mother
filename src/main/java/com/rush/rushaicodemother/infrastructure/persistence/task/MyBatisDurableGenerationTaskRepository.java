@@ -10,6 +10,10 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommandCodec;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostSummary;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
 import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecision;
 import com.rush.rushaicodemother.orchestration.plan.GenerationExecutionPlan;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioDecisionSnapshot;
@@ -22,6 +26,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.Generati
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommandCodec;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskSubmissionRecord;
+import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
@@ -190,7 +195,7 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         GenerationFinalizationCommand existing = findFinalizationIntent(
                 command.taskId(), fence.executionEpoch()).orElseThrow(() ->
                 new BusinessException(ErrorCode.OPERATION_ERROR, "生成终态意图写入被执行围栏拒绝"));
-        if (!existing.equals(command)) {
+        if (!sameFinalizationIntent(existing, command)) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成终态意图与已冻结命令冲突");
         }
     }
@@ -201,10 +206,19 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
         Objects.requireNonNull(abortedAt, "abortedAt");
         GenerationExecutionFence fence = Objects.requireNonNull(
                 command.executionFence(), "撤销终态意图必须提供执行围栏");
+        GenerationTask existing = mapper.selectRuntimeByTaskId(command.taskId());
+        if (existing == null
+                || !GenerationFinalizationCommandCodec.supportsSchemaVersion(
+                        existing.getTerminalIntentSchemaVersion())
+                || existing.getTerminalIntentPayloadJson() == null
+                || !sameFinalizationIntent(
+                        decodeFinalizationIntent(existing, fence.executionEpoch()), command)) {
+            return false;
+        }
         return mapper.abortFinalizationIntent(
                 command.taskId(), command.appId(), fence.leaseOwner(), fence.executionEpoch(),
-                GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION,
-                GenerationFinalizationCommandCodec.toJson(command), toLocal(abortedAt)) == 1;
+                existing.getTerminalIntentSchemaVersion(),
+                existing.getTerminalIntentPayloadJson(), toLocal(abortedAt)) == 1;
     }
 
     @Override
@@ -219,25 +233,50 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 || !Long.valueOf(executionEpoch).equals(entity.getTerminalIntentExecutionEpoch())) {
             return Optional.empty();
         }
-        if (!Integer.valueOf(GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION)
-                .equals(entity.getTerminalIntentSchemaVersion())
+        if (!GenerationFinalizationCommandCodec.supportsSchemaVersion(
+                entity.getTerminalIntentSchemaVersion())
                 || entity.getTerminalIntentPayloadJson() == null
                 || entity.getTerminalIntentPayloadJson().isBlank()) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成终态意图缺失或协议版本不受支持");
         }
         try {
-            GenerationFinalizationCommand command = GenerationFinalizationCommandCodec.fromJson(
-                    entity.getTerminalIntentPayloadJson());
-            if (!taskId.equals(command.taskId())
-                    || command.executionFence() == null
-                    || command.executionFence().executionEpoch() != executionEpoch
-                    || !Objects.equals(command.appId(), entity.getAppId())) {
-                throw new IllegalStateException("生成终态意图身份不一致");
-            }
-            return Optional.of(command);
+            return Optional.of(decodeFinalizationIntent(entity, executionEpoch));
         } catch (RuntimeException malformed) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "生成终态意图已损坏", malformed);
         }
+    }
+
+    private GenerationFinalizationCommand decodeFinalizationIntent(
+            GenerationTask entity,
+            long executionEpoch) {
+        GenerationFinalizationCommand command = GenerationFinalizationCommandCodec.fromJson(
+                entity.getTerminalIntentPayloadJson());
+        if (!Objects.equals(entity.getTaskId(), command.taskId())
+                || command.executionFence() == null
+                || command.executionFence().executionEpoch() != executionEpoch
+                || !Objects.equals(command.appId(), entity.getAppId())) {
+            throw new IllegalStateException("生成终态意图身份不一致");
+        }
+        return command;
+    }
+
+    /** 版本 1 意图没有交付回执；升级时只允许为同一份核心终态事实补充新回执。 */
+    private boolean sameFinalizationIntent(
+            GenerationFinalizationCommand existing,
+            GenerationFinalizationCommand expected) {
+        if (Objects.equals(existing, expected)) {
+            return true;
+        }
+        return existing != null
+                && expected != null
+                && existing.deliveryReceipt() == null
+                && Objects.equals(existing.taskId(), expected.taskId())
+                && Objects.equals(existing.appId(), expected.appId())
+                && Objects.equals(existing.executionFence(), expected.executionFence())
+                && existing.status() == expected.status()
+                && Objects.equals(existing.reason(), expected.reason())
+                && Objects.equals(existing.memorySummary(), expected.memorySummary())
+                && Objects.equals(existing.outcomeQuality(), expected.outcomeQuality());
     }
 
     @Override
@@ -649,9 +688,12 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                                                             GenerationTaskStatus status,
                                                             String reason,
                                                             GenerationExecutionFence fence) {
+        GenerationOutcomeQuality quality = GenerationOutcomeQuality.empty();
         return GenerationFinalizationCommand.of(
                 taskId, appId, fence, status, normalizeReason(reason),
-                null, com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality.empty());
+                null, quality,
+                GenerationDeliveryReceiptFactory.fromTerminal(
+                        "unknown", status, GenerationCompletionEvidenceSet.empty(), quality));
     }
 
     private GenerationExecutionFence unownedEffectFence(GenerationTask task) {
@@ -801,7 +843,65 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 entity.getLeaseOwner(), toInstant(entity.getLeaseUntil()), toInstant(entity.getHeartbeatAt()),
                 entity.getExecutionEpoch() == null ? 0L : entity.getExecutionEpoch(),
                 entity.getAttempt() == null ? 0 : entity.getAttempt(), entity.getVersion() == null ? 0L : entity.getVersion(),
-                toInstant(entity.getEndTime()), entity.getErrorMessage());
+                toInstant(entity.getEndTime()), entity.getErrorMessage(),
+                deliveryReceipt(entity, status));
+    }
+
+    /**
+     * 从已冻结终态意图恢复交付回执；版本 1 或迁移前记录只使用结构化列补齐，
+     * 不把内部 errorMessage 直接暴露给公开状态接口。
+     */
+    private GenerationDeliveryReceipt deliveryReceipt(
+            GenerationTask entity,
+            GenerationTaskStatus status) {
+        if (status == null || !status.isTerminal()) {
+            return null;
+        }
+        GenerationDeliveryReceipt receipt = null;
+        if (GenerationFinalizationCommandCodec.supportsSchemaVersion(
+                entity.getTerminalIntentSchemaVersion())
+                && entity.getTerminalIntentPayloadJson() != null
+                && !entity.getTerminalIntentPayloadJson().isBlank()) {
+            try {
+                GenerationFinalizationCommand command = GenerationFinalizationCommandCodec.fromJson(
+                        entity.getTerminalIntentPayloadJson());
+                if (command != null
+                        && Objects.equals(entity.getTaskId(), command.taskId())
+                        && Objects.equals(entity.getAppId(), command.appId())
+                        && command.status() == status) {
+                    receipt = command.deliveryReceipt();
+                }
+            } catch (RuntimeException ignored) {
+                // 状态查询仍可使用已持久化的低敏结构化列；坏载荷由终态 outbox 单独隔离告警。
+            }
+        }
+        if (receipt == null) {
+            GenerationOutcomeQuality quality = new GenerationOutcomeQuality(
+                    null,
+                    entity.getChangedFileCount(),
+                    tinyIntBoolean(entity.getFirstBuildPassed()),
+                    entity.getRepairRounds(),
+                    entity.getFirstPreviewMillis(),
+                    entity.getFailureCategory(),
+                    null,
+                    null);
+            receipt = GenerationDeliveryReceiptFactory.fromTerminal(
+                    entity.getRoute(), status, GenerationCompletionEvidenceSet.empty(), quality);
+        }
+        receipt = receipt.withActualRoute(entity.getRoute());
+        if (Integer.valueOf(1).equals(entity.getCreditCharged())) {
+            receipt = receipt.withCostSummary(GenerationCostSummary.settled(
+                    nonNegative(entity.getTotalTokens()), nonNegative(entity.getCreditCost())));
+        }
+        return receipt;
+    }
+
+    private Boolean tinyIntBoolean(Integer value) {
+        return value == null ? null : value != 0;
+    }
+
+    private long nonNegative(Long value) {
+        return value == null ? 0L : Math.max(0L, value);
     }
 
     /** 外层调度事实与不可变命令必须原子一致，禁止恢复时更换 schema、租户或 SLA 时间。 */

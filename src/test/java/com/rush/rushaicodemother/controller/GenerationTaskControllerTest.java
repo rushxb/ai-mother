@@ -11,6 +11,9 @@ import com.rush.rushaicodemother.model.vo.GenerationTaskStatusVO;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.experience.GenerationExperienceEventMapper;
 import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEvent;
+import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskControlService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSnapshot;
@@ -23,6 +26,7 @@ import com.rush.rushaicodemother.orchestration.tool.ToolApprovalRecord;
 import com.rush.rushaicodemother.service.AppService;
 import com.rush.rushaicodemother.service.UserService;
 import com.rush.rushaicodemother.service.feedback.GenerationFeedbackService;
+import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -188,6 +192,31 @@ class GenerationTaskControllerTest {
 
         verify(queryService).get("task-api-1", actor);
         verify(controlService).cancel("task-api-1", actor);
+    }
+
+    @Test
+    void terminalStatusMustExposeVersionedDeliveryAndRecoveryContract() throws Exception {
+        GenerationDeliveryReceipt receipt = GenerationDeliveryReceiptFactory.fromTerminal(
+                "agent_edit", GenerationTaskStatus.FAILED,
+                GenerationCompletionEvidenceSet.empty(),
+                GenerationOutcomeQuality.ofFailure("model_timeout", 1, 0, 500L));
+        Instant submittedAt = Instant.parse("2026-07-15T10:00:00Z");
+        GenerationTaskSnapshot terminal = new GenerationTaskSnapshot(
+                "task-api-1", 11L, actor.getId(), "agent_edit", "failed",
+                "completed", null, submittedAt, submittedAt.plusSeconds(1_200),
+                false, null, Map.of(), Map.of(), null, receipt);
+        when(queryService.get("task-api-1", actor)).thenReturn(terminal);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(get("/generation/tasks/task-api-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.contractVersion").value(2))
+                .andExpect(jsonPath("$.data.failureCategory").value("model_timeout"))
+                .andExpect(jsonPath("$.data.retryable").value(true))
+                .andExpect(jsonPath("$.data.recoveryAction").value("retry"))
+                .andExpect(jsonPath("$.data.validationSummary.status").value("incomplete"))
+                .andExpect(jsonPath("$.data.deliveryReceipt.schemaVersion").value(1))
+                .andExpect(jsonPath("$.data.costSummary.settlementStatus").value("pending"));
     }
 
     @Test

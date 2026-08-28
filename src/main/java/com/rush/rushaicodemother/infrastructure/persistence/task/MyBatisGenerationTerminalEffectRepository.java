@@ -214,8 +214,8 @@ public class MyBatisGenerationTerminalEffectRepository implements GenerationTerm
     }
 
     private GenerationFinalizationCommand decode(GenerationTask task) {
-        if (!Integer.valueOf(GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION)
-                .equals(task.getTerminalIntentSchemaVersion())
+        if (!GenerationFinalizationCommandCodec.supportsSchemaVersion(
+                task.getTerminalIntentSchemaVersion())
                 || task.getTerminalIntentPayloadJson() == null) {
             throw new IllegalStateException("终态副作用缺少受支持的意图载荷");
         }

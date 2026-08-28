@@ -42,6 +42,7 @@ final class DurableGenerationTerminalEventProjection {
         if (task == null || !task.terminal()) {
             throw new IllegalArgumentException("durable terminal task is required");
         }
-        return GenerationTerminalStreamEventFactory.create(task.taskId(), task.status());
+        return GenerationTerminalStreamEventFactory.create(
+                task.taskId(), task.status(), task.deliveryReceipt());
     }
 }

@@ -669,6 +669,15 @@
 - 在干净 detached `e6f5aa6` 工作树使用 JDK 21 执行默认 `.\mvnw.cmd test`：799 reports、3531 tests、0 failure、0 error、42 skipped。使用 MySQL Community Server `8.0.38` 和正式 `integration-test` profile 执行空库迁移及 Prompt 选择幂等/冲突测试：2 tests、0 failure、0 error、0 skipped；47 条迁移资源校验通过，空库在 baseline 后成功应用 35 条迁移到 `20260828.6`，专用数据库由测试清理。
 - 本轮只建立第 402 项所需的“实际命中版本可区分归因”前置条件，因此第 402 项保持未完成。后续仍需按 Prompt 候选 cohort 聚合质量、尾延迟和成本，定义晋级/回滚阈值，保留旧 release identity，并完成 shadow、小流量晋级与自动回滚的真实演练。
 
+### 11.16 Prompt 灰度生产证据门禁
+
+- 2026-08-28 提交 `d0db82d`：新增按运行时实际命中的 `bundleId/promptKey/version/contentHash` 精确归因的 Prompt 稳定组与候选组生产观测；同一任务同时命中两组时从对比 cohort 排除并单独计数，结构化归因缺失、身份不一致或观测未收敛时失败关闭，不用发布比例或任务 ID 哈希反推实际命中版本。
+- 生产观测在同一窗口聚合任务质量、反馈与低评分、首次构建结果、修复轮次、首次预览与交付 P95、Provider token、用户积分及物理模型调用容量；最终判定复用 `GenerationStrategyPromotionGate` 的质量、延迟、成本和容量联合门禁，不另造一套宽松的 Prompt 阈值。
+- 判定结果固定为 `OBSERVING/HOLD/PROMOTABLE/ROLLBACK_REQUIRED/INVALID`。候选相对稳定组出现失败率、低评分率或绝对质量回退时给出 `ROLLBACK_REQUIRED`；样本不足继续观察，联合门禁未通过但没有达到明确回滚条件时保持 `HOLD`，归因或观测不完整时返回 `INVALID`。
+- 每次评估把窗口、release revision、两组完整 Prompt identity、聚合指标、联合门禁结果和确定性内容摘要写入 `ai_prompt_canary_assessment`；证据为内容寻址且不可变，不保存 Prompt 正文或任务 ID，相同输入可幂等复用，内容冲突则拒绝覆盖。
+- 在干净 detached `d0db82d` 工作树使用 JDK 21 执行默认 `.\mvnw.cmd test`：800 reports、3535 tests、0 failure、0 error、42 skipped。使用 MySQL Community Server `8.0.38` 和正式 `integration-test` profile 执行空库迁移及真实 cohort 聚合：2 tests、0 failure、0 error、0 skipped；48 条迁移资源校验通过，空库在 baseline 后成功应用 36 条迁移到 `20260828.7`。测试包含 5 个稳定组任务、5 个候选组任务和 1 个双组歧义任务，候选质量回退被判定为 `ROLLBACK_REQUIRED`，专用数据库由测试清理。
+- 本轮闭合第 402 项的生产指标归因与候选判定前置能力，但生产证据尚未接入发布状态机，受控小流量扩量、晋级门禁和自动回滚演练仍未完成，因此第 402 项保持未完成。
+
 ## 12. 推荐执行顺序
 
 ### 第一阶段：事实正确性

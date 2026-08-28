@@ -164,7 +164,7 @@
 | 工作区 Trust/Sandbox | ✅ E1-E2 / 🟡 E3-E5 | 控制文件、生命周期脚本、依赖源、锁文件、环境、网络、registry egress、Repository Context Trust 与执行前复核 | 统一代码边界已落地；真实恶意仓库、OS 资源上限和攻击演练待补 |
 | 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt；E2 故障矩阵已统一 | 缺真实 kill/DB/Redis/磁盘/移动窗口 E3 证据；刷新后终态仍过度泛化 |
 | 快照/回滚 | ✅ P0 代码闭环 / 🟡 跨平台补证 | UUID 自包含 bundle、Manifest/provenance/tree hash、v2 制品、统一消费者与恢复前 fail-closed；Manifest/树篡改已纳入 E2 矩阵 | 当前 Windows 有 3 项 symlink 测试因权限跳过，仍需支持环境的跨平台补证 |
-| 成本/容量 | ✅ E1-E3 / 🟡 E4-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算、管理员只读控制面、终态结算幂等矩阵 | 缺跨实例公平压测与额度超发故障注入 |
+| 成本/容量 | ✅ E1-E3 / 🟡 E4-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算、管理员只读控制面、终态结算幂等矩阵、双实例公平补投与预算串行化 | 待真实 Redis 重复投递/进程故障、Provider 成本和生产规模长稳压测 |
 | Benchmark/学习 | ✅ E2 样本 / 🟡 E3-E5 | v3.5 Dataset 共 59 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件、部分读取、Vue→Full Stack 升级与 Fallback 已有确定性评分；取消、审批、恢复和发布故障均有绑定持久身份与可执行测试的 E2 样本；真实 Selenium 探针已有独立 E3 smoke | 尚缺真实模型、端到端浏览器、Backend/Full Stack 基线、真实故障注入与线上关联 |
 | 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
 | 安全/应用治理 | ✅ 基础 / 🟡 E3-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界 | 需端到端 RBAC/所有权矩阵、威胁模型、审计事件、租户操作型/应用控制面和真实攻防验收 |
@@ -371,7 +371,7 @@
 - [x] ✅ **P1** 提交回执展示预计积分区间/最大冻结额；运行中展示预算消耗；终态展示实际扣费、退还或免除原因。
 - [x] ✅ **P1** 建立租户管理员只读控制面：月预算、剩余额度、排队、按场景单位成功成本和拒绝原因；普通成员不得查看全租户成本。
 - [x] ✅ 对任务恢复、Provider 重试、取消、Deadline、发布后终态恢复建立账实一致测试，重复扣费为 0。
-- [ ] 在跨实例压测中证明租户公平、无饥饿、锁顺序稳定和额度不超发；指标禁止直接使用 tenantId 高基数标签。
+- [x] ✅ 在跨实例压测中证明租户公平、无饥饿、锁顺序稳定和额度不超发；指标禁止直接使用 tenantId 高基数标签。
 - [ ] 建立应用级控制：暂停生成、最大并发、模型策略、网络/依赖权限、预算上限、危险工具策略和紧急 kill switch。
 - [ ] 建立控制面 RBAC/所有权矩阵，覆盖提交、查询、取消、审批、恢复、终态重放、Benchmark、模型配置和应用删除。
 - [ ] 形成威胁模型与审计事件：谁在何时对哪个 app/task 执行了什么受控操作、结果如何；日志必须脱敏且可保留/删除。
@@ -597,7 +597,19 @@
 - 五类任务最终保持 `5 GENERATION_RESERVATION + 5 GENERATION_SETTLEMENT + 0 GENERATION_CHARGE`，每个 `(type, taskId)` 仅一条流水，任务字段、用户余额与流水差额逐项一致，重复扣费为 0。
 - 使用 JDK 21 执行积分服务、持久边界、成本投影和结算协调器相关回归：59 tests、0 failure、0 error、0 skipped；在干净 detached `9c27556` 工作树使用正式 `integration-test` profile 运行 MySQL Community Server `8.0.38` 集成：1 test、0 failure、0 error、0 skipped，43 条迁移校验通过并应用 baseline 后 31 条迁移到 `20260828.2`。专用库 `ai_mother_credit_consistency_it` 在测试结束后删除。
 - 在同一干净提交态执行默认 `.\mvnw.cmd test`：3484 tests、0 failure、0 error、42 skipped；默认回归会编译但不执行带 `integration` 标签的真实数据库方法，真实 MySQL 结果以上一条显式 profile 报告为准。
-- 本轮闭合第 373 项单 MySQL 事务与并发连接级 E3；真实 Redis 多 Worker 公平、长期无饥饿和额度不超发仍需第 374 项的外部环境与压力证据。
+- 本轮只闭合第 373 项单 MySQL 事务与并发连接级 E3；第 374 项的双实例公平、长期无饥饿和额度不超发随后由 11.9 的独立提交与压力证据闭合。
+
+### 11.9 跨实例租户公平与额度不超发证据
+
+- 2026-08-28 提交 `eb361b9`：新增 `GenerationTenantFairnessMySqlIntegrationTest`，用两个独立连接池、事务管理器、MyBatis 会话和准入服务对象模拟两个应用实例；共享的只有真实 MySQL 事实源，不用进程内锁或内存计数协调租户额度。
+- 12 个线程同时提交 12 个不同用户与应用的同租户任务，月预算固定为 5；最终恰好 5 个任务连同 5 条预授权流水提交，另外 7 个只因月预算不足回滚，没有死锁、锁等待超时、孤儿预授权或任务无流水。12 个账户初始余额总和 1200，最终为 1195，租户账本用量严格等于 5。
+- 压测直接调用生产 `GenerationTaskAdmissionService`：事务先按租户、用户、应用固定顺序加锁，再读取不可变流水用量、预授权积分并落库任务；任何非预算业务拒绝或数据库异常都会让测试失败，因此不能把死锁误计为正常限流。
+- 公平补投预置租户 A 的 5 个任务、租户 B 的 2 个任务和租户 C 的 1 个任务，并由两个实例交替读取和记录派发；三轮结果依次为 `A1/B1/C1`、`A2/B2/A3`、`A4/A5`，先按租户分配首槽位，再进入下一排名波次，8 个任务最终各派发一次，无遗漏、重复或小租户饥饿。
+- `TenantGenerationQuotaArchitectureTest` 固化低基数指标门禁：租户准入指标只允许有界 `outcome` 标签，禁止 `tenantId` 与 `tenant_id` 标签；租户身份仍只进入受控数据库事实和日志上下文。
+- 首轮真实准入暴露 `routeDecisionVersion` 只允许 32 字符、而生产命令写入 64 字符 SHA-256 发布指纹的历史列宽缺口；迁移 `V20260828_3__generation_route_decision_fingerprint_width.sql` 将字段扩展为 64，并由空库 Flyway 集成测试验证迁移版本与最终列宽，避免预授权后任务落库失败。
+- 使用 JDK 21 执行准入、场景快照、租户架构与 Flyway 架构聚焦回归：19 tests、0 failure、0 error、0 skipped；在干净 detached `eb361b9` 工作树执行默认全量回归：3485 tests、0 failure、0 error、42 skipped。
+- 在同一干净提交态使用 MySQL Community Server `8.0.38` 和正式 `integration-test` profile 执行空库迁移与双实例压测：3 tests、0 failure、0 error、0 skipped；44 条迁移校验通过，baseline 后 32 条迁移应用到 `20260828.3`，公平压测专用库在测试结束后删除。
+- 本轮闭合第 374 项以 MySQL 为准入和公平补投事实源的跨实例 E3；本机仍无 Redis Server/CLI，因此没有把 Redis Streams 重复投递、消费者崩溃和 reclaim 伪装成本轮证据，这些故障窗口继续由故障注入矩阵验收。
 
 ## 12. 推荐执行顺序
 
@@ -679,4 +691,4 @@
 
 ---
 
-最后更新：2026-08-28。下一轮推进真实 Redis、多 Worker、模型、Backend、Full Stack 和跨平台 E3-E5 验收。
+最后更新：2026-08-28。下一轮推进应用级生成控制、控制面 RBAC、真实 Redis、多 Worker、模型、Backend、Full Stack 和跨平台 E3-E5 验收。

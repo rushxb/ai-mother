@@ -393,6 +393,7 @@
 - [x] ✅ Fallback 样本声明 `REQUIRED / FORBIDDEN / OPTIONAL` 三态期望，并由持久任务命令恢复目标类型与回退原因后判定报告。
 - [x] ✅ 取消故障样本已绑定 `taskId + executionEpoch`、取消原因和实际 JUnit 测试方法，覆盖排队激活隔离与心跳取消传播。
 - [x] ✅ 审批故障样本已绑定 `taskId + executionEpoch` 和实际 JUnit 测试方法，覆盖审批重排队的旧 fence 隔离与 continuation 投递失败后的等待态恢复。
+- [x] ✅ 工具审批记录以 `taskId + requestExecutionEpoch + toolName + argumentsDigest` 作为持久执行身份；审批、拒绝、执行、结果提交和恢复均按同一请求纪元更新，无法证明纪元的历史记录禁止执行。
 - [x] ✅ 恢复故障样本已绑定 `taskId + executionEpoch` 和实际 JUnit 测试方法，覆盖跨 epoch 检查点隔离与已消费工具 receipt 的幂等恢复。
 - [x] ✅ 发布故障样本已绑定 `taskId + executionEpoch` 和实际 JUnit 测试方法，覆盖 active pointer 回滚失败与文件系统已激活 crash window 的安全前滚。
 - [ ] 运行真实模型、真实浏览器、Backend/Full Stack，并保留候选、数据、环境和报告身份；Mock 结果不进入晋级。
@@ -540,6 +541,10 @@
 - 使用本机 MySQL Community Server `8.0.38` 和开发配置中已声明的数据源身份，在同一干净工作树执行 5 个专用 MySQL 集成类：5 reports、9 tests、0 failure、0 error、0 skipped；覆盖 41 条迁移校验、审批一次性执行与 replay receipt、Prompt 发布协调、语义记忆 outbox 和 Dev Server 会话并发/恢复合同。
 - MySQL 集成仅重建 `ai_mother_dev_server_it`、`ai_mother_flyway_it`、`ai_mother_memory_it`、`ai_mother_prompt_release_it`、`ai_mother_tool_it` 五个专用库；取证后已删除并查询确认残留数为 0，业务库未进入测试目标。
 - 当前环境探测：MySQL `3306` 可达、Node `22.16.0` 可用；Docker、Redis Server/CLI 和 Go 不可用，Redis `6379` 未监听，模型 API key 环境变量未配置。因此真实 Redis、多 Worker、Go Backend/Full Stack、真实模型质量与成本仍未形成 E3-E5 证据。
+- 2026-08-28 提交 `d21080d`：`generation_tool_approval` 新增不可变 `requestExecutionEpoch`；新请求首次落库即携带工具名、参数摘要和 checkpoint，所有状态迁移均带请求纪元谓词，续跑查询只选择当前纪元或 `approval_dispatch_retry` 下最近一个可证明的旧请求。迁移只为仍处于 `waiting_approval` 的任务回填纪元，其他历史记录保持 `0` 并在执行/恢复路径失败关闭。
+- 使用 JDK 21 执行审批、恢复、危险工具、续跑调度、持久映射和架构聚焦回归：78 tests、0 failure、0 error、0 skipped；在干净 detached `d21080d` 工作树执行默认 `.\mvnw.cmd test`：3448 tests、0 failure、0 error、42 skipped。
+- 在同一干净提交态工作树使用 MySQL Community Server `8.0.38` 执行 `FlywaySchemaMigrationIntegrationTest` 与 `ToolApprovalMySqlIntegrationTest`：2 tests、0 failure、0 error、0 skipped；Flyway 校验 42 条迁移并从 baseline 后实际应用 30 条，最终到达 `20260828.1`，审批请求纪元、一次性执行和 replay receipt 完成真实数据库验证。`ai_mother_flyway_it` 与 `ai_mother_tool_it` 取证后已删除，残留查询为 0。
+- 上述结果闭合审批持久身份和单 MySQL 实例 E3；真实 Redis、多 Worker 竞争领取与进程 kill 后的跨实例续跑仍未执行，不能据此宣称跨实例 E3 已完成。
 
 ## 12. 推荐执行顺序
 

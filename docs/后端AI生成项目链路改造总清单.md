@@ -353,7 +353,7 @@
 - [x] ✅ **P1** 新增 durable delivery receipt：实际 route、变更摘要、验证摘要、预览成熟度、失败分类、可恢复性、下一步和成本摘要。
 - [x] ✅ **P1** `GenerationTaskStatusVO` 增加结构化 `failureCategory/retryable/recoveryAction/validationSummary/deliveryReceipt/costSummary`，以版本化方式兼容旧客户端。
 - [x] ✅ 实时终态、Redis 重放、数据库回退必须来自同一投影；刷新后信息不能从具体错误降级成“项目生成失败”。
-- [ ] 审批等待、被拒、过期、取消、Deadline、Provider 暂时失败、工作区结果未知分别提供可行动中文提示。
+- [x] ✅ 审批等待、被拒、过期、取消、Deadline、Provider 暂时失败、工作区结果未知分别提供可行动中文提示。
 - [ ] 真实浏览器验收暂定/已验证预览：首次可用时间、并发隔离、刷新、发布切换、失败保留和资源释放。
 - [ ] 建立用户体验 SLO：首个有意义响应、首个可用预览、总耗时、取消生效、失败可解释、恢复完成和资源释放。
 - [ ] 公开事件只暴露稳定、低敏字段；内部异常、路径、模型凭证、租户标签和高基数诊断留在受控日志/Trace。
@@ -557,6 +557,15 @@
 - 在干净 detached `8e65d78` 工作树执行默认 `.\mvnw.cmd test`：3458 tests、0 failure、0 error、42 skipped；该结果不包含主工作树并行 WIP，也不包含默认关闭的真实 Redis/模型/浏览器集成 profile。
 - 本轮只完成终态实际成本摘要；提交时预计积分区间、最大冻结额、运行中预算消耗、退还或免除原因仍属于未完成的 P1 成本合同，因此第 371 项保持未勾选。真实 Redis 跨实例重放仍需 E3 验收。
 
+### 11.5 P1 可行动中文指引证据
+
+- 2026-08-28 提交 `f17ace0`：`GenerationTaskStatusVO` 合同升级为版本 3，并新增结构化 `guidance`；审批等待、审批决定已记录但续跑投递失败、取消处理中和终态失败均由同一 VO 投影返回稳定 `code/message/action/retryable`，不要求客户端解析内部 `stageMessage`。
+- 审批请求、批准、拒绝和过期由用户体验映射器输出明确中文动作；批准、拒绝和过期决定在持久续跑实际激活后发布稳定 `eventId`，重复调度可按同一身份去重，事件发布失败不会阻断已持久化决定的恢复执行。拒绝事件从审批写服务迁出，避免写服务与续跑调度器重复发布同一事实。
+- `GenerationFailureRecoveryAdvisor` 分别映射模型限流、模型超时、模型暂时不可用、取消和 Deadline；`GenerationErrorClassifier` 新增 `workspace_result_unknown`，识别目录交换、回滚恢复和物理结果未知标记，并强制 `retryable=false + reconcile_workspace`，中文提示明确要求核对文件与保留目录且禁止盲目重试或回滚。
+- 使用 JDK 21 执行错误分类、交付回执、任务状态、SSE、审批服务与续跑调度聚焦回归：37 tests、0 failure、0 error、0 skipped；扩大到模型 failover、任务控制器、终态投影、持久查询、危险工具和 Heavy 执行相关回归：188 tests、0 failure、0 error、0 skipped。
+- 在干净 detached `f17ace0` 工作树执行默认 `.\mvnw.cmd test`：3468 tests、0 failure、0 error、42 skipped；该结果不包含主工作树并行 WIP，也不包含默认关闭的真实 Redis、真实模型和浏览器集成 profile。
+- 本轮完成的是 E2 合同、回归和提交态证据；真实 Redis 跨实例事件去重、多 Worker 审批恢复、真实 Provider 限流/超时响应以及工作区结果未知后的人工核对流程仍需 E3-E4 验收。
+
 ## 12. 推荐执行顺序
 
 ### 第一阶段：事实正确性
@@ -637,4 +646,4 @@
 
 ---
 
-最后更新：2026-08-28。下一轮继续补齐可行动失败提示，并推进真实 Redis、模型、Backend、Full Stack 和跨平台 E3-E5 验收。
+最后更新：2026-08-28。下一轮推进真实 Redis、多 Worker、模型、Backend、Full Stack 和跨平台 E3-E5 验收。

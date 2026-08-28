@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "datasetId": "generation_app_quality",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "tasks": [
     {
       "id": "create_vue_admin_crud",
@@ -385,6 +385,130 @@
           "paths": ["src/benchmark/apiConfig.ts"],
           "allOf": ["timeoutMs: 8000", "retryCount: 2"],
           "noneOf": ["timeoutMs: 30000"]
+        }
+      ]
+    },
+    {
+      "id": "edit_backend_default_page_size",
+      "operation": "EDIT",
+      "mode": "LIGHT_EDIT",
+      "expectedRoute": "LIGHT_EDIT",
+      "forbiddenRoutes": ["AGENT_EDIT", "HEAVY_EXPERT"],
+      "fixtureKind": "TEMPLATE_PROJECT",
+      "codeGenType": "backend_project",
+      "prompt": "把后端默认分页大小从 20 调整为 50，最大分页限制保持不变",
+      "expectedValidation": "build",
+      "scenario": "pagination_configuration",
+      "difficulty": "EASY",
+      "capabilities": ["go", "pagination", "localized_edit"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME"],
+      "fixtureFiles": [
+        {
+          "root": "BACKEND",
+          "path": "internal/benchmark/page_config.go",
+          "content": "package benchmark\n\nconst BenchmarkDefaultPageSize = 20\nconst BenchmarkMaxPageSize = 100\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "backend_default_page_size",
+          "root": "BACKEND",
+          "paths": ["internal/benchmark/page_config.go"],
+          "allOf": ["BenchmarkDefaultPageSize = 50", "BenchmarkMaxPageSize = 100"],
+          "noneOf": ["BenchmarkDefaultPageSize = 20"]
+        }
+      ]
+    },
+    {
+      "id": "edit_backend_service_label",
+      "operation": "EDIT",
+      "mode": "LIGHT_EDIT",
+      "expectedRoute": "LIGHT_EDIT",
+      "forbiddenRoutes": ["AGENT_EDIT", "HEAVY_EXPERT"],
+      "fixtureKind": "TEMPLATE_PROJECT",
+      "codeGenType": "backend_project",
+      "prompt": "仅把健康检查返回的服务名称从 api 改为 order-api，状态字段保持 ok",
+      "expectedValidation": "build",
+      "scenario": "health_copy",
+      "difficulty": "EASY",
+      "capabilities": ["go", "health_check", "localized_edit"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME"],
+      "fixtureFiles": [
+        {
+          "root": "BACKEND",
+          "path": "internal/benchmark/health_response.go",
+          "content": "package benchmark\n\ntype BenchmarkHealth struct {\n\tService string `json:\"service\"`\n\tStatus string `json:\"status\"`\n}\n\nvar benchmarkHealth = BenchmarkHealth{Service: \"api\", Status: \"ok\"}\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "backend_service_label",
+          "root": "BACKEND",
+          "paths": ["internal/benchmark/health_response.go"],
+          "allOf": ["Service: \"order-api\"", "Status: \"ok\""],
+          "noneOf": ["Service: \"api\""]
+        }
+      ]
+    },
+    {
+      "id": "edit_fullstack_submit_copy",
+      "operation": "EDIT",
+      "mode": "LIGHT_EDIT",
+      "expectedRoute": "LIGHT_EDIT",
+      "forbiddenRoutes": ["AGENT_EDIT", "HEAVY_EXPERT"],
+      "fixtureKind": "TEMPLATE_PROJECT",
+      "codeGenType": "full_stack_project",
+      "prompt": "只把前端提交按钮文案从「提交」改成「保存订单」，禁用态文案保持不变",
+      "expectedValidation": "build",
+      "scenario": "order_copy",
+      "difficulty": "EASY",
+      "capabilities": ["vue", "typescript", "copy_edit"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/orderActions.ts",
+          "content": "export const benchmarkOrderActions = { submit: '提交', disabled: '处理中' }\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "fullstack_submit_copy",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/orderActions.ts"],
+          "allOf": ["submit: '保存订单'", "disabled: '处理中'"],
+          "noneOf": ["submit: '提交'"]
+        }
+      ]
+    },
+    {
+      "id": "edit_fullstack_date_locale",
+      "operation": "EDIT",
+      "mode": "LIGHT_EDIT",
+      "expectedRoute": "LIGHT_EDIT",
+      "forbiddenRoutes": ["AGENT_EDIT", "HEAVY_EXPERT"],
+      "fixtureKind": "TEMPLATE_PROJECT",
+      "codeGenType": "full_stack_project",
+      "prompt": "把订单日期展示区域从 en-US 改为 zh-CN，日期格式选项保持年月日两位数",
+      "expectedValidation": "build",
+      "scenario": "date_localization",
+      "difficulty": "EASY",
+      "capabilities": ["vue", "typescript", "localization"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/orderDate.ts",
+          "content": "export const benchmarkDateLocale = 'en-US'\nexport const benchmarkDateOptions = { year: 'numeric', month: '2-digit', day: '2-digit' }\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "fullstack_date_locale",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/orderDate.ts"],
+          "allOf": ["benchmarkDateLocale = 'zh-CN'", "year: 'numeric'", "month: '2-digit'", "day: '2-digit'"],
+          "noneOf": ["benchmarkDateLocale = 'en-US'"]
         }
       ]
     },

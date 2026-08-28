@@ -26,7 +26,7 @@ class GenerationBenchmarkCatalogTest {
         assertTrue(catalog.tasks().stream().anyMatch(task -> "AGENT_EDIT".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "READ_ONLY".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "HEAVY_EXPERT".equals(task.mode())));
-        assertTrue(catalog.tasks().size() >= 51);
+        assertTrue(catalog.tasks().size() >= 55);
         assertEquals(catalog.tasks().size(), catalog.tasks().stream()
                 .map(GenerationBenchmarkTask::id)
                 .distinct()
@@ -50,6 +50,7 @@ class GenerationBenchmarkCatalogTest {
                 IntentOperationType.AUDIT, 3L,
                 IntentOperationType.PLAN, 3L
         ));
+        assertMinimumCoverageForDeclaredValues(catalog.tasks(), this::matrixCell, 3L);
         assertTrue(catalog.tasks().stream().allMatch(task -> task.expectedRoute() != null
                 && !task.expectedRoute().isBlank()
                 && task.operation() != null
@@ -110,6 +111,78 @@ class GenerationBenchmarkCatalogTest {
 
         assertThrows(IllegalStateException.class, () -> catalog.validate(
                 replace(dataset, 0, invalid)));
+    }
+
+    @Test
+    void datasetMustRejectUnderrepresentedSupportedMatrixCell() {
+        GenerationBenchmarkCatalog catalog = catalog();
+        GenerationBenchmarkDataset dataset = catalog.dataset();
+        GenerationBenchmarkTask lightBackend = dataset.tasks().stream()
+                .filter(task -> "LIGHT_EDIT:backend_project".equals(matrixCell(task)))
+                .findFirst()
+                .orElseThrow();
+        GenerationBenchmarkTask agentBackend = dataset.tasks().stream()
+                .filter(task -> "AGENT_EDIT:backend_project".equals(matrixCell(task)))
+                .findFirst()
+                .orElseThrow();
+        GenerationBenchmarkTask replacement = new GenerationBenchmarkTask(
+                lightBackend.id(),
+                agentBackend.mode(),
+                agentBackend.codeGenType(),
+                agentBackend.prompt(),
+                agentBackend.expectedValidation(),
+                agentBackend.scenario(),
+                agentBackend.difficulty(),
+                agentBackend.capabilities(),
+                agentBackend.requiredQualityDimensions(),
+                agentBackend.fixtureFiles(),
+                agentBackend.sourceAssertions(),
+                agentBackend.expectedRoute(),
+                agentBackend.forbiddenRoutes(),
+                agentBackend.operation(),
+                agentBackend.fixtureKind()
+        );
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class, () -> catalog.validate(
+                replace(dataset, dataset.tasks().indexOf(lightBackend), replacement)));
+
+        assertEquals("生成质量评测数据集覆盖配额不足", failure.getMessage());
+    }
+
+    @Test
+    void datasetMustRejectSingletonNewMatrixCell() {
+        GenerationBenchmarkCatalog catalog = catalog();
+        GenerationBenchmarkDataset dataset = catalog.dataset();
+        GenerationBenchmarkTask heavyFullStack = dataset.tasks().stream()
+                .filter(task -> "HEAVY_EXPERT:full_stack_project".equals(matrixCell(task)))
+                .findFirst()
+                .orElseThrow();
+        GenerationBenchmarkTask backendCreate = dataset.tasks().stream()
+                .filter(task -> "CREATE:backend_project".equals(matrixCell(task)))
+                .findFirst()
+                .orElseThrow();
+        GenerationBenchmarkTask replacement = new GenerationBenchmarkTask(
+                heavyFullStack.id(),
+                heavyFullStack.mode(),
+                backendCreate.codeGenType(),
+                heavyFullStack.prompt(),
+                backendCreate.expectedValidation(),
+                heavyFullStack.scenario(),
+                heavyFullStack.difficulty(),
+                heavyFullStack.capabilities(),
+                backendCreate.requiredQualityDimensions(),
+                backendCreate.fixtureFiles(),
+                backendCreate.sourceAssertions(),
+                heavyFullStack.expectedRoute(),
+                heavyFullStack.forbiddenRoutes(),
+                backendCreate.operation(),
+                backendCreate.fixtureKind()
+        );
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class, () -> catalog.validate(
+                replace(dataset, dataset.tasks().indexOf(heavyFullStack), replacement)));
+
+        assertEquals("生成质量评测数据集覆盖配额不足", failure.getMessage());
     }
 
     @Test
@@ -429,5 +502,22 @@ class GenerationBenchmarkCatalogTest {
                 Collectors.counting()
         ));
         minimums.forEach((key, minimum) -> assertTrue(counts.getOrDefault(key, 0L) >= minimum));
+    }
+
+    private <T> void assertMinimumCoverageForDeclaredValues(
+            List<GenerationBenchmarkTask> tasks,
+            java.util.function.Function<GenerationBenchmarkTask, T> classifier,
+            long minimum
+    ) {
+        Map<T, Long> counts = tasks.stream().collect(Collectors.groupingBy(
+                classifier,
+                Collectors.counting()
+        ));
+        assertTrue(!counts.isEmpty());
+        assertTrue(counts.values().stream().allMatch(count -> count >= minimum));
+    }
+
+    private String matrixCell(GenerationBenchmarkTask task) {
+        return task.expectedRoute() + ":" + task.codeGenType();
     }
 }

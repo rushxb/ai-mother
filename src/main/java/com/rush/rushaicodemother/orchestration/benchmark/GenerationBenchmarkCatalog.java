@@ -24,7 +24,8 @@ public class GenerationBenchmarkCatalog {
 
     private static final String DATASET_RESOURCE = "benchmark/generation-benchmark-dataset-v3.json";
     private static final int SUPPORTED_SCHEMA_VERSION = 3;
-    private static final int MINIMUM_TASK_COUNT = 51;
+    private static final int MINIMUM_TASK_COUNT = 55;
+    private static final int MINIMUM_FIXTURES_PER_MATRIX_CELL = 3;
     private static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9][a-z0-9_-]{0,63}");
     private static final Pattern VERSION_PATTERN = Pattern.compile("[0-9][A-Za-z0-9._-]{0,31}");
     private static final Set<String> MODES = Set.of(
@@ -200,6 +201,12 @@ public class GenerationBenchmarkCatalog {
     private void validateCoverage(List<GenerationBenchmarkTask> tasks) {
         Map<String, Long> modes = count(tasks, GenerationBenchmarkTask::mode);
         Map<String, Long> types = count(tasks, GenerationBenchmarkTask::codeGenType);
+        Map<CapabilityMatrixCell, Long> matrixCells = tasks.stream().collect(Collectors.groupingBy(
+                task -> new CapabilityMatrixCell(
+                        task.expectedRoute(),
+                        CodeGenTypeEnum.getEnumByValue(task.codeGenType())),
+                Collectors.counting()
+        ));
         Map<IntentOperationType, Long> operations = tasks.stream().collect(Collectors.groupingBy(
                 GenerationBenchmarkTask::operation,
                 () -> new EnumMap<>(IntentOperationType.class),
@@ -217,7 +224,11 @@ public class GenerationBenchmarkCatalog {
                 .filter(task -> task.forbiddenRoutes().contains("AGENT_EDIT")
                         || task.forbiddenRoutes().contains("HEAVY_EXPERT"))
                 .count();
-        if (modes.getOrDefault("CREATE", 0L) < 10
+        // 数据集中的 route × 工程类型组合就是能力声明；新增组合必须一次提供足量夹具。
+        boolean underrepresentedMatrixCell = matrixCells.values().stream()
+                .anyMatch(count -> count < MINIMUM_FIXTURES_PER_MATRIX_CELL);
+        if (underrepresentedMatrixCell
+                || modes.getOrDefault("CREATE", 0L) < 10
                 || modes.getOrDefault("READ_ONLY", 0L) < 9
                 || modes.getOrDefault("LIGHT_EDIT", 0L) < 6
                 || modes.getOrDefault("AGENT_EDIT", 0L) < 10
@@ -255,5 +266,8 @@ public class GenerationBenchmarkCatalog {
             return root == GenerationBenchmarkSourceRoot.BACKEND;
         }
         return type == CodeGenTypeEnum.FULL_STACK_PROJECT;
+    }
+
+    private record CapabilityMatrixCell(String route, CodeGenTypeEnum codeGenType) {
     }
 }

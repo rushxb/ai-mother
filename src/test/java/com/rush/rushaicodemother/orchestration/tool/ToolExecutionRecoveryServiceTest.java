@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.tool;
 
+import com.rush.rushaicodemother.testing.GenerationFailureEvidence;
 import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.config.AiToolApprovalProperties;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
@@ -55,6 +56,7 @@ class ToolExecutionRecoveryServiceTest {
     }
 
     @Test
+    @GenerationFailureEvidence("recovery_consumed_tool_receipt_preserved")
     void consumedInvocationMustOnlyRestoreTaskAndPreserveReplayResult() {
         ToolApprovalRepository approvals = mock(ToolApprovalRepository.class);
         DurableGenerationTaskRepository tasks = mock(DurableGenerationTaskRepository.class);
@@ -62,6 +64,10 @@ class ToolExecutionRecoveryServiceTest {
         ToolApprovalRecord consumed = approval(
                 ToolApprovalStatus.CONSUMED, NOW.minusSeconds(30), outcome, 1, 5);
         GenerationTaskRecoveryCandidate candidate = candidate();
+        assertEquals("task-1", candidate.taskId());
+        assertEquals(1L, candidate.executionEpoch());
+        assertEquals("a".repeat(64), consumed.approvalId());
+        assertEquals("call-1", consumed.invocationCheckpoint().requestId());
         when(approvals.findRecoverableExecution("task-1")).thenReturn(Optional.of(consumed));
         when(tasks.restoreWaitingAfterStaleToolExecution(
                 candidate, "tool_execution_recovery", NOW)).thenReturn(true);
@@ -76,6 +82,8 @@ class ToolExecutionRecoveryServiceTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyLong());
+        verify(tasks).restoreWaitingAfterStaleToolExecution(
+                candidate, "tool_execution_recovery", NOW);
     }
 
     private GenerationTaskRecoveryCandidate candidate() {

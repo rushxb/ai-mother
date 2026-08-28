@@ -14,7 +14,10 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePubl
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationJournalEntry;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationJournalStatus;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.testing.GenerationFailureEvidence;
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -29,6 +32,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class GenerationTaskRecoveryServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-07-16T04:00:00Z");
@@ -280,6 +284,7 @@ class GenerationTaskRecoveryServiceTest {
     }
 
     @Test
+    @GenerationFailureEvidence("recovery_stale_checkpoint_fenced")
     void checkpointFromAnotherExecutionEpochMustNotBeRequeued() {
         GenerationOrchestrationTaskStore taskStore = mock(GenerationOrchestrationTaskStore.class);
         GenerationTaskDispatcher dispatcher = mock(GenerationTaskDispatcher.class);
@@ -293,6 +298,9 @@ class GenerationTaskRecoveryServiceTest {
         checkpoint.setAppId(1L);
         checkpoint.setExecutionEpoch(2L);
         checkpoint.setStatus("running");
+        assertEquals("task-stale-checkpoint", candidate.taskId());
+        assertEquals(1L, candidate.executionEpoch());
+        assertEquals(2L, checkpoint.getExecutionEpoch());
         when(repository.findExpiredLeases(NOW, 25)).thenReturn(List.of(candidate));
         when(taskStore.load(1L, "task-stale-checkpoint")).thenReturn(Optional.of(checkpoint));
         when(taskFinalizer.finalizeExpiredLease(

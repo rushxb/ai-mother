@@ -13,6 +13,10 @@ public final class GenerationFailureMatrix {
             "com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskLeaseCoordinatorTest";
     private static final String CONTINUATION_SCHEDULER_TEST =
             "com.rush.rushaicodemother.orchestration.tool.GenerationToolContinuationSchedulerTest";
+    private static final String TASK_RECOVERY_TEST =
+            "com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRecoveryServiceTest";
+    private static final String TOOL_EXECUTION_RECOVERY_TEST =
+            "com.rush.rushaicodemother.orchestration.tool.ToolExecutionRecoveryServiceTest";
 
     private static final List<GenerationFailureSample> SAMPLES = validate(List.of(
             new GenerationFailureSample(
@@ -46,6 +50,22 @@ public final class GenerationFailureMatrix {
                     "executorRejectionMustRestoreWaitingStateForRetry",
                     Set.of("taskId", "executionEpoch", "approvalId"),
                     Set.of("dispatch_rejected", "waiting_state_restored")
+            ),
+            new GenerationFailureSample(
+                    "recovery_stale_checkpoint_fenced",
+                    GenerationFailureScenario.RECOVERY,
+                    TASK_RECOVERY_TEST,
+                    "checkpointFromAnotherExecutionEpochMustNotBeRequeued",
+                    Set.of("taskId", "executionEpoch", "checkpointEpoch"),
+                    Set.of("checkpoint_epoch_mismatch", "requeue_blocked", "terminalization_requested")
+            ),
+            new GenerationFailureSample(
+                    "recovery_consumed_tool_receipt_preserved",
+                    GenerationFailureScenario.RECOVERY,
+                    TOOL_EXECUTION_RECOVERY_TEST,
+                    "consumedInvocationMustOnlyRestoreTaskAndPreserveReplayResult",
+                    Set.of("taskId", "executionEpoch", "approvalId", "requestId"),
+                    Set.of("replay_result_preserved", "tool_reset_skipped", "waiting_state_restored")
             )
     ));
 

@@ -37,7 +37,6 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
     private final List<Integer> candidateOrder;
     private final AiModelMetricsCollector metrics;
     private final IntConsumer beforeProviderAttempt;
-    private final IntConsumer successfulCandidate;
     private final FirstTokenHedgePolicy policy;
     private final ChatRequest request;
     private final ChatRequestOptions options;
@@ -61,7 +60,6 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
             List<Integer> candidateOrder,
             AiModelMetricsCollector metrics,
             IntConsumer beforeProviderAttempt,
-            IntConsumer successfulCandidate,
             FirstTokenHedgePolicy policy,
             ChatRequest request,
             ChatRequestOptions options,
@@ -73,7 +71,6 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
         this.candidateOrder = candidateOrder;
         this.metrics = metrics;
         this.beforeProviderAttempt = beforeProviderAttempt;
-        this.successfulCandidate = successfulCandidate;
         this.policy = policy;
         this.request = request;
         this.options = options;
@@ -349,7 +346,6 @@ final class HedgedStreamingExecution implements GenerationCancellationHandle {
             }
             terminal = true;
         }
-        successfulCandidate.accept(attempt.candidateIndex());
         downstream.onCompleteResponse(response);
     }
 

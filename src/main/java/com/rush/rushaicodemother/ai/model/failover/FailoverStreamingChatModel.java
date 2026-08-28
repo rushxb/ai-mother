@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntConsumer;
 
 /**
@@ -37,20 +36,18 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
     private final List<AiModelCandidate<StreamingChatModel>> candidates;
     private final AiModelMetricsCollector metrics;
     private final IntConsumer beforeProviderAttempt;
-    private final boolean stickyProvider;
     private final FirstTokenHedgePolicy firstTokenHedgePolicy;
     private final GenerationModelInvocationCancellationBridge cancellationBridge;
-    private final AtomicInteger preferredCandidateIndex = new AtomicInteger();
 
     public FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
                                       AiModelMetricsCollector metrics) {
-        this(candidates, metrics, ignored -> { }, false, FirstTokenHedgePolicy.disabled(), null);
+        this(candidates, metrics, ignored -> { }, FirstTokenHedgePolicy.disabled(), null);
     }
 
     public FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
                                       AiModelMetricsCollector metrics,
                                       GenerationModelInvocationCancellationBridge cancellationBridge) {
-        this(candidates, metrics, ignored -> { }, false,
+        this(candidates, metrics, ignored -> { },
                 FirstTokenHedgePolicy.disabled(), cancellationBridge);
     }
 
@@ -85,7 +82,7 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
             if (beforeProviderAttempt != null) {
                 beforeProviderAttempt.run();
             }
-        }, false, firstTokenHedgePolicy, cancellationBridge);
+        }, firstTokenHedgePolicy, cancellationBridge);
     }
 
     /** 将一次逻辑模型回合与其后续 provider 故障转移分别纳入预算。 */
@@ -129,14 +126,13 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
             if (admission != null) {
                 admission.run();
             }
-        }, true, firstTokenHedgePolicy, cancellationBridge);
+        }, firstTokenHedgePolicy, cancellationBridge);
     }
 
     /** 创建故障转移{@code Streaming}对话模型实例并完成必要的依赖和初始状态设置。 */
     private FailoverStreamingChatModel(List<AiModelCandidate<StreamingChatModel>> candidates,
                                        AiModelMetricsCollector metrics,
                                        IntConsumer beforeProviderAttempt,
-                                       boolean stickyProvider,
                                        FirstTokenHedgePolicy firstTokenHedgePolicy,
                                        GenerationModelInvocationCancellationBridge cancellationBridge) {
         if (candidates == null || candidates.isEmpty()) {
@@ -145,7 +141,6 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
         this.candidates = List.copyOf(candidates);
         this.metrics = metrics;
         this.beforeProviderAttempt = beforeProviderAttempt == null ? ignored -> { } : beforeProviderAttempt;
-        this.stickyProvider = stickyProvider;
         this.firstTokenHedgePolicy = firstTokenHedgePolicy == null
                 ? FirstTokenHedgePolicy.disabled()
                 : firstTokenHedgePolicy;
@@ -230,7 +225,6 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
                     candidateOrder,
                     metrics,
                     beforeProviderAttempt,
-                    this::promote,
                     firstTokenHedgePolicy,
                     request,
                     options,
@@ -413,7 +407,6 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
             public void onCompleteResponse(ChatResponse completeResponse) {
                 if (attempt.finish()
                         && state.terminal.compareAndSet(false, true)) {
-                    promote(candidateIndex);
                     state.downstream.onCompleteResponse(completeResponse);
                 }
             }
@@ -483,18 +476,11 @@ public final class FailoverStreamingChatModel implements StreamingChatModel {
     }
 
     private List<Integer> candidateOrder() {
-        int start = stickyProvider ? preferredCandidateIndex.get() : 0;
         List<Integer> order = new java.util.ArrayList<>(candidates.size());
-        for (int offset = 0; offset < candidates.size(); offset++) {
-            order.add((start + offset) % candidates.size());
+        for (int index = 0; index < candidates.size(); index++) {
+            order.add(index);
         }
         return List.copyOf(order);
-    }
-
-    private void promote(int candidateIndex) {
-        if (stickyProvider) {
-            preferredCandidateIndex.set(candidateIndex);
-        }
     }
 
     private static final class AttemptState {

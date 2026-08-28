@@ -50,6 +50,12 @@ public class GenerationBenchmarkReleaseProperties {
     public static final double MINIMUM_FIRST_PREVIEW_OBSERVATION_RATE = 1.0;
     public static final long MAXIMUM_AVERAGE_TOKENS = 250_000L;
     public static final long MAXIMUM_AVERAGE_CREDIT_COST = 10L;
+    /** 单任务物理调用不能突破最宽 HEAVY_EXPERT 的 provider 尝试预算。 */
+    public static final long MAXIMUM_PHYSICAL_MODEL_CALLS_PER_TASK =
+            GenerationSlaProperties.HEAVY_EXPERT_MAX_PROVIDER_FAILOVER_ATTEMPTS;
+    /** 按最低成功率折算失败任务成本后，每次成功交付最多允许的物理调用数。 */
+    public static final long MAXIMUM_PHYSICAL_MODEL_CALLS_PER_SUCCESSFUL_DELIVERY = 7L;
+    public static final double MAXIMUM_CAPACITY_FAILURE_RATE = 0.05;
 
     /** P99 首屏门禁沿用 HEAVY_EXPERT 路由的首屏 SLA 上限。 */
     public static final Duration MAXIMUM_P99_FIRST_PREVIEW_LATENCY =
@@ -160,6 +166,17 @@ public class GenerationBenchmarkReleaseProperties {
 
     @Min(1)
     private long maximumAverageCreditCost = MAXIMUM_AVERAGE_CREDIT_COST;
+
+    @Min(1)
+    private long maximumPhysicalModelCallsPerTask = MAXIMUM_PHYSICAL_MODEL_CALLS_PER_TASK;
+
+    @Min(1)
+    private long maximumPhysicalModelCallsPerSuccessfulDelivery =
+            MAXIMUM_PHYSICAL_MODEL_CALLS_PER_SUCCESSFUL_DELIVERY;
+
+    @DecimalMin("0.0")
+    @DecimalMax("1.0")
+    private double maximumCapacityFailureRate = MAXIMUM_CAPACITY_FAILURE_RATE;
 
     /**
      * 读取每次成功交付允许消耗的最大 token。

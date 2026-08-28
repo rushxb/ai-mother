@@ -60,7 +60,9 @@ public interface GenerationScenarioAttributionMapper {
                        task.repairRounds,
                        task.firstPreviewMillis,
                        task.durationMs,
+                       task.failureCategory,
                        COALESCE(model_cost.physicalCallCount, 0) AS physicalCallCount,
+                       COALESCE(model_cost.terminalCallCount, 0) AS terminalCallCount,
                        COALESCE(model_cost.costObservedCallCount, 0) AS costObservedCallCount,
                        COALESCE(model_cost.totalProviderTokens, 0) AS totalProviderTokens,
                        task.creditCost,
@@ -71,10 +73,13 @@ public interface GenerationScenarioAttributionMapper {
                 LEFT JOIN (
                     SELECT taskId,
                            COUNT(*) AS physicalCallCount,
+                           SUM(CASE WHEN callStatus IN ('SUCCESS', 'ERROR')
+                               THEN 1 ELSE 0 END) AS terminalCallCount,
                            SUM(CASE WHEN totalTokens IS NOT NULL THEN 1 ELSE 0 END) AS costObservedCallCount,
                            COALESCE(SUM(totalTokens), 0) AS totalProviderTokens
                     FROM generation_model_call
                     WHERE isDelete = 0
+                      AND invocationPurpose = 'GENERATION'
                     GROUP BY taskId
                 ) model_cost ON model_cost.taskId = task.taskId
                 WHERE task.isDelete = 0
@@ -140,7 +145,14 @@ public interface GenerationScenarioAttributionMapper {
                            AS providerCostObservedCount,
                        COALESCE(SUM(totalProviderTokens), 0) AS totalProviderTokens,
                        COUNT(creditCost) AS creditCostObservedCount,
-                       COALESCE(SUM(creditCost), 0) AS totalCreditCost
+                       COALESCE(SUM(creditCost), 0) AS totalCreditCost,
+                       SUM(CASE WHEN COALESCE(physicalCallCount, 0)
+                           = COALESCE(terminalCallCount, 0) THEN 1 ELSE 0 END)
+                           AS capacityObservedTaskCount,
+                       COALESCE(SUM(physicalCallCount), 0) AS totalPhysicalModelCalls,
+                       COALESCE(MAX(physicalCallCount), 0) AS maximumPhysicalModelCallsPerTask,
+                       SUM(CASE WHEN failureCategory = 'model_rate_limit'
+                           THEN 1 ELSE 0 END) AS capacityFailureCount
                 FROM scenario_task
                 GROUP BY intentSignature, profileVersion, decisionVersion, route, releaseIdentity
             )
@@ -154,7 +166,9 @@ public interface GenerationScenarioAttributionMapper {
                    bucket.deliveredObservedCount, bucket.averageDeliveredMs,
                    duration_p95.p95DeliveredMs,
                    bucket.providerCostObservedCount, bucket.totalProviderTokens,
-                   bucket.creditCostObservedCount, bucket.totalCreditCost
+                   bucket.creditCostObservedCount, bucket.totalCreditCost,
+                   bucket.capacityObservedTaskCount, bucket.totalPhysicalModelCalls,
+                   bucket.maximumPhysicalModelCallsPerTask, bucket.capacityFailureCount
             FROM bucket
             LEFT JOIN first_useful_p95 USING
                 (intentSignature, profileVersion, decisionVersion, route, releaseIdentity)

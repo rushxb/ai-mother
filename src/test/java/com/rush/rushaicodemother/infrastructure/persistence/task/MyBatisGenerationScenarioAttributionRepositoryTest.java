@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.mapper.GenerationScenarioBucketRow;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioAttribution;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketIdentity;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketSummary;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioCapacityMetrics;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioCostMetrics;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioLatencyMetrics;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioQualityMetrics;
@@ -87,7 +88,8 @@ class MyBatisGenerationScenarioAttributionRepositoryTest {
                 "b".repeat(64), 10L, 8L, 10L, 10L, 8L,
                 10L, 2L, 5L, 1L, 4.2,
                 10L, 1_000.0, 1_500L, 10L, 2_000.0, 3_000L,
-                10L, 9_000L, 10L, 40L);
+                10L, 9_000L, 10L, 40L,
+                10L, 12L, 2L, 1L);
         GenerationScenarioBucketSummary summary = new GenerationScenarioBucketSummary(
                 new GenerationScenarioBucketIdentity(
                         SIGNATURE, "intent-profile-v1", "routing-policy-v1", "agent_edit",
@@ -96,7 +98,8 @@ class MyBatisGenerationScenarioAttributionRepositoryTest {
                         10, 8, 10, 10, 8, 10, 2, 5, 1, 4.2),
                 new GenerationScenarioLatencyMetrics(
                         10, 1_000.0, 1_500L, 10, 2_000.0, 3_000L),
-                new GenerationScenarioCostMetrics(10, 9_000, 10, 40));
+                new GenerationScenarioCostMetrics(10, 9_000, 10, 40),
+                new GenerationScenarioCapacityMetrics(10, 12, 2, 1));
         LocalDateTime localFrom = LocalDateTime.ofInstant(FROM, ZoneId.systemDefault());
         LocalDateTime localTo = LocalDateTime.ofInstant(TO, ZoneId.systemDefault());
         when(mapper.summarize(SIGNATURE, localFrom, localTo, 20)).thenReturn(List.of(row));

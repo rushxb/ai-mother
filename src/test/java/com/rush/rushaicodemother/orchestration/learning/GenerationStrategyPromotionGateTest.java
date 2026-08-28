@@ -54,7 +54,8 @@ class GenerationStrategyPromotionGateTest {
                 identity(CANDIDATE_RELEASE),
                 new GenerationScenarioQualityMetrics(31, 31, 31, 30, 30, 30, 0, 5, 0, 4.8),
                 new GenerationScenarioLatencyMetrics(30, 2_000.0, 3_000L, 30, 8_000.0, 10_000L),
-                new GenerationScenarioCostMetrics(30, 200_000L, 30, 100L));
+                new GenerationScenarioCostMetrics(30, 200_000L, 30, 100L),
+                new GenerationScenarioCapacityMetrics(30, 31, 1, 0));
 
         GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
 
@@ -66,6 +67,7 @@ class GenerationStrategyPromotionGateTest {
         assertTrue(assessment.violations().contains("candidate_delivery_observation_incomplete"));
         assertTrue(assessment.violations().contains("candidate_provider_cost_observation_incomplete"));
         assertTrue(assessment.violations().contains("candidate_credit_cost_observation_incomplete"));
+        assertTrue(assessment.violations().contains("candidate_capacity_observation_incomplete"));
     }
 
     @Test
@@ -182,6 +184,57 @@ class GenerationStrategyPromotionGateTest {
                 "candidate_unit_success_cost_unavailable"));
     }
 
+    @Test
+    void physicalRequestAmplificationMustBlockPromotionEvenWhenOtherDimensionsImprove() {
+        GenerationScenarioBucketSummary baseline = withCapacity(summary(
+                BASELINE_RELEASE, 40, 38, 36, 2, 4.4, 4,
+                4_000L, 12_000L, 400_000L, 200L), 40, 40, 1, 0);
+        GenerationScenarioBucketSummary candidate = withCapacity(summary(
+                CANDIDATE_RELEASE, 40, 39, 37, 1, 4.6, 2,
+                3_500L, 11_000L, 390_000L, 190L), 40, 80, 2, 0);
+
+        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+
+        assertFalse(assessment.passed());
+        assertTrue(assessment.violations().contains(
+                "physical_model_calls_per_success_regressed"));
+    }
+
+    @Test
+    void singleTaskPhysicalCallSpikeMustNotBeHiddenByBucketAverage() {
+        GenerationScenarioBucketSummary baseline = withCapacity(summary(
+                BASELINE_RELEASE, 40, 38, 36, 2, 4.4, 4,
+                4_000L, 12_000L, 400_000L, 200L), 40, 40, 1, 0);
+        GenerationScenarioBucketSummary candidate = withCapacity(summary(
+                CANDIDATE_RELEASE, 40, 39, 37, 1, 4.6, 2,
+                3_500L, 11_000L, 390_000L, 190L), 40, 39, 7, 0);
+
+        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+
+        assertFalse(assessment.passed());
+        assertTrue(assessment.violations().contains(
+                "candidate_physical_model_calls_per_task_above_maximum"));
+    }
+
+    @Test
+    void incompleteCapacityLedgerAndExcessiveCapacityFailuresMustFailClosed() {
+        GenerationScenarioBucketSummary baseline = withCapacity(summary(
+                BASELINE_RELEASE, 40, 38, 36, 2, 4.4, 4,
+                4_000L, 12_000L, 400_000L, 200L), 40, 40, 1, 0);
+        GenerationScenarioBucketSummary candidate = withCapacity(summary(
+                CANDIDATE_RELEASE, 40, 39, 37, 1, 4.6, 2,
+                3_500L, 11_000L, 390_000L, 190L), 39, 40, 1, 3);
+
+        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+
+        assertFalse(assessment.passed());
+        assertTrue(assessment.violations().contains(
+                "candidate_capacity_observation_incomplete"));
+        assertTrue(assessment.violations().contains(
+                "candidate_capacity_failure_rate_above_maximum"));
+        assertTrue(assessment.violations().contains("capacity_failure_rate_regressed"));
+    }
+
     private GenerationStrategyPromotionGate gate() {
         return new GenerationStrategyPromotionGate(new GenerationBenchmarkReleaseProperties());
     }
@@ -206,7 +259,22 @@ class GenerationStrategyPromotionGateTest {
                         taskCount, (double) p95FirstUsefulMs / 2, p95FirstUsefulMs,
                         taskCount, (double) p95DeliveredMs / 2, p95DeliveredMs),
                 new GenerationScenarioCostMetrics(
-                        taskCount, totalProviderTokens, taskCount, totalCreditCost));
+                        taskCount, totalProviderTokens, taskCount, totalCreditCost),
+                new GenerationScenarioCapacityMetrics(
+                        taskCount, taskCount, taskCount == 0 ? 0 : 1, 0));
+    }
+
+    private GenerationScenarioBucketSummary withCapacity(
+            GenerationScenarioBucketSummary summary,
+            long observedTaskCount,
+            long totalPhysicalModelCalls,
+            long maximumPhysicalModelCallsPerTask,
+            long capacityFailureCount) {
+        return new GenerationScenarioBucketSummary(
+                summary.identity(), summary.quality(), summary.latency(), summary.cost(),
+                new GenerationScenarioCapacityMetrics(
+                        observedTaskCount, totalPhysicalModelCalls,
+                        maximumPhysicalModelCallsPerTask, capacityFailureCount));
     }
 
     private GenerationScenarioBucketIdentity identity(String releaseIdentity) {

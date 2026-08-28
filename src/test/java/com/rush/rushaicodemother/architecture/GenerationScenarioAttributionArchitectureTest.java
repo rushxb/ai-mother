@@ -64,10 +64,16 @@ class GenerationScenarioAttributionArchitectureTest {
         assertTrue(mapper.contains("AS creditCostObservedCount"));
         assertTrue(mapper.contains("FROM generation_model_call\n                    WHERE isDelete = 0"));
         assertTrue(mapper.contains("COUNT(*) AS physicalCallCount"));
+        assertTrue(mapper.contains("AS terminalCallCount"));
+        assertTrue(mapper.contains("invocationPurpose = 'GENERATION'"));
         assertTrue(mapper.contains(
                 "SUM(CASE WHEN totalTokens IS NOT NULL THEN 1 ELSE 0 END) AS costObservedCallCount"));
         assertTrue(mapper.contains("COALESCE(physicalCallCount, 0)"));
         assertTrue(mapper.contains("= COALESCE(costObservedCallCount, 0)"));
+        assertTrue(mapper.contains("AS capacityObservedTaskCount"));
+        assertTrue(mapper.contains("AS totalPhysicalModelCalls"));
+        assertTrue(mapper.contains("AS maximumPhysicalModelCallsPerTask"));
+        assertTrue(mapper.contains("AS capacityFailureCount"));
         assertFalse(mapper.contains("COUNT(totalTokens) AS providerCostObservedCount"));
         assertTrue(mapper.contains(
                 "GROUP BY intentSignature, profileVersion, decisionVersion, route, releaseIdentity"));

@@ -40,7 +40,8 @@ public record GenerationStrategyPromotionAssessmentVO(
             String releaseIdentity,
             QualityEvidenceVO quality,
             LatencyEvidenceVO latency,
-            CostEvidenceVO cost
+            CostEvidenceVO cost,
+            CapacityEvidenceVO capacity
     ) {
 
         private static StrategyEvidenceVO from(GenerationScenarioBucketSummary summary) {
@@ -87,7 +88,16 @@ public record GenerationStrategyPromotionAssessmentVO(
                             observationRate(summary.cost().creditCostObservedCount(), taskCount),
                             summary.cost().totalCreditCost(),
                             summary.cost().averageCreditCost(taskCount),
-                            economics.creditCostPerSuccessfulDelivery()));
+                            economics.creditCostPerSuccessfulDelivery()),
+                    new CapacityEvidenceVO(
+                            summary.capacity().observedTaskCount(),
+                            observationRate(summary.capacity().observedTaskCount(), taskCount),
+                            summary.capacity().totalPhysicalModelCalls(),
+                            summary.capacity().maximumPhysicalModelCallsPerTask(),
+                            summary.capacity().physicalModelCallsPerSuccessfulDelivery(
+                                    quality.successCount()),
+                            summary.capacity().capacityFailureCount(),
+                            summary.capacity().capacityFailureRate(taskCount)));
         }
     }
 
@@ -135,6 +145,18 @@ public record GenerationStrategyPromotionAssessmentVO(
             long totalCreditCost,
             double averageCreditCost,
             Double creditCostPerSuccessfulDelivery
+    ) {
+    }
+
+    /** failover、hedge 和重试实际消耗的物理模型请求容量。 */
+    public record CapacityEvidenceVO(
+            long observedTaskCount,
+            double observationRate,
+            long totalPhysicalModelCalls,
+            long maximumPhysicalModelCallsPerTask,
+            Double physicalModelCallsPerSuccessfulDelivery,
+            long capacityFailureCount,
+            double capacityFailureRate
     ) {
     }
 

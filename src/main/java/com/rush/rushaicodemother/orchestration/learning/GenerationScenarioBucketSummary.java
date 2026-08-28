@@ -9,7 +9,8 @@ public record GenerationScenarioBucketSummary(
         GenerationScenarioBucketIdentity identity,
         GenerationScenarioQualityMetrics quality,
         GenerationScenarioLatencyMetrics latency,
-        GenerationScenarioCostMetrics cost
+        GenerationScenarioCostMetrics cost,
+        GenerationScenarioCapacityMetrics capacity
 ) {
 
     public GenerationScenarioBucketSummary {
@@ -17,10 +18,13 @@ public record GenerationScenarioBucketSummary(
         Objects.requireNonNull(quality, "质量观测不能为空");
         Objects.requireNonNull(latency, "延迟观测不能为空");
         Objects.requireNonNull(cost, "成本观测不能为空");
+        Objects.requireNonNull(capacity, "容量观测不能为空");
         if (latency.firstUsefulObservedCount() > quality.taskCount()
                 || latency.deliveredObservedCount() > quality.taskCount()
                 || cost.providerCostObservedCount() > quality.taskCount()
-                || cost.creditCostObservedCount() > quality.taskCount()) {
+                || cost.creditCostObservedCount() > quality.taskCount()
+                || capacity.observedTaskCount() > quality.taskCount()
+                || capacity.capacityFailureCount() > quality.taskCount()) {
             throw new IllegalArgumentException("观测数不能超过任务数");
         }
     }

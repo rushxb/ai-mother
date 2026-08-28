@@ -246,7 +246,7 @@ class FailoverStreamingChatModelTest {
     }
 
     @Test
-    void taskScopedStreamingPoolMustStartTheNextTurnFromTheSuccessfulFallback() {
+    void taskScopedStreamingPoolMustRetryConfiguredPrimaryOnTheNextTurn() {
         StreamingChatModel primary = mock(StreamingChatModel.class);
         StreamingChatModel fallback = mock(StreamingChatModel.class);
         ChatResponse first = mock(ChatResponse.class);
@@ -276,14 +276,14 @@ class FailoverStreamingChatModelTest {
 
         assertSame(first, firstTurn.response);
         assertSame(second, secondTurn.response);
-        verify(primary, times(1)).chat(eq(request), any(StreamingChatResponseHandler.class));
+        verify(primary, times(2)).chat(eq(request), any(StreamingChatResponseHandler.class));
         verify(fallback, times(2)).chat(eq(request), any(StreamingChatResponseHandler.class));
         assertEquals(2, modelTurns.get());
-        assertEquals(1, providerFailovers.get());
+        assertEquals(2, providerFailovers.get());
     }
 
     @Test
-    void failedStickyStreamingFallbackMustWrapToARecoveredPrimary() {
+    void recoveredConfiguredStreamingPrimaryMustRemainFirstWithoutOnlinePromotion() {
         StreamingChatModel primary = mock(StreamingChatModel.class);
         StreamingChatModel fallback = mock(StreamingChatModel.class);
         ChatResponse fallbackResponse = mock(ChatResponse.class);
@@ -323,9 +323,9 @@ class FailoverStreamingChatModelTest {
         assertSame(fallbackResponse, firstTurn.response);
         assertSame(primaryResponse, secondTurn.response);
         verify(primary, times(2)).chat(eq(request), any(StreamingChatResponseHandler.class));
-        verify(fallback, times(2)).chat(eq(request), any(StreamingChatResponseHandler.class));
+        verify(fallback, times(1)).chat(eq(request), any(StreamingChatResponseHandler.class));
         assertEquals(2, modelTurns.get());
-        assertEquals(2, providerFailovers.get());
+        assertEquals(1, providerFailovers.get());
     }
 
     @Test

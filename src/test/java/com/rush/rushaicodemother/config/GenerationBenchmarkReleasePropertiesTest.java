@@ -2,6 +2,8 @@ package com.rush.rushaicodemother.config;
 
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaProperties;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -15,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class GenerationBenchmarkReleasePropertiesTest {
 
+    private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(GenerationBenchmarkReleaseProperties.class);
 
@@ -97,6 +100,25 @@ class GenerationBenchmarkReleasePropertiesTest {
         properties.setMaximumP99FirstTokenLatency(Duration.ofSeconds(14));
 
         assertFalse(properties.isDurationConfigurationValid());
+    }
+
+    @Test
+    void modelCapacityGateMustMatchRuntimeBudgetAndRejectInvalidLimits() {
+        GenerationBenchmarkReleaseProperties properties = new GenerationBenchmarkReleaseProperties();
+
+        assertEquals(GenerationSlaProperties.HEAVY_EXPERT_MAX_PROVIDER_FAILOVER_ATTEMPTS,
+                properties.getMaximumPhysicalModelCallsPerTask());
+        assertEquals(GenerationBenchmarkReleaseProperties
+                        .MAXIMUM_PHYSICAL_MODEL_CALLS_PER_SUCCESSFUL_DELIVERY,
+                properties.getMaximumPhysicalModelCallsPerSuccessfulDelivery());
+        assertTrue(validator.validate(properties).isEmpty());
+
+        properties.setMaximumPhysicalModelCallsPerTask(0);
+        assertFalse(validator.validate(properties).isEmpty());
+        properties.setMaximumPhysicalModelCallsPerTask(
+                GenerationBenchmarkReleaseProperties.MAXIMUM_PHYSICAL_MODEL_CALLS_PER_TASK);
+        properties.setMaximumCapacityFailureRate(1.01);
+        assertFalse(validator.validate(properties).isEmpty());
     }
 
     private Duration maximum(GenerationBenchmarkReleaseProperties properties,

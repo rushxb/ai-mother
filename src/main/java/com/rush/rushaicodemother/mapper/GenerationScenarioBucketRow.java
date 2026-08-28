@@ -26,6 +26,10 @@ public record GenerationScenarioBucketRow(
         Long providerCostObservedCount,
         Long totalProviderTokens,
         Long creditCostObservedCount,
-        Long totalCreditCost
+        Long totalCreditCost,
+        Long capacityObservedTaskCount,
+        Long totalPhysicalModelCalls,
+        Long maximumPhysicalModelCallsPerTask,
+        Long capacityFailureCount
 ) {
 }

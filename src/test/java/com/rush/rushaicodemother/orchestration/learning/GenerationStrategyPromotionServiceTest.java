@@ -99,6 +99,7 @@ class GenerationStrategyPromotionServiceTest {
                         40, successCount, 40, 40, 36, 40, 4, 10, 1, 4.5),
                 new GenerationScenarioLatencyMetrics(
                         40, 2_000.0, 4_000L, 40, 6_000.0, p95DeliveredMs),
-                new GenerationScenarioCostMetrics(40, totalTokens, 40, totalCredits));
+                new GenerationScenarioCostMetrics(40, totalTokens, 40, totalCredits),
+                new GenerationScenarioCapacityMetrics(40, successCount, 1, 0));
     }
 }

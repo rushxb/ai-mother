@@ -236,7 +236,7 @@ class FailoverChatModelTest {
     }
 
     @Test
-    void taskScopedPoolMustReuseTheSuccessfulFallbackOnTheNextModelTurn() {
+    void taskScopedPoolMustRetryConfiguredPrimaryOnTheNextModelTurn() {
         ChatModel primary = mock(ChatModel.class);
         ChatModel fallback = mock(ChatModel.class);
         ChatResponse first = mock(ChatResponse.class);
@@ -254,14 +254,14 @@ class FailoverChatModelTest {
         assertSame(first, model.chat(request));
         assertSame(second, model.chat(request));
 
-        verify(primary, times(1)).chat(request);
+        verify(primary, times(2)).chat(request);
         verify(fallback, times(2)).chat(request);
         assertEquals(2, modelTurns.get());
-        assertEquals(1, providerFailovers.get());
+        assertEquals(2, providerFailovers.get());
     }
 
     @Test
-    void failedStickyFallbackMustWrapToARecoveredPrimary() {
+    void recoveredConfiguredPrimaryMustRemainFirstWithoutOnlinePromotion() {
         ChatModel primary = mock(ChatModel.class);
         ChatModel fallback = mock(ChatModel.class);
         ChatResponse fallbackResponse = mock(ChatResponse.class);
@@ -284,9 +284,9 @@ class FailoverChatModelTest {
         assertSame(primaryResponse, model.chat(request));
 
         verify(primary, times(2)).chat(request);
-        verify(fallback, times(2)).chat(request);
+        verify(fallback, times(1)).chat(request);
         assertEquals(2, modelTurns.get());
-        assertEquals(2, providerFailovers.get());
+        assertEquals(1, providerFailovers.get());
     }
 
     private FailoverChatModel model(ChatModel primary, ChatModel fallback) {

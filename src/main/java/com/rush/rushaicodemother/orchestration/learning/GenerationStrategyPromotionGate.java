@@ -38,6 +38,7 @@ public class GenerationStrategyPromotionGate {
         assessRelativeQuality(baseline, candidate, violations);
         assessRelativeLatency(baseline, candidate, violations);
         assessRelativeCost(baseline, candidate, violations);
+        assessRelativeCapacity(baseline, candidate, violations);
         if (violations.isEmpty() && !hasObservedImprovement(baseline, candidate)) {
             violations.add("candidate_has_no_observed_improvement");
         }
@@ -88,6 +89,9 @@ public class GenerationStrategyPromotionGate {
         if (summary.cost().creditCostObservedCount() < quality.taskCount()) {
             violations.add(role + "_credit_cost_observation_incomplete");
         }
+        if (summary.capacity().observedTaskCount() < quality.taskCount()) {
+            violations.add(role + "_capacity_observation_incomplete");
+        }
     }
 
     private void assessAbsoluteCandidate(GenerationScenarioBucketSummary candidate,
@@ -120,6 +124,23 @@ public class GenerationStrategyPromotionGate {
                 && exceeds(economics.creditCostPerSuccessfulDelivery(),
                 releaseProperties.maximumCreditCostPerSuccessfulDelivery())) {
             violations.add("candidate_credit_cost_per_success_above_budget");
+        }
+        GenerationScenarioCapacityMetrics capacity = candidate.capacity();
+        if (capacity.maximumPhysicalModelCallsPerTask()
+                > releaseProperties.getMaximumPhysicalModelCallsPerTask()) {
+            violations.add("candidate_physical_model_calls_per_task_above_maximum");
+        }
+        Double callsPerSuccess = capacity.physicalModelCallsPerSuccessfulDelivery(
+                quality.successCount());
+        if (callsPerSuccess == null) {
+            violations.add("candidate_unit_success_capacity_unavailable");
+        } else if (callsPerSuccess
+                > releaseProperties.getMaximumPhysicalModelCallsPerSuccessfulDelivery()) {
+            violations.add("candidate_physical_model_calls_per_success_above_maximum");
+        }
+        if (capacity.capacityFailureRate(quality.taskCount())
+                > releaseProperties.getMaximumCapacityFailureRate()) {
+            violations.add("candidate_capacity_failure_rate_above_maximum");
         }
     }
 
@@ -178,6 +199,22 @@ public class GenerationStrategyPromotionGate {
         }
     }
 
+    private void assessRelativeCapacity(GenerationScenarioBucketSummary baseline,
+                                        GenerationScenarioBucketSummary candidate,
+                                        List<String> violations) {
+        Double baselineCalls = baseline.capacity().physicalModelCallsPerSuccessfulDelivery(
+                baseline.quality().successCount());
+        Double candidateCalls = candidate.capacity().physicalModelCallsPerSuccessfulDelivery(
+                candidate.quality().successCount());
+        if (greaterThan(candidateCalls, baselineCalls)) {
+            violations.add("physical_model_calls_per_success_regressed");
+        }
+        if (candidate.capacity().capacityFailureRate(candidate.quality().taskCount())
+                > baseline.capacity().capacityFailureRate(baseline.quality().taskCount())) {
+            violations.add("capacity_failure_rate_regressed");
+        }
+    }
+
     private boolean hasObservedImprovement(GenerationScenarioBucketSummary baseline,
                                            GenerationScenarioBucketSummary candidate) {
         GenerationScenarioQualityMetrics baseQuality = baseline.quality();
@@ -194,7 +231,13 @@ public class GenerationStrategyPromotionGate {
                 || lessThan(nextEconomics.providerTokensPerSuccessfulDelivery(),
                 baseEconomics.providerTokensPerSuccessfulDelivery())
                 || lessThan(nextEconomics.creditCostPerSuccessfulDelivery(),
-                baseEconomics.creditCostPerSuccessfulDelivery());
+                baseEconomics.creditCostPerSuccessfulDelivery())
+                || lessThan(candidate.capacity().physicalModelCallsPerSuccessfulDelivery(
+                        nextQuality.successCount()),
+                baseline.capacity().physicalModelCallsPerSuccessfulDelivery(
+                        baseQuality.successCount()))
+                || candidate.capacity().capacityFailureRate(nextQuality.taskCount())
+                < baseline.capacity().capacityFailureRate(baseQuality.taskCount());
     }
 
     private boolean greaterThan(Double candidate, Double baseline) {

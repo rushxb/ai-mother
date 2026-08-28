@@ -21,7 +21,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.IntConsumer;
 import java.util.function.LongSupplier;
@@ -38,19 +37,17 @@ public final class FailoverChatModel implements ChatModel {
     private final Duration totalTimeout;
     private final LongSupplier nanoTime;
     private final IntConsumer beforeProviderAttempt;
-    private final boolean stickyProvider;
-    private final AtomicInteger preferredCandidateIndex = new AtomicInteger();
 
     public FailoverChatModel(List<AiModelCandidate<ChatModel>> candidates,
                              AiModelMetricsCollector metrics) {
-        this(candidates, metrics, null, System::nanoTime, ignored -> { }, false);
+        this(candidates, metrics, null, System::nanoTime, ignored -> { });
     }
 
     /** 创建一个故障转移池，其中每个候选者共享一个挂钟预算。 */
     public FailoverChatModel(List<AiModelCandidate<ChatModel>> candidates,
                              AiModelMetricsCollector metrics,
                              Duration totalTimeout) {
-        this(candidates, metrics, totalTimeout, System::nanoTime, ignored -> { }, false);
+        this(candidates, metrics, totalTimeout, System::nanoTime, ignored -> { });
     }
 
     /** 将同步模型回合和 provider 故障转移使用独立预算约束。 */
@@ -66,14 +63,14 @@ public final class FailoverChatModel implements ChatModel {
             if (admission != null) {
                 admission.run();
             }
-        }, true);
+        });
     }
 
     FailoverChatModel(List<AiModelCandidate<ChatModel>> candidates,
                       AiModelMetricsCollector metrics,
                       Duration totalTimeout,
                       LongSupplier nanoTime) {
-        this(candidates, metrics, totalTimeout, nanoTime, ignored -> { }, false);
+        this(candidates, metrics, totalTimeout, nanoTime, ignored -> { });
     }
 
     /** 创建故障转移对话模型实例并完成必要的依赖和初始状态设置。 */
@@ -81,8 +78,7 @@ public final class FailoverChatModel implements ChatModel {
                               AiModelMetricsCollector metrics,
                               Duration totalTimeout,
                               LongSupplier nanoTime,
-                              IntConsumer beforeProviderAttempt,
-                              boolean stickyProvider) {
+                              IntConsumer beforeProviderAttempt) {
         if (candidates == null || candidates.isEmpty()) {
             throw new IllegalArgumentException("at least one chat model candidate is required");
         }
@@ -94,7 +90,6 @@ public final class FailoverChatModel implements ChatModel {
         this.totalTimeout = totalTimeout;
         this.nanoTime = java.util.Objects.requireNonNull(nanoTime, "nanoTime");
         this.beforeProviderAttempt = beforeProviderAttempt == null ? ignored -> { } : beforeProviderAttempt;
-        this.stickyProvider = stickyProvider;
     }
 
     /**
@@ -191,7 +186,6 @@ public final class FailoverChatModel implements ChatModel {
             if (deadlineReached(deadlineNanos)) {
                 throw timeout(failures);
             }
-            promote(candidateIndex);
             return response;
         }
         throw new IllegalStateException("chat model failover pool completed without a result");
@@ -265,18 +259,11 @@ public final class FailoverChatModel implements ChatModel {
     }
 
     private List<Integer> candidateOrder() {
-        int start = stickyProvider ? preferredCandidateIndex.get() : 0;
         List<Integer> order = new ArrayList<>(candidates.size());
-        for (int offset = 0; offset < candidates.size(); offset++) {
-            order.add((start + offset) % candidates.size());
+        for (int index = 0; index < candidates.size(); index++) {
+            order.add(index);
         }
         return order;
-    }
-
-    private void promote(int candidateIndex) {
-        if (stickyProvider) {
-            preferredCandidateIndex.set(candidateIndex);
-        }
     }
 
     /** 创建包含{@code Suppressed}的新对象。 */

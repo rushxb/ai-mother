@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.constant.UserConstant;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioAttributionRepository;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketIdentity;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketSummary;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioCapacityMetrics;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioCostMetrics;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioLatencyMetrics;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioQualityMetrics;
@@ -60,6 +61,9 @@ class GenerationStrategyPromotionControllerTest {
         assertEquals(9_750.0, response.getData().candidate().cost().averageProviderTokens());
         assertEquals(10_000.0,
                 response.getData().candidate().cost().providerTokensPerSuccessfulDelivery());
+        assertEquals(1.0,
+                response.getData().candidate().capacity().physicalModelCallsPerSuccessfulDelivery());
+        assertEquals(0.0, response.getData().candidate().capacity().capacityFailureRate());
     }
 
     @Test
@@ -88,6 +92,7 @@ class GenerationStrategyPromotionControllerTest {
                         40, 2_000.0, 4_000L, 40, 6_000.0, p95DeliveredMs),
                 new GenerationScenarioCostMetrics(
                         40, totalProviderTokens, 40,
-                        CANDIDATE_RELEASE.equals(releaseIdentity) ? 190 : 200));
+                        CANDIDATE_RELEASE.equals(releaseIdentity) ? 190 : 200),
+                new GenerationScenarioCapacityMetrics(40, successCount, 1, 0));
     }
 }

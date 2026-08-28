@@ -279,7 +279,7 @@ class FirstTokenHedgedStreamingChatModelTest {
     }
 
     @Test
-    void hedgeWinnerMustBecomeThePreferredCandidateForTheNextTurn() {
+    void hedgeWinnerMustNotChangeThePublishedCandidateOrderForTheNextTurn() {
         ManualHedgeScheduler scheduler = new ManualHedgeScheduler();
         ModelProbe primary = new ModelProbe();
         ModelProbe hedge = new ModelProbe();
@@ -301,8 +301,8 @@ class FirstTokenHedgedStreamingChatModelTest {
         hedge.complete(0, mock(ChatResponse.class));
         model.chat(request, secondTurn);
 
-        assertEquals(1, primary.calls.get());
-        assertEquals(2, hedge.calls.get());
+        assertEquals(2, primary.calls.get());
+        assertEquals(1, hedge.calls.get());
         assertEquals(2, modelTurns.get());
         assertEquals(1, failoverAdmissions.get());
         secondTurn.cancellation.get().cancel();

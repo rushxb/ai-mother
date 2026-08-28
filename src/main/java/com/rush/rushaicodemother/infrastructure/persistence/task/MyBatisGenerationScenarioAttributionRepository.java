@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioAttrib
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioAttributionRepository;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketIdentity;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketSummary;
+import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioCapacityMetrics;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioCostMetrics;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioLatencyMetrics;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioQualityMetrics;
@@ -75,7 +76,12 @@ public class MyBatisGenerationScenarioAttributionRepository
                         row.averageDeliveredMs(), row.p95DeliveredMs()),
                 new GenerationScenarioCostMetrics(
                         count(row.providerCostObservedCount()), count(row.totalProviderTokens()),
-                        count(row.creditCostObservedCount()), count(row.totalCreditCost())));
+                        count(row.creditCostObservedCount()), count(row.totalCreditCost())),
+                new GenerationScenarioCapacityMetrics(
+                        count(row.capacityObservedTaskCount()),
+                        count(row.totalPhysicalModelCalls()),
+                        count(row.maximumPhysicalModelCallsPerTask()),
+                        count(row.capacityFailureCount())));
     }
 
     private long count(Long value) {

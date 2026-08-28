@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.integration;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.config.GenerationEventStreamProperties;
 import com.rush.rushaicodemother.config.GenerationTaskQueueProperties;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
@@ -28,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("integration")
+@Tag(GenerationFailureMatrix.TAG)
 class RedisGenerationRuntimeIntegrationTest {
 
     private static final String REDIS_HOST = requiredProperty("integration.redis.host");

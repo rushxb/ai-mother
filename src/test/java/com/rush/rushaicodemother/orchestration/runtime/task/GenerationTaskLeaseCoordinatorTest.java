@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
@@ -16,6 +17,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.Generati
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskLeaseRenewal;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskSubmissionRecord;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -34,6 +36,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class GenerationTaskLeaseCoordinatorTest {
 
     private static final Instant NOW = Instant.parse("2026-07-16T02:00:00Z");

@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.workspace;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.config.ArtifactLifecycleProperties;
 import com.rush.rushaicodemother.config.CodeStorageProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
@@ -14,6 +15,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRuntimeLifecycleService;
 import com.rush.rushaicodemother.service.artifact.ArtifactPathMover;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -53,6 +55,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class GenerationWorkspacePublicationServiceTest {
 
     private static final Long APP_ID = 11L;

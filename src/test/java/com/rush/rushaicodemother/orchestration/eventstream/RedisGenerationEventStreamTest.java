@@ -1,10 +1,12 @@
 package com.rush.rushaicodemother.orchestration.eventstream;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import cn.hutool.json.JSONUtil;
 import com.rush.rushaicodemother.config.GenerationEventStreamProperties;
 import com.rush.rushaicodemother.core.handler.GenerationStreamEvent;
 import com.rush.rushaicodemother.monitor.GenerationEventStreamMetricsCollector;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.connection.stream.MapRecord;
@@ -31,6 +33,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class RedisGenerationEventStreamTest {
 
     @Test

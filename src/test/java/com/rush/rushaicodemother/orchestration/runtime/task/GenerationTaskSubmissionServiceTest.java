@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.model.entity.App;
@@ -62,6 +63,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class GenerationTaskSubmissionServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-07-17T02:00:00Z");

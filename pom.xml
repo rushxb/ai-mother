@@ -85,6 +85,12 @@
                 <includedGroups>generation-release-smoke</includedGroups>
             </properties>
         </profile>
+        <profile>
+            <id>generation-failure-matrix</id>
+            <properties>
+                <includedGroups>generation-failure-matrix</includedGroups>
+            </properties>
+        </profile>
     </profiles>
     <dependencies>
         <dependency>

@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.service.impl;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.UserCreditTransactionType;
@@ -15,6 +16,7 @@ import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.Cre
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.GenerationCreditTask;
 import com.rush.rushaicodemother.service.credit.UserCreditPersistenceService.NewCreditTransaction;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -30,6 +32,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class UserCreditServiceImplTest {
 
     private static final String REQUEST_ID = "550e8400-e29b-41d4-a716-446655440000";

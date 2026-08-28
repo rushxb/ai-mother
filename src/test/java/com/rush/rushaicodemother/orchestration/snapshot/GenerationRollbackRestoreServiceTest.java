@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.snapshot;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import cn.hutool.core.io.FileUtil;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemException;
 import com.rush.rushaicodemother.infrastructure.filesystem.WorkspaceFileSystemService;
@@ -12,6 +13,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskFenceGuard;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -34,6 +36,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class GenerationRollbackRestoreServiceTest {
 
     @Test

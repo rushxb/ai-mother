@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.decision;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.config.AiModelRuntimeProperties;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
@@ -32,6 +33,7 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskAdmissionService;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
@@ -56,6 +58,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class GenerationScenarioPreflightTest {
 
     private static final Instant NOW = Instant.parse("2026-08-15T01:00:00Z");

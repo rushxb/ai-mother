@@ -1,7 +1,9 @@
 package com.rush.rushaicodemother.orchestration.workspace;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.config.ArtifactLifecycleProperties;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -16,6 +18,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class GenerationWorkspacePublicationReconcilerTest {
 
     private static final Instant NOW = Instant.parse("2026-07-20T07:00:00Z");

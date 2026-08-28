@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.runtime.task.queue;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.config.GenerationTaskQueueProperties;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
@@ -8,6 +9,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskDispat
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -30,6 +32,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class RedisGenerationTaskQueueWorkerTest {
 
     private static final Instant NOW = Instant.parse("2026-07-17T03:00:00Z");

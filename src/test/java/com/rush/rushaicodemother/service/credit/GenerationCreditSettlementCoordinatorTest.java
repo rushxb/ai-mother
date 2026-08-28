@@ -1,8 +1,10 @@
 package com.rush.rushaicodemother.service.credit;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.config.UserCreditProperties;
 import com.rush.rushaicodemother.service.UserCreditService;
 import com.rush.rushaicodemother.service.trace.GenerationModelInvocationRecoveryService;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,6 +20,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class GenerationCreditSettlementCoordinatorTest {
 
     @Test

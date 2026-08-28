@@ -1,11 +1,13 @@
 package com.rush.rushaicodemother.orchestration.finalization;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationExecutionWorkspaceService;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationProvisionalPreviewLifecycle;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -23,6 +25,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class GenerationTerminalEffectServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-08-12T06:00:00Z");

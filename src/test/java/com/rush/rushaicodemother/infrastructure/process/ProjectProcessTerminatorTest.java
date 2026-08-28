@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.infrastructure.process;
 
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedReader;
@@ -16,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@Tag(GenerationFailureMatrix.TAG)
 class ProjectProcessTerminatorTest {
 
     private final ProjectProcessTerminator terminator = new ProjectProcessTerminator(Duration.ofMillis(200));

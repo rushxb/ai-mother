@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
 import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
+import com.rush.rushaicodemother.testing.GenerationFailureEvidence;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.router.ExpectedValidationLevel;
@@ -89,8 +90,10 @@ class GenerationTaskLeaseCoordinatorTest {
     }
 
     @Test
+    @GenerationFailureEvidence("cancellation_queued_activation_fenced")
     void cancelledQueuedTaskMustCancelLocalContextInsteadOfStartingWork() {
         GenerationTaskLease lease = reserve("task-cancelled", 2L);
+        assertEquals(2L, lease.executionEpoch());
         when(repository.activate(lease, NOW, NOW.plusSeconds(30))).thenReturn(false);
         when(repository.findByTaskId("task-cancelled")).thenReturn(Optional.of(record(
                 "task-cancelled", GenerationTaskStatus.QUEUED, true, "user_requested")));
@@ -113,9 +116,12 @@ class GenerationTaskLeaseCoordinatorTest {
     }
 
     @Test
+    @GenerationFailureEvidence("cancellation_heartbeat_propagated")
     void heartbeatMustPropagateCancellationAndDropLostLease() {
         GenerationTaskLease cancelLease = reserve("task-cancel", 3L);
         GenerationTaskLease lostLease = reserve("task-lost", 6L);
+        assertEquals(3L, cancelLease.executionEpoch());
+        assertEquals(6L, lostLease.executionEpoch());
         when(repository.renewLease(cancelLease, NOW, NOW.plusSeconds(30)))
                 .thenReturn(GenerationTaskLeaseRenewal.renewed(
                         cancelLease.renewedUntil(NOW.plusSeconds(30)), true, "operator_cancelled"));

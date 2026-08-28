@@ -501,6 +501,7 @@
 - 使用 JDK 21 执行整个 `orchestration/benchmark` 测试包：173 tests、0 failure、0 error、0 skipped；该结果仅属于 E2，未运行真实模型、真实浏览器或容器故障基线。
 - 本轮未调整 Prompt、模型池、规划 DAG 或路由阈值；历史 `buildPassRate` 字段仍是兼容报告口径，READ_ONLY 的有效性由 FUNCTIONAL/DIFF_SCOPE/SECURITY 证据评估，不表示执行了构建。
 - `3035dc4` 修复了显式取消被 Preflight 局部降级吞掉的问题；`626bada` 建立统一故障矩阵入口，`a5714d4` 将快照篡改场景纳入矩阵，本地 E2 执行 104 tests、0 failure、0 error、0 skipped。
+- 在干净的 detached `f431dac` 工作树上使用 JDK 21 执行默认 `./mvnw.cmd test`：774 reports、3430 tests、0 failure、0 error、42 skipped；该结果不包含主工作树并行 WIP，也不包含默认关闭的 `generation-browser-smoke` 集成 profile。
 
 ### 11.3 P0-5 真实环境局部证据
 

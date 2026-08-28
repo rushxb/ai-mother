@@ -167,7 +167,7 @@
 | 成本/容量 | ✅ E1-E3 / 🟡 E4-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算、管理员只读控制面、终态结算幂等矩阵、双实例公平补投与预算串行化 | 待真实 Redis 重复投递/进程故障、Provider 成本和生产规模长稳压测 |
 | Benchmark/学习 | ✅ E2 样本 / 🟡 E3-E5 | v3.5 Dataset 共 59 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件、部分读取、Vue→Full Stack 升级与 Fallback 已有确定性评分；取消、审批、恢复和发布故障均有绑定持久身份与可执行测试的 E2 样本；真实 Selenium 探针已有独立 E3 smoke | 尚缺真实模型、端到端浏览器、Backend/Full Stack 基线、真实故障注入与线上关联 |
 | 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
-| 安全/应用治理 | ✅ 基础 / 🟡 E3-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界 | 需端到端 RBAC/所有权矩阵、威胁模型、审计事件、租户操作型/应用控制面和真实攻防验收 |
+| 安全/应用治理 | ✅ 基础 / 🟡 E3-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界、生成控制面 RBAC/所有权矩阵 | 需威胁模型、可保留/删除的审计事件、真实攻防、多实例和生产运维验收 |
 
 ### 6.1 已进入 Git 历史、可以保留的方向
 
@@ -373,7 +373,7 @@
 - [x] ✅ 对任务恢复、Provider 重试、取消、Deadline、发布后终态恢复建立账实一致测试，重复扣费为 0。
 - [x] ✅ 在跨实例压测中证明租户公平、无饥饿、锁顺序稳定和额度不超发；指标禁止直接使用 tenantId 高基数标签。
 - [x] ✅ 建立应用级控制：暂停生成、最大并发、模型策略、网络/依赖权限、预算上限、危险工具策略和紧急 kill switch。
-- [ ] 建立控制面 RBAC/所有权矩阵，覆盖提交、查询、取消、审批、恢复、终态重放、Benchmark、模型配置和应用删除。
+- [x] ✅ 建立控制面 RBAC/所有权矩阵，覆盖提交、查询、取消、审批、恢复、终态重放、Benchmark、模型配置和应用删除。
 - [ ] 形成威胁模型与审计事件：谁在何时对哪个 app/task 执行了什么受控操作、结果如何；日志必须脱敏且可保留/删除。
 - [ ] 模型 failover、hedge、降级和路由学习必须同时通过质量、尾延迟、Provider 成本、用户积分和容量门禁。
 
@@ -621,6 +621,16 @@
 - 在干净 detached `2039b3c` 工作树使用 JDK 21 执行默认 `.\mvnw.cmd test`：790 reports、3497 tests、0 failure、0 error、42 skipped。使用 MySQL Community Server `8.0.38` 和正式 `integration-test` profile 执行迁移、应用控制、预算并发、账实一致、租户公平、交付回执和租户控制面：7 tests、0 failure、0 error、0 skipped；45 条迁移资源校验通过，baseline 后 33 条迁移应用到 `20260828.4`，所有专用数据库在测试结束后删除。
 - 本轮闭合第 375 项的确定性 E2 与单 MySQL/双连接池 E3；本机仍无 Redis Server/CLI，且未配置真实模型凭据，因此 kill switch 的 Redis 跨实例传播、运行中真实 Provider 取消、真实依赖 registry 中断和生产长稳压测仍不能据此宣称完成。
 
+### 11.11 生成控制面 RBAC 与所有权矩阵证据
+
+- 2026-08-28 提交 `8e15c0c`：以 `GenerationControlPermission` 建立单一权威矩阵，同时声明资源范围、最低租户角色、操作主体规则和 HTTP/内部暴露方式，不在 Controller 中重复写死角色数值。
+- 矩阵固定九类受控操作：提交为应用级 `DEVELOPER`；查询为任务级 `VIEWER`；取消为任务级 `DEVELOPER`；危险工具审批必须同时是任务原始提交人且当前仍具有 `DEVELOPER`；自动恢复只属于内部系统；终态重放、Benchmark 管理和模型配置只属于平台管理员；应用删除属于租户 `ADMIN` 或平台管理员。
+- `GenerationControlAccess` 把现代任务接口、旧版生成/SSE 入口、终态重放、Benchmark、模型配置和应用删除绑定到矩阵；架构测试要求每个公开权限都有入口、平台入口同时具有 `AuthCheck(admin)`，并禁止为自动恢复增加 Controller 暴露。
+- 租户资源的真实授权仍在服务层按 app/task 持久归属校验；平台管理员不能绕过租户成员关系提交任务。通用应用策略会失败关闭任务提交人类权限，工具审批服务直接校验任务 `userId + tenantId + 当前角色`，修复了提交人被降权后仍可审批危险工具的缺口。
+- 旧版 SSE 订阅改为与现代查询接口一致的 `VIEWER`，旧版取消使用 `DEVELOPER`；其他代码/数据库管理能力仍保持原有所有权策略，未借本轮扩大访问面。
+- 在干净 detached `8e15c0c` 工作树使用 JDK 21 执行默认 `.\mvnw.cmd test`：792 reports、3506 tests、0 failure、0 error、42 skipped。使用 MySQL Community Server `8.0.38` 和正式 `integration-test` profile 执行危险工具审批持久化测试：1 test、0 failure、0 error、0 skipped，专用数据库由测试清理。
+- 本轮闭合第 376 项的确定性 E2 与单 MySQL 审批持久化 E3；威胁模型、受控操作审计事件、真实多实例越权/降权攻防和日志保留/删除仍由第 377 项验收。
+
 ## 12. 推荐执行顺序
 
 ### 第一阶段：事实正确性
@@ -701,4 +711,4 @@
 
 ---
 
-最后更新：2026-08-28。下一轮推进控制面 RBAC/所有权矩阵、审计事件、真实 Redis、多 Worker、模型、Backend、Full Stack 和跨平台 E3-E5 验收。
+最后更新：2026-08-28。下一轮推进威胁模型与受控操作审计事件、真实 Redis、多 Worker、模型、Backend、Full Stack 和跨平台 E3-E5 验收。

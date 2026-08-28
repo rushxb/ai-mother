@@ -164,7 +164,7 @@
 | 工作区 Trust/Sandbox | ✅ E1-E2 / 🟡 E3-E5 | 控制文件、生命周期脚本、依赖源、锁文件、环境、网络、registry egress、Repository Context Trust 与执行前复核 | 统一代码边界已落地；真实恶意仓库、OS 资源上限和攻击演练待补 |
 | 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt；E2 故障矩阵已统一 | 缺真实 kill/DB/Redis/磁盘/移动窗口 E3 证据；刷新后终态仍过度泛化 |
 | 快照/回滚 | ✅ P0 代码闭环 / 🟡 跨平台补证 | UUID 自包含 bundle、Manifest/provenance/tree hash、v2 制品、统一消费者与恢复前 fail-closed；Manifest/树篡改已纳入 E2 矩阵 | 当前 Windows 有 3 项 symlink 测试因权限跳过，仍需支持环境的跨平台补证 |
-| 成本/容量 | ✅ E1-E3 / 🟡 E4-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算、管理员只读控制面 | 缺跨实例公平压测、额度超发与重复扣费故障注入 |
+| 成本/容量 | ✅ E1-E3 / 🟡 E4-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算、管理员只读控制面、终态结算幂等矩阵 | 缺跨实例公平压测与额度超发故障注入 |
 | Benchmark/学习 | ✅ E2 样本 / 🟡 E3-E5 | v3.5 Dataset 共 59 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件、部分读取、Vue→Full Stack 升级与 Fallback 已有确定性评分；取消、审批、恢复和发布故障均有绑定持久身份与可执行测试的 E2 样本；真实 Selenium 探针已有独立 E3 smoke | 尚缺真实模型、端到端浏览器、Backend/Full Stack 基线、真实故障注入与线上关联 |
 | 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
 | 安全/应用治理 | ✅ 基础 / 🟡 E3-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界 | 需端到端 RBAC/所有权矩阵、威胁模型、审计事件、租户操作型/应用控制面和真实攻防验收 |
@@ -370,7 +370,7 @@
 - [x] ✅ 应用生成中删除、版本化制品和端口清理已有门禁与清理路径。
 - [x] ✅ **P1** 提交回执展示预计积分区间/最大冻结额；运行中展示预算消耗；终态展示实际扣费、退还或免除原因。
 - [x] ✅ **P1** 建立租户管理员只读控制面：月预算、剩余额度、排队、按场景单位成功成本和拒绝原因；普通成员不得查看全租户成本。
-- [ ] 对任务恢复、Provider 重试、取消、Deadline、发布后终态恢复建立账实一致测试，重复扣费为 0。
+- [x] ✅ 对任务恢复、Provider 重试、取消、Deadline、发布后终态恢复建立账实一致测试，重复扣费为 0。
 - [ ] 在跨实例压测中证明租户公平、无饥饿、锁顺序稳定和额度不超发；指标禁止直接使用 tenantId 高基数标签。
 - [ ] 建立应用级控制：暂停生成、最大并发、模型策略、网络/依赖权限、预算上限、危险工具策略和紧急 kill switch。
 - [ ] 建立控制面 RBAC/所有权矩阵，覆盖提交、查询、取消、审批、恢复、终态重放、Benchmark、模型配置和应用删除。
@@ -575,7 +575,7 @@
 - 使用 JDK 21 执行成本、准入、幂等、状态、控制器、终态事件和积分结算相关回归：164 tests、0 failure、0 error、0 skipped；随后新增账本冲突 fail-closed 与成本投影故障不遮蔽任务状态测试，2 项均进入提交态默认全量回归。
 - 使用本机 MySQL Community Server `8.0.38` 执行 `GenerationDeliveryReceiptMySqlIntegrationTest`：1 test、0 failure、0 error、0 skipped；实际校验 43 条迁移资源并从 baseline 后应用 31 条到 `20260828.2`，验证冻结 5、运行中暂估 2、Provider 超时免除 20000 Token、终态实际扣 2 和退还 3。专用库 `ai_mother_delivery_receipt_it` 在测试结束后删除。
 - 在干净 detached `6dec4d0` 工作树执行默认 `.\mvnw.cmd test`：3475 tests、0 failure、0 error、42 skipped；该结果不包含主工作树并行 WIP，也不包含默认关闭的真实 Redis、真实模型和浏览器集成 profile。
-- 本轮闭合单任务成本解释的 E2 与单 MySQL 实例 E3；真实 Redis、多 Worker、Provider 实际响应、额度超发和重复扣费故障注入仍按第 373 至 374 项继续验收。
+- 本轮闭合单任务成本解释的 E2 与单 MySQL 实例 E3；真实 Redis、多 Worker、Provider 实际响应、跨实例公平和额度超发故障注入仍按第 374 项继续验收。
 
 ### 11.7 P1 租户管理员只读控制面证据
 
@@ -586,7 +586,18 @@
 - “拒绝原因”明确表示当前观察时点的任务容量、Heavy 容量和月预算阻断项；在历史拒绝事件尚未持久化前不伪造拒绝次数。公共响应不包含 taskId、userId、模型原文、路径或高基数诊断标签。
 - 使用 JDK 21 执行控制面、租户准入、租户授权和任务接口相关回归：33 tests、0 failure、0 error、0 skipped；使用本机 MySQL Community Server `8.0.38` 执行 `TenantGenerationControlPlaneMySqlIntegrationTest`：1 test、0 failure、0 error、0 skipped，并验证旧月成本排除、预算消耗 9、三类非终态排队、Heavy 场景 `3 settled / 2 success / 9 credits / 4.50 unit cost` 和普通成员拒绝。专用库 `ai_mother_tenant_control_plane_it` 在测试结束后删除。
 - 在干净 detached `48f5fba` 工作树执行默认 `.\mvnw.cmd test`：3484 tests、0 failure、0 error、42 skipped；该结果不包含主工作树并行 WIP，也不包含默认关闭的真实 Redis、真实模型和浏览器集成 profile。
-- 本轮闭合租户管理员只读成本与排队视图的 E2、单 MySQL 实例 E3；历史拒绝审计、跨实例公平、额度不超发、重复扣费故障注入和应用级控制仍由后续清单项验收。
+- 本轮闭合租户管理员只读成本与排队视图的 E2、单 MySQL 实例 E3；历史拒绝审计、跨实例公平、额度不超发和应用级控制仍由后续清单项验收。
+
+### 11.8 终态结算账实一致证据
+
+- 2026-08-28 提交 `9c27556`：新增 `GenerationCreditConsistencyMySqlIntegrationTest`，使用 Spring 管理的真实数据库事务和 MyBatis `SqlSessionTemplate` 运行结算服务，不用 Mock 代替任务行锁、账户锁、唯一键或提交语义。
+- 任务恢复场景预置“结算流水已提交、任务 `creditCharged` 标记缺失”的恢复窗口；重复恢复只补齐任务积分和 Token 字段，不再次修改账户余额，也不新增第二条流水。
+- Provider 重试场景记录一次 `model_timeout` 和一次成功物理调用，并让两个独立事务同时结算同一终态；任务行 `FOR UPDATE` 完成串行化，超时 Token 保留为减免事实，成功 Token 只计费一次。
+- 取消、Deadline 与发布后终态恢复分别验证全额退还、按已成功 Provider 用量结算，以及 `publicationStatus=committed` 后的独立积分收口；每个场景均再次重放结算入口。
+- 五类任务最终保持 `5 GENERATION_RESERVATION + 5 GENERATION_SETTLEMENT + 0 GENERATION_CHARGE`，每个 `(type, taskId)` 仅一条流水，任务字段、用户余额与流水差额逐项一致，重复扣费为 0。
+- 使用 JDK 21 执行积分服务、持久边界、成本投影和结算协调器相关回归：59 tests、0 failure、0 error、0 skipped；在干净 detached `9c27556` 工作树使用正式 `integration-test` profile 运行 MySQL Community Server `8.0.38` 集成：1 test、0 failure、0 error、0 skipped，43 条迁移校验通过并应用 baseline 后 31 条迁移到 `20260828.2`。专用库 `ai_mother_credit_consistency_it` 在测试结束后删除。
+- 在同一干净提交态执行默认 `.\mvnw.cmd test`：3484 tests、0 failure、0 error、42 skipped；默认回归会编译但不执行带 `integration` 标签的真实数据库方法，真实 MySQL 结果以上一条显式 profile 报告为准。
+- 本轮闭合第 373 项单 MySQL 事务与并发连接级 E3；真实 Redis 多 Worker 公平、长期无饥饿和额度不超发仍需第 374 项的外部环境与压力证据。
 
 ## 12. 推荐执行顺序
 

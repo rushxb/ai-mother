@@ -152,7 +152,7 @@
 
 ## 6. 当前完成面与审计结论
 
-从 `53d0657` 到当前基线共有 130 个生成链路相关提交。它们证明项目已从“单条生成流程”发展成有场景、能力、工作区安全、持久任务、验证、发布和评测边界的系统；但提交数量不等于链路已经验收完成。
+从 `53d0657` 到代码基线 `d33f6eb` 共有 155 个提交。它们证明项目已从“单条生成流程”发展成有场景、能力、工作区安全、持久任务、验证、发布和评测边界的系统；但提交数量不等于链路已经验收完成。
 
 | 领域 | 当前状态 | 已有基础 | 仍未闭环的核心问题 |
 |---|---|---|---|
@@ -165,7 +165,7 @@
 | 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt；E2 故障矩阵已统一 | 缺真实 kill/DB/Redis/磁盘/移动窗口 E3 证据；刷新后终态仍过度泛化 |
 | 快照/回滚 | ✅ P0 代码闭环 / 🟡 跨平台补证 | UUID 自包含 bundle、Manifest/provenance/tree hash、v2 制品、统一消费者与恢复前 fail-closed；Manifest/树篡改已纳入 E2 矩阵 | 当前 Windows 有 3 项 symlink 测试因权限跳过，仍需支持环境的跨平台补证 |
 | 成本/容量 | ✅ E1-E2 / 🟡 E3-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算 | 用户看不到预计上限、实际扣费和退还；缺跨实例公平压测和租户管理员视图 |
-| Benchmark/学习 | 🚧 E2 / 🟡 E3-E5 | v3.3 Dataset 已扩充为 58 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件与部分读取样本已有确定性响应评分；真实 Selenium 探针已有独立 E3 smoke | 尚缺跨类型升级、Fallback、取消、审批、恢复和发布 Benchmark 样本，以及真实模型、端到端浏览器、Backend/Full Stack 基线与线上关联 |
+| Benchmark/学习 | 🚧 E2 / 🟡 E3-E5 | v3.4 Dataset 已扩充为 59 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件、部分读取与 Vue→Full Stack 跨类型升级已有确定性评分；真实 Selenium 探针已有独立 E3 smoke | 尚缺 Fallback、取消、审批、恢复和发布 Benchmark 样本，以及真实模型、端到端浏览器、Backend/Full Stack 基线与线上关联 |
 | 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
 | 安全/应用治理 | ✅ 基础 / 🟡 E3-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界 | 需端到端 RBAC/所有权矩阵、威胁模型、审计事件、租户/应用控制面和真实攻防验收 |
 
@@ -389,7 +389,8 @@
 - [x] ✅ NO_PLAN/COMPACT_PLAN/CURRENT_DAG 消融基础设施已存在。
 - [x] ✅ E2 **P0** 扩充能力矩阵数据：CREATE、READ_ONLY、LIGHT、AGENT、HEAVY，以及 HTML/MULTI_FILE 的支持合同。
 - [x] ✅ 每个已声明的 route × 工程类型矩阵单元至少 3 个确定性 Fixture；高风险路由已有至少 10 个中文表达变体与负例。
-- [ ] 空项目 PLAN、仓库 AUDIT、提示注入、秘密文件与部分读取已有样本；待补跨类型升级、Fallback、取消、审批、恢复和发布故障样本。
+- [x] ✅ 空项目 PLAN、仓库 AUDIT、提示注入、秘密文件、部分读取与 Vue→Full Stack 跨类型升级已有确定性样本。
+- [ ] 补齐 Fallback、取消、审批、恢复和发布故障样本；每类样本必须绑定可持久恢复的执行身份和可判定断言。
 - [ ] 运行真实模型、真实浏览器、Backend/Full Stack，并保留候选、数据、环境和报告身份；Mock 结果不进入晋级。
 - [ ] 运行规划层三组同源消融，在质量不降的前提下比较准备耗时、总耗时、Token、工具轮次和成功成本；报告前暂停删除/增加节点。
 - [ ] 建立离线与在线关联：Benchmark 维度必须能解释生产失败、返工和低评分，否则删除无价值指标。
@@ -502,6 +503,11 @@
 - 本轮未调整 Prompt、模型池、规划 DAG 或路由阈值；历史 `buildPassRate` 字段仍是兼容报告口径，READ_ONLY 的有效性由 FUNCTIONAL/DIFF_SCOPE/SECURITY 证据评估，不表示执行了构建。
 - `3035dc4` 修复了显式取消被 Preflight 局部降级吞掉的问题；`626bada` 建立统一故障矩阵入口，`a5714d4` 将快照篡改场景纳入矩阵，本地 E2 执行 104 tests、0 failure、0 error、0 skipped。
 - 在干净的 detached `f431dac` 工作树上使用 JDK 21 执行默认 `./mvnw.cmd test`：774 reports、3430 tests、0 failure、0 error、42 skipped；该结果不包含主工作树并行 WIP，也不包含默认关闭的 `generation-browser-smoke` 集成 profile。
+- 2026-08-28 提交 `d33f6eb`：Dataset 升级到 v3.4、59 条，新增 Vue→Full Stack 升级样本；Benchmark 以持久任务命令中的目标工程类型解析发布目录，以 `appId + source type + target type` 作为逻辑工作区身份，允许同一应用的版本化物理目录变化，同时拒绝跨应用或意外类型比较。
+- 跨类型升级使用独立 DIFF_SCOPE 规则验证源契约保留和目标布局产出，不复用同类型小范围编辑的文件数量约束；旧数据未声明 `sourceCodeGenType` 时默认与目标类型一致，保持向后兼容。
+- 使用 JDK 21 执行 Benchmark 与相关架构测试：45 reports、185 tests、0 failure、0 error、0 skipped；统一故障矩阵仍为 104 tests、0 failure、0 error、0 skipped。
+- 在干净的 detached `d33f6eb` 工作树上使用 JDK 21 执行默认 `.\mvnw.cmd test`：777 reports、3439 tests、0 failure、0 error、42 skipped；该结果不包含主工作树并行 WIP，也不包含默认关闭的 `generation-browser-smoke` 集成 profile。
+- 上述结果只证明确定性 E2 评测事实链可判定；本轮未修改生产执行工作区的跨类型源目录种子语义，因此不能据此宣称真实模型迁移成功或源工程内容已在生产链路保留，仍需在 E4 样本中验证。
 
 ### 11.3 P0-5 真实环境局部证据
 
@@ -589,4 +595,4 @@
 
 ---
 
-最后更新：2026-08-28。下一轮继续 P0-5，补齐 Benchmark 故障样本，并执行真实 Redis、浏览器、Backend、Full Stack 和跨平台 E3-E5 验收。
+最后更新：2026-08-28。下一轮继续 P0-5，补齐 Fallback、取消、审批、恢复和发布 Benchmark 故障样本，并执行真实 Redis、模型、Backend、Full Stack 和跨平台 E3-E5 验收。

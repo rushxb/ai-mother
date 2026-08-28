@@ -799,6 +799,7 @@ public class MyBatisDurableGenerationTaskRepository implements DurableGeneration
                 toInstant(entity.getSubmittedAt()), toInstant(entity.getDeadlineAt()),
                 Integer.valueOf(1).equals(entity.getCancellationRequested()), entity.getCancellationReason(),
                 entity.getLeaseOwner(), toInstant(entity.getLeaseUntil()), toInstant(entity.getHeartbeatAt()),
+                entity.getExecutionEpoch() == null ? 0L : entity.getExecutionEpoch(),
                 entity.getAttempt() == null ? 0 : entity.getAttempt(), entity.getVersion() == null ? 0L : entity.getVersion(),
                 toInstant(entity.getEndTime()), entity.getErrorMessage());
     }

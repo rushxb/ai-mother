@@ -16,11 +16,11 @@ public interface GenerationToolApprovalMapper {
 
     @Insert("""
             INSERT INTO generation_tool_approval (
-                approvalId, taskId, appId, userId, action, requestJson,
+                approvalId, taskId, requestExecutionEpoch, appId, userId, action, requestJson,
                 status, requestedAt, expiresAt,
                 toolRequestId, toolName, argumentsDigest, checkpointJson, version
             ) VALUES (
-                #{approvalId}, #{taskId}, #{appId}, #{userId}, #{action}, #{requestJson},
+                #{approvalId}, #{taskId}, #{requestExecutionEpoch}, #{appId}, #{userId}, #{action}, #{requestJson},
                 'pending', #{requestedAt}, #{expiresAt},
                 #{toolRequestId}, #{toolName}, #{argumentsDigest}, #{checkpointJson}, 0
             )
@@ -29,17 +29,19 @@ public interface GenerationToolApprovalMapper {
     int insertPending(GenerationToolApproval approval);
 
     @Select("""
-            SELECT approvalId, taskId, appId, userId, action, requestJson, status,
+            SELECT approvalId, taskId, requestExecutionEpoch, appId, userId, action, requestJson, status,
                    requestedAt, expiresAt, decidedBy, decidedAt, consumedAt,
                    executionStartedAt, executionResult, executionAttempt,
                    toolRequestId, toolName, argumentsDigest, checkpointJson, version
             FROM generation_tool_approval
             WHERE taskId = #{taskId}
+              AND requestExecutionEpoch = #{requestExecutionEpoch}
               AND action = #{action}
               AND approvalId = #{approvalId}
             LIMIT 1
             """)
     GenerationToolApproval selectOne(@Param("taskId") String taskId,
+                                     @Param("requestExecutionEpoch") long requestExecutionEpoch,
                                      @Param("action") String action,
                                      @Param("approvalId") String approvalId);
 
@@ -49,6 +51,7 @@ public interface GenerationToolApprovalMapper {
                 argumentsDigest = #{argumentsDigest}, checkpointJson = #{checkpointJson},
                 version = version + 1
             WHERE taskId = #{taskId}
+              AND requestExecutionEpoch = #{requestExecutionEpoch}
               AND action = #{action}
               AND approvalId = #{approvalId}
               AND status = 'pending'
@@ -59,6 +62,7 @@ public interface GenerationToolApprovalMapper {
               AND checkpointJson IS NULL
             """)
     int attachInvocationCheckpoint(@Param("taskId") String taskId,
+                                   @Param("requestExecutionEpoch") long requestExecutionEpoch,
                                    @Param("action") String action,
                                    @Param("approvalId") String approvalId,
                                    @Param("toolRequestId") String toolRequestId,
@@ -72,12 +76,18 @@ public interface GenerationToolApprovalMapper {
             SET status = 'approved', decidedBy = #{decidedBy}, decidedAt = #{decidedAt},
                 version = version + 1
             WHERE taskId = #{taskId}
+              AND requestExecutionEpoch = #{requestExecutionEpoch}
               AND action = #{action}
               AND approvalId = #{approvalId}
               AND status = 'pending'
               AND expiresAt > #{decidedAt}
+              AND toolRequestId IS NOT NULL
+              AND toolName IS NOT NULL
+              AND argumentsDigest IS NOT NULL
+              AND checkpointJson IS NOT NULL
             """)
     int approve(@Param("taskId") String taskId,
+                @Param("requestExecutionEpoch") long requestExecutionEpoch,
                 @Param("action") String action,
                 @Param("approvalId") String approvalId,
                 @Param("decidedBy") Long decidedBy,
@@ -88,12 +98,14 @@ public interface GenerationToolApprovalMapper {
             SET status = 'rejected', decidedBy = #{decidedBy}, decidedAt = #{decidedAt},
                 version = version + 1
             WHERE taskId = #{taskId}
+              AND requestExecutionEpoch = #{requestExecutionEpoch}
               AND action = #{action}
               AND approvalId = #{approvalId}
               AND status = 'pending'
               AND expiresAt > #{decidedAt}
             """)
     int reject(@Param("taskId") String taskId,
+               @Param("requestExecutionEpoch") long requestExecutionEpoch,
                @Param("action") String action,
                @Param("approvalId") String approvalId,
                @Param("decidedBy") Long decidedBy,
@@ -105,6 +117,7 @@ public interface GenerationToolApprovalMapper {
                 executionResult = NULL, executionAttempt = executionAttempt + 1,
                 version = version + 1
             WHERE taskId = #{taskId}
+              AND requestExecutionEpoch = #{requestExecutionEpoch}
               AND action = #{action}
               AND approvalId = #{approvalId}
               AND status = 'approved'
@@ -113,6 +126,7 @@ public interface GenerationToolApprovalMapper {
               AND executionAttempt < #{maxAttempts}
             """)
     int beginExecution(@Param("taskId") String taskId,
+                       @Param("requestExecutionEpoch") long requestExecutionEpoch,
                        @Param("action") String action,
                        @Param("approvalId") String approvalId,
                        @Param("toolRequestId") String toolRequestId,
@@ -124,12 +138,14 @@ public interface GenerationToolApprovalMapper {
             SET status = 'consumed', consumedAt = #{consumedAt},
                 executionResult = #{executionResult}, version = version + 1
             WHERE taskId = #{taskId}
+              AND requestExecutionEpoch = #{requestExecutionEpoch}
               AND action = #{action}
               AND approvalId = #{approvalId}
               AND status = 'executing'
               AND toolRequestId = #{toolRequestId}
             """)
     int completeExecution(@Param("taskId") String taskId,
+                          @Param("requestExecutionEpoch") long requestExecutionEpoch,
                           @Param("action") String action,
                           @Param("approvalId") String approvalId,
                           @Param("toolRequestId") String toolRequestId,
@@ -137,12 +153,13 @@ public interface GenerationToolApprovalMapper {
                           @Param("consumedAt") LocalDateTime consumedAt);
 
     @Select("""
-            SELECT approvalId, taskId, appId, userId, action, requestJson, status,
+            SELECT approvalId, taskId, requestExecutionEpoch, appId, userId, action, requestJson, status,
                    requestedAt, expiresAt, decidedBy, decidedAt, consumedAt,
                    executionStartedAt, executionResult, executionAttempt,
                    toolRequestId, toolName, argumentsDigest, checkpointJson, version
             FROM generation_tool_approval
             WHERE taskId = #{taskId}
+              AND requestExecutionEpoch > 0
               AND status IN ('approved', 'executing', 'consumed')
               AND checkpointJson IS NOT NULL
             ORDER BY id DESC
@@ -155,12 +172,14 @@ public interface GenerationToolApprovalMapper {
             SET status = 'approved', executionStartedAt = NULL,
                 executionResult = NULL, version = version + 1
             WHERE taskId = #{taskId}
+              AND requestExecutionEpoch = #{requestExecutionEpoch}
               AND action = #{action}
               AND approvalId = #{approvalId}
               AND status = 'executing'
               AND version = #{expectedVersion}
             """)
     int resetStaleExecution(@Param("taskId") String taskId,
+                            @Param("requestExecutionEpoch") long requestExecutionEpoch,
                             @Param("action") String action,
                             @Param("approvalId") String approvalId,
                             @Param("expectedVersion") long expectedVersion);
@@ -176,7 +195,8 @@ public interface GenerationToolApprovalMapper {
     int expireBefore(@Param("now") LocalDateTime now, @Param("limit") int limit);
 
     @Select("""
-            SELECT approval.approvalId, approval.taskId, approval.appId, approval.userId,
+            SELECT approval.approvalId, approval.taskId, approval.requestExecutionEpoch,
+                   approval.appId, approval.userId,
                    approval.action, approval.requestJson, approval.status,
                    approval.requestedAt, approval.expiresAt, approval.decidedBy,
                    approval.decidedAt, approval.consumedAt, approval.executionStartedAt,
@@ -187,8 +207,26 @@ public interface GenerationToolApprovalMapper {
             INNER JOIN generation_task task ON task.taskId = approval.taskId
             WHERE approval.status IN ('approved', 'rejected', 'consumed', 'expired')
               AND approval.checkpointJson IS NOT NULL
+              AND approval.requestExecutionEpoch > 0
+              AND (approval.requestExecutionEpoch = task.executionEpoch
+                   OR (task.stageMessage = 'approval_dispatch_retry'
+                       AND approval.requestExecutionEpoch < task.executionEpoch))
               AND task.status = 'waiting_approval'
               AND task.isDelete = 0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM generation_tool_approval newer
+                  WHERE newer.taskId = approval.taskId
+                    AND newer.requestExecutionEpoch > 0
+                    AND newer.status IN ('approved', 'rejected', 'consumed', 'expired')
+                    AND newer.checkpointJson IS NOT NULL
+                    AND (newer.requestExecutionEpoch = task.executionEpoch
+                         OR (task.stageMessage = 'approval_dispatch_retry'
+                             AND newer.requestExecutionEpoch < task.executionEpoch))
+                    AND (newer.requestExecutionEpoch > approval.requestExecutionEpoch
+                         OR (newer.requestExecutionEpoch = approval.requestExecutionEpoch
+                             AND newer.id > approval.id))
+              )
             ORDER BY approval.expiresAt ASC, approval.id ASC
             LIMIT #{limit}
             """)

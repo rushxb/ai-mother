@@ -35,10 +35,10 @@ class ToolExecutionRecoveryServiceTest {
         GenerationTaskRecoveryCandidate candidate = candidate();
         when(approvals.findRecoverableExecution("task-1")).thenReturn(Optional.of(executing));
         when(approvals.resetStaleExecution(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                "task-1", 1L, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 "a".repeat(64), 4)).thenReturn(true);
         when(approvals.find(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                "task-1", 1L, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 "a".repeat(64))).thenReturn(Optional.of(approved));
         when(tasks.restoreWaitingAfterStaleToolExecution(
                 candidate, "tool_execution_recovery", NOW)).thenReturn(true);
@@ -49,7 +49,7 @@ class ToolExecutionRecoveryServiceTest {
 
         assertEquals(ToolApprovalStatus.APPROVED, recovered.status());
         verify(approvals).resetStaleExecution(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                "task-1", 1L, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 "a".repeat(64), 4);
         verify(tasks).restoreWaitingAfterStaleToolExecution(
                 candidate, "tool_execution_recovery", NOW);
@@ -79,6 +79,7 @@ class ToolExecutionRecoveryServiceTest {
         assertEquals(outcome, recovered.executionOutcome());
         verify(approvals, never()).resetStaleExecution(
                 org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyLong());
@@ -103,7 +104,7 @@ class ToolExecutionRecoveryServiceTest {
                 ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
                 "call-1", "manageSnapshot", "{}", "{\"taskId\":\"task-1\"}", NOW);
         return new ToolApprovalRecord(
-                "a".repeat(64), "task-1", 11L, 7L,
+                "a".repeat(64), "task-1", 1L, 11L, 7L,
                 DestructiveToolAction.SNAPSHOT_ROLLBACK, "{}", status,
                 NOW.minusSeconds(120), NOW.plusSeconds(600), 7L, NOW.minusSeconds(90),
                 status == ToolApprovalStatus.CONSUMED ? NOW.minusSeconds(20) : null,

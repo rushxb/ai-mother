@@ -63,11 +63,15 @@ public class ToolApprovalService {
                                       Long approvedBy) {
         validateDecision(taskId, action, approvalId, approvedBy);
         Instant now = clock.instant();
-        requireDecidableTask(taskId, approvedBy, now);
-        if (approvalRepository.approve(taskId, action, approvalId, approvedBy, now)) {
-            return requireDecision(taskId, action, approvalId, ToolApprovalStatus.APPROVED, approvedBy);
+        DurableGenerationTaskRecord task = requireDecidableTask(taskId, approvedBy, now);
+        long requestExecutionEpoch = requireExecutionEpoch(task);
+        if (approvalRepository.approve(
+                taskId, requestExecutionEpoch, action, approvalId, approvedBy, now)) {
+            return requireDecision(taskId, requestExecutionEpoch, action, approvalId,
+                    ToolApprovalStatus.APPROVED, approvedBy);
         }
-        ToolApprovalRecord current = approvalRepository.find(taskId, action, approvalId).orElse(null);
+        ToolApprovalRecord current = approvalRepository.find(
+                taskId, requestExecutionEpoch, action, approvalId).orElse(null);
         if (current != null
                 && current.status() == ToolApprovalStatus.APPROVED
                 && approvedBy.equals(current.decidedBy())) {
@@ -87,14 +91,17 @@ public class ToolApprovalService {
             throw new IllegalArgumentException("approved tool invocation is incomplete");
         }
         requireIdentity(approval.taskId(), approval.action(), approval.approvalId());
+        requireRequestExecutionEpoch(approval.requestExecutionEpoch());
         Instant now = clock.instant();
         requireRunningTask(approval.taskId(), now);
         ToolInvocationCheckpoint checkpoint = approval.invocationCheckpoint();
         boolean started = approvalRepository.beginExecution(
-                approval.taskId(), approval.action(), approval.approvalId(),
+                approval.taskId(), approval.requestExecutionEpoch(),
+                approval.action(), approval.approvalId(),
                 checkpoint.requestId(), now, properties.getMaxExecutionAttempts());
         ToolApprovalRecord current = approvalRepository.find(
-                        approval.taskId(), approval.action(), approval.approvalId())
+                        approval.taskId(), approval.requestExecutionEpoch(),
+                        approval.action(), approval.approvalId())
                 .orElseThrow(this::unavailableApproval);
         if ((current.status() == ToolApprovalStatus.EXECUTING && !started)
                 || (current.status() != ToolApprovalStatus.EXECUTING
@@ -116,12 +123,15 @@ public class ToolApprovalService {
         if (executing == null || executing.invocationCheckpoint() == null || outcome == null) {
             throw new IllegalArgumentException("tool execution completion is incomplete");
         }
+        requireRequestExecutionEpoch(executing.requestExecutionEpoch());
         Instant now = clock.instant();
         boolean completed = approvalRepository.completeExecution(
-                executing.taskId(), executing.action(), executing.approvalId(),
+                executing.taskId(), executing.requestExecutionEpoch(),
+                executing.action(), executing.approvalId(),
                 executing.invocationCheckpoint().requestId(), outcome, now);
         ToolApprovalRecord current = approvalRepository.find(
-                        executing.taskId(), executing.action(), executing.approvalId())
+                        executing.taskId(), executing.requestExecutionEpoch(),
+                        executing.action(), executing.approvalId())
                 .orElseThrow(this::unavailableApproval);
         if ((!completed && current.status() != ToolApprovalStatus.CONSUMED)
                 || current.executionOutcome() == null) {
@@ -149,9 +159,11 @@ public class ToolApprovalService {
         if (invocation == null || !taskId.equals(invocation.taskId())) {
             return false;
         }
-        ToolApprovalRecord approval = approvalRepository.find(taskId, action, approvalId).orElse(null);
+        ToolApprovalRecord approval = approvalRepository.find(
+                taskId, invocation.requestExecutionEpoch(), action, approvalId).orElse(null);
         ToolInvocationCheckpoint checkpoint = approval == null ? null : approval.invocationCheckpoint();
         return approval != null
+                && approval.requestExecutionEpoch() == invocation.requestExecutionEpoch()
                 && approval.status() == ToolApprovalStatus.EXECUTING
                 && checkpoint != null
                 && checkpoint.requestId().equals(invocation.requestId())
@@ -174,9 +186,12 @@ public class ToolApprovalService {
                                      Long rejectedBy) {
         validateDecision(taskId, action, approvalId, rejectedBy);
         Instant now = clock.instant();
-        requireDecidableTask(taskId, rejectedBy, now);
-        if (!approvalRepository.reject(taskId, action, approvalId, rejectedBy, now)) {
-            ToolApprovalRecord current = approvalRepository.find(taskId, action, approvalId).orElse(null);
+        DurableGenerationTaskRecord task = requireDecidableTask(taskId, rejectedBy, now);
+        long requestExecutionEpoch = requireExecutionEpoch(task);
+        if (!approvalRepository.reject(
+                taskId, requestExecutionEpoch, action, approvalId, rejectedBy, now)) {
+            ToolApprovalRecord current = approvalRepository.find(
+                    taskId, requestExecutionEpoch, action, approvalId).orElse(null);
             if (current == null
                     || current.status() != ToolApprovalStatus.REJECTED
                     || !rejectedBy.equals(current.decidedBy())) {
@@ -196,14 +211,8 @@ public class ToolApprovalService {
                     "rejectedBy", rejectedBy
             )));
         }
-        return requireDecision(taskId, action, approvalId, ToolApprovalStatus.REJECTED, rejectedBy);
-    }
-
-    public void requestApproval(String taskId,
-                                DestructiveToolAction action,
-                                String approvalId,
-                                Map<String, Object> requestDetails) {
-        requestApproval(taskId, action, approvalId, requestDetails, null);
+        return requireDecision(taskId, requestExecutionEpoch, action, approvalId,
+                ToolApprovalStatus.REJECTED, rejectedBy);
     }
 
     /**
@@ -222,6 +231,9 @@ public class ToolApprovalService {
                                               Map<String, Object> requestDetails,
                                               ToolInvocationCheckpoint checkpoint) {
         requireIdentity(taskId, action, approvalId);
+        if (checkpoint == null) {
+            throw new IllegalArgumentException("tool invocation checkpoint is required");
+        }
         DurableGenerationTaskRecord task = taskRepository.findByTaskId(taskId)
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.NOT_FOUND_ERROR, "生成任务不存在，无法创建工具审批"));
@@ -230,9 +242,11 @@ public class ToolApprovalService {
         Map<String, Object> normalizedDetails = requestDetails == null
                 ? Map.of()
                 : new TreeMap<>(requestDetails);
+        long requestExecutionEpoch = requireExecutionEpoch(task);
         ToolApprovalRecord persisted = approvalRepository.createPending(new ToolApprovalRecord(
                 approvalId,
                 taskId,
+                requestExecutionEpoch,
                 task.appId(),
                 task.userId(),
                 action,
@@ -286,9 +300,10 @@ public class ToolApprovalService {
                                                          String approvalId,
                                                          ToolInvocationCheckpoint checkpoint) {
         requireIdentity(taskId, action, approvalId);
-        requireRunningTask(taskId, clock.instant());
+        DurableGenerationTaskRecord task = requireRunningTask(taskId, clock.instant());
+        long requestExecutionEpoch = requireExecutionEpoch(task);
         return approvalRepository.attachInvocationCheckpoint(
-                taskId, action, approvalId, checkpoint);
+                taskId, requestExecutionEpoch, action, approvalId, checkpoint);
     }
 
     private void validateDecision(String taskId,
@@ -330,7 +345,7 @@ public class ToolApprovalService {
     }
 
     /** 校验并返回有效的{@code Decidable}任务。 */
-    private void requireDecidableTask(String taskId, Long actorId, Instant now) {
+    private DurableGenerationTaskRecord requireDecidableTask(String taskId, Long actorId, Instant now) {
         DurableGenerationTaskRecord task = taskRepository.findByTaskId(taskId)
                 .orElseThrow(this::unavailableApproval);
         if (!actorId.equals(task.userId())) {
@@ -341,6 +356,7 @@ public class ToolApprovalService {
                 || !canAct(task, now)) {
             throw unavailableApproval();
         }
+        return task;
     }
 
     private boolean canAct(DurableGenerationTaskRecord task, Instant now) {
@@ -354,15 +370,30 @@ public class ToolApprovalService {
     }
 
     private ToolApprovalRecord requireDecision(String taskId,
+                                               long requestExecutionEpoch,
                                                DestructiveToolAction action,
                                                String approvalId,
                                                ToolApprovalStatus status,
                                                Long decidedBy) {
-        ToolApprovalRecord decision = approvalRepository.find(taskId, action, approvalId)
+        ToolApprovalRecord decision = approvalRepository.find(
+                        taskId, requestExecutionEpoch, action, approvalId)
                 .orElseThrow(this::unavailableApproval);
         if (decision.status() != status || !decidedBy.equals(decision.decidedBy())) {
             throw unavailableApproval();
         }
         return decision;
+    }
+
+    private long requireExecutionEpoch(DurableGenerationTaskRecord task) {
+        long executionEpoch = task == null ? 0L : task.executionEpoch();
+        requireRequestExecutionEpoch(executionEpoch);
+        return executionEpoch;
+    }
+
+    private void requireRequestExecutionEpoch(long requestExecutionEpoch) {
+        if (requestExecutionEpoch <= 0) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR, "工具审批请求缺少可证明的执行纪元");
+        }
     }
 }

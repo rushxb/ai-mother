@@ -366,6 +366,7 @@ public class GenerationToolExecutionContextService {
 
     public record ToolInvocationExecution(
             String taskId,
+            long requestExecutionEpoch,
             String requestId,
             String toolName,
             String argumentsDigest
@@ -374,6 +375,7 @@ public class GenerationToolExecutionContextService {
         /** 创建工具调用执行实例并完成必要的依赖和初始状态设置。 */
         public ToolInvocationExecution {
             if (taskId == null || taskId.isBlank()
+                    || requestExecutionEpoch <= 0
                     || requestId == null || requestId.isBlank()
                     || toolName == null || toolName.isBlank()
                     || argumentsDigest == null || argumentsDigest.isBlank()) {

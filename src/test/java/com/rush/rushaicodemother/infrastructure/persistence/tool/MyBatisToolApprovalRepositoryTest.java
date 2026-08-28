@@ -31,6 +31,7 @@ class MyBatisToolApprovalRepositoryTest {
 
     private static final Instant NOW = Instant.parse("2026-07-16T12:00:00Z");
     private static final String APPROVAL_ID = "a".repeat(64);
+    private static final long REQUEST_EXECUTION_EPOCH = 3L;
     private GenerationToolApprovalMapper mapper;
     private MyBatisToolApprovalRepository repository;
 
@@ -43,7 +44,7 @@ class MyBatisToolApprovalRepositoryTest {
     @Test
     void duplicateRequestMustBeIdempotentOnlyForSameTargetAndPayload() {
         ToolApprovalRecord request = request();
-        when(mapper.selectOne("task-1", "rollbackSnapshot", APPROVAL_ID))
+        when(mapper.selectOne("task-1", REQUEST_EXECUTION_EPOCH, "rollbackSnapshot", APPROVAL_ID))
                 .thenReturn(entity("{\"snapshotName\":\"safe\"}"));
 
         ToolApprovalRecord persisted = repository.createPending(request);
@@ -51,7 +52,7 @@ class MyBatisToolApprovalRepositoryTest {
         assertEquals(ToolApprovalStatus.PENDING, persisted.status());
         verify(mapper).insertPending(any());
 
-        when(mapper.selectOne("task-1", "rollbackSnapshot", APPROVAL_ID))
+        when(mapper.selectOne("task-1", REQUEST_EXECUTION_EPOCH, "rollbackSnapshot", APPROVAL_ID))
                 .thenReturn(entity("{\"snapshotName\":\"other\"}"));
         assertThrows(BusinessException.class, () -> repository.createPending(request));
     }
@@ -59,11 +60,14 @@ class MyBatisToolApprovalRepositoryTest {
     @Test
     void approveExecuteCompleteAndExpirationMustRemainAtomicAndBounded() {
         LocalDateTime now = LocalDateTime.ofInstant(NOW, ZoneId.systemDefault());
-        when(mapper.approve("task-1", "rollbackSnapshot", APPROVAL_ID, 7L, now)).thenReturn(1);
+        when(mapper.approve(
+                "task-1", REQUEST_EXECUTION_EPOCH, "rollbackSnapshot", APPROVAL_ID, 7L, now)).thenReturn(1);
         when(mapper.beginExecution(
-                "task-1", "rollbackSnapshot", APPROVAL_ID, "call-1", now, 3)).thenReturn(1);
+                "task-1", REQUEST_EXECUTION_EPOCH,
+                "rollbackSnapshot", APPROVAL_ID, "call-1", now, 3)).thenReturn(1);
         when(mapper.completeExecution(
                 org.mockito.ArgumentMatchers.eq("task-1"),
+                org.mockito.ArgumentMatchers.eq(REQUEST_EXECUTION_EPOCH),
                 org.mockito.ArgumentMatchers.eq("rollbackSnapshot"),
                 org.mockito.ArgumentMatchers.eq(APPROVAL_ID),
                 org.mockito.ArgumentMatchers.eq("call-1"),
@@ -72,12 +76,13 @@ class MyBatisToolApprovalRepositoryTest {
         when(mapper.expireBefore(now, 100)).thenReturn(4);
 
         assertTrue(repository.approve(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID, 7L, NOW));
+                "task-1", REQUEST_EXECUTION_EPOCH,
+                DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID, 7L, NOW));
         assertTrue(repository.beginExecution(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                "task-1", REQUEST_EXECUTION_EPOCH, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 APPROVAL_ID, "call-1", NOW, 3));
         assertTrue(repository.completeExecution(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                "task-1", REQUEST_EXECUTION_EPOCH, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 APPROVAL_ID, "call-1", new com.rush.rushaicodemother.orchestration.tool.ToolExecutionOutcome(false, "ok"), NOW));
         assertEquals(4, repository.expireBefore(NOW, 100));
         assertThrows(IllegalArgumentException.class, () -> repository.expireBefore(NOW, 1001));
@@ -101,13 +106,15 @@ class MyBatisToolApprovalRepositoryTest {
         String checkpointJson = checkpointJson(checkpoint);
         persisted.setCheckpointJson(checkpointJson);
         when(mapper.attachInvocationCheckpoint(
-                "task-1", "rollbackSnapshot", APPROVAL_ID,
+                "task-1", REQUEST_EXECUTION_EPOCH, "rollbackSnapshot", APPROVAL_ID,
                 checkpoint.requestId(), checkpoint.toolName(), checkpoint.argumentsDigest(),
                 checkpointJson, now)).thenReturn(1);
-        when(mapper.selectOne("task-1", "rollbackSnapshot", APPROVAL_ID)).thenReturn(persisted);
+        when(mapper.selectOne(
+                "task-1", REQUEST_EXECUTION_EPOCH, "rollbackSnapshot", APPROVAL_ID)).thenReturn(persisted);
 
         ToolApprovalRecord result = repository.attachInvocationCheckpoint(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID, checkpoint);
+                "task-1", REQUEST_EXECUTION_EPOCH,
+                DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID, checkpoint);
 
         assertEquals(checkpoint, result.invocationCheckpoint());
 
@@ -120,7 +127,8 @@ class MyBatisToolApprovalRepositoryTest {
                 NOW
         );
         assertThrows(BusinessException.class, () -> repository.attachInvocationCheckpoint(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID, conflict));
+                "task-1", REQUEST_EXECUTION_EPOCH,
+                DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID, conflict));
     }
 
     @Test
@@ -129,6 +137,7 @@ class MyBatisToolApprovalRepositoryTest {
         ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
         when(mapper.completeExecution(
                 org.mockito.ArgumentMatchers.eq("task-1"),
+                org.mockito.ArgumentMatchers.eq(REQUEST_EXECUTION_EPOCH),
                 org.mockito.ArgumentMatchers.eq("rollbackSnapshot"),
                 org.mockito.ArgumentMatchers.eq(APPROVAL_ID),
                 org.mockito.ArgumentMatchers.eq("call-1"),
@@ -138,17 +147,18 @@ class MyBatisToolApprovalRepositoryTest {
         ToolExecutionOutcome outcome = new ToolExecutionOutcome(
                 false, "deleted", true, List.of("src/obsolete.ts"));
         assertTrue(repository.completeExecution(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                "task-1", REQUEST_EXECUTION_EPOCH, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 APPROVAL_ID, "call-1", outcome, NOW));
 
         GenerationToolApproval persisted = entity("{}");
         persisted.setStatus("consumed");
         persisted.setExecutionResult(resultCaptor.getValue());
-        when(mapper.selectOne("task-1", "rollbackSnapshot", APPROVAL_ID))
+        when(mapper.selectOne("task-1", REQUEST_EXECUTION_EPOCH, "rollbackSnapshot", APPROVAL_ID))
                 .thenReturn(persisted);
 
         ToolExecutionOutcome restored = repository.find(
-                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID)
+                        "task-1", REQUEST_EXECUTION_EPOCH,
+                        DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID)
                 .orElseThrow()
                 .executionOutcome();
 
@@ -156,7 +166,8 @@ class MyBatisToolApprovalRepositoryTest {
 
         persisted.setExecutionResult("{\"error\":false,\"resultText\":\"legacy\"}");
         ToolExecutionOutcome legacy = repository.find(
-                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID)
+                        "task-1", REQUEST_EXECUTION_EPOCH,
+                        DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID)
                 .orElseThrow()
                 .executionOutcome();
         assertEquals(new ToolExecutionOutcome(false, "legacy"), legacy);
@@ -168,6 +179,7 @@ class MyBatisToolApprovalRepositoryTest {
         ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
         when(mapper.completeExecution(
                 org.mockito.ArgumentMatchers.eq("task-1"),
+                org.mockito.ArgumentMatchers.eq(REQUEST_EXECUTION_EPOCH),
                 org.mockito.ArgumentMatchers.eq("rollbackSnapshot"),
                 org.mockito.ArgumentMatchers.eq(APPROVAL_ID),
                 org.mockito.ArgumentMatchers.eq("call-1"),
@@ -177,7 +189,7 @@ class MyBatisToolApprovalRepositoryTest {
                 false, "workspace restored", false, List.of(), true);
 
         assertTrue(repository.completeExecution(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                "task-1", REQUEST_EXECUTION_EPOCH, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 APPROVAL_ID, "call-1", outcome, NOW));
 
         String persistedJson = resultCaptor.getValue();
@@ -186,11 +198,12 @@ class MyBatisToolApprovalRepositoryTest {
         GenerationToolApproval persisted = entity("{}");
         persisted.setStatus("consumed");
         persisted.setExecutionResult(persistedJson);
-        when(mapper.selectOne("task-1", "rollbackSnapshot", APPROVAL_ID))
+        when(mapper.selectOne("task-1", REQUEST_EXECUTION_EPOCH, "rollbackSnapshot", APPROVAL_ID))
                 .thenReturn(persisted);
 
         ToolExecutionOutcome restored = repository.find(
-                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID)
+                        "task-1", REQUEST_EXECUTION_EPOCH,
+                        DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID)
                 .orElseThrow()
                 .executionOutcome();
 
@@ -199,7 +212,8 @@ class MyBatisToolApprovalRepositoryTest {
         persisted.setExecutionResult("{\"error\":false,\"resultText\":\"tampered\","
                 + "\"workspaceInvalidated\":\"true\"}");
         assertThrows(BusinessException.class, () -> repository.find(
-                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID),
+                        "task-1", REQUEST_EXECUTION_EPOCH,
+                        DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID),
                 "非布尔类型不能被宽松转换为工作区失效事实");
     }
 
@@ -207,19 +221,21 @@ class MyBatisToolApprovalRepositoryTest {
     void malformedBooleanFactsMustFailClosedInsteadOfCreatingReplayEvidence() {
         GenerationToolApproval persisted = entity("{}");
         persisted.setStatus("consumed");
-        when(mapper.selectOne("task-1", "rollbackSnapshot", APPROVAL_ID))
+        when(mapper.selectOne("task-1", REQUEST_EXECUTION_EPOCH, "rollbackSnapshot", APPROVAL_ID))
                 .thenReturn(persisted);
 
         persisted.setExecutionResult("{\"error\":false,\"resultText\":\"tampered\","
                 + "\"mutationEvidencePresent\":\"true\","
                 + "\"effectiveMutationPaths\":[\"src/forged.ts\"]}");
         assertThrows(BusinessException.class, () -> repository.find(
-                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID),
+                        "task-1", REQUEST_EXECUTION_EPOCH,
+                        DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID),
                 "字符串 true 不得升级为私有 mutation carrier");
 
         persisted.setExecutionResult("{\"error\":1,\"resultText\":\"tampered\"}");
         assertThrows(BusinessException.class, () -> repository.find(
-                        "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID),
+                        "task-1", REQUEST_EXECUTION_EPOCH,
+                        DestructiveToolAction.SNAPSHOT_ROLLBACK, APPROVAL_ID),
                 "损坏的 error 类型不得把失败结果升级为普通成功");
     }
 
@@ -247,10 +263,10 @@ class MyBatisToolApprovalRepositoryTest {
 
     private ToolApprovalRecord request() {
         return new ToolApprovalRecord(
-                APPROVAL_ID, "task-1", 11L, 7L,
+                APPROVAL_ID, "task-1", REQUEST_EXECUTION_EPOCH, 11L, 7L,
                 DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 "{\"snapshotName\":\"safe\"}", ToolApprovalStatus.PENDING,
-                NOW, NOW.plusSeconds(600), null, null, null, 0, null
+                NOW, NOW.plusSeconds(600), null, null, null, 0, checkpoint()
         );
     }
 
@@ -258,6 +274,7 @@ class MyBatisToolApprovalRepositoryTest {
         return GenerationToolApproval.builder()
                 .approvalId(APPROVAL_ID)
                 .taskId("task-1")
+                .requestExecutionEpoch(REQUEST_EXECUTION_EPOCH)
                 .appId(11L)
                 .userId(7L)
                 .action("rollbackSnapshot")
@@ -265,8 +282,18 @@ class MyBatisToolApprovalRepositoryTest {
                 .status("pending")
                 .requestedAt(LocalDateTime.ofInstant(NOW, ZoneId.systemDefault()))
                 .expiresAt(LocalDateTime.ofInstant(NOW.plusSeconds(600), ZoneId.systemDefault()))
+                .toolRequestId(checkpoint().requestId())
+                .toolName(checkpoint().toolName())
+                .argumentsDigest(checkpoint().argumentsDigest())
+                .checkpointJson(checkpointJson(checkpoint()))
                 .version(0L)
                 .build();
+    }
+
+    private ToolInvocationCheckpoint checkpoint() {
+        return new ToolInvocationCheckpoint(
+                ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
+                "call-1", "manageSnapshot", "{}", "{\"taskId\":\"task-1\"}", NOW);
     }
 
     private String checkpointJson(ToolInvocationCheckpoint checkpoint) {

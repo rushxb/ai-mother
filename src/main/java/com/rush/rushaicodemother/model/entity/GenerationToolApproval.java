@@ -29,6 +29,9 @@ public class GenerationToolApproval {
     /** 生成任务编号。 */
     @Column("taskId")
     private String taskId;
+    /** 发起审批时的持久执行纪元；0 表示迁移前无法证明身份的历史记录。 */
+    @Column("requestExecutionEpoch")
+    private Long requestExecutionEpoch;
     /** 应用编号。 */
     @Column("appId")
     private Long appId;

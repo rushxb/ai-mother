@@ -8,6 +8,7 @@ import java.time.Instant;
 public record ToolApprovalRecord(
         String approvalId,
         String taskId,
+        long requestExecutionEpoch,
         Long appId,
         Long userId,
         DestructiveToolAction action,
@@ -28,6 +29,7 @@ public record ToolApprovalRecord(
     public ToolApprovalRecord(
             String approvalId,
             String taskId,
+            long requestExecutionEpoch,
             Long appId,
             Long userId,
             DestructiveToolAction action,
@@ -41,8 +43,9 @@ public record ToolApprovalRecord(
             long version,
             ToolInvocationCheckpoint invocationCheckpoint
     ) {
-        this(approvalId, taskId, appId, userId, action, requestJson, status,
-                requestedAt, expiresAt, decidedBy, decidedAt, consumedAt, version,
-                invocationCheckpoint, null, null, 0);
+        this(approvalId, taskId, requestExecutionEpoch, appId, userId, action,
+                requestJson, status, requestedAt, expiresAt, decidedBy, decidedAt,
+                consumedAt, version, invocationCheckpoint, null, null, 0);
     }
+
 }

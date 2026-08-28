@@ -289,6 +289,7 @@ class SnapshotRollbackToolTest {
     private GenerationToolExecutionContextService.ToolInvocationExecution invocation(String taskId) {
         return new GenerationToolExecutionContextService.ToolInvocationExecution(
                 taskId,
+                1L,
                 "call-rollback",
                 "manageSnapshot",
                 "c".repeat(64)

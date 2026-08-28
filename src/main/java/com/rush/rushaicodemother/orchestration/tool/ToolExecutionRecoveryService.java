@@ -42,11 +42,13 @@ public class ToolExecutionRecoveryService {
                 return Optional.empty();
             }
             if (!approvalRepository.resetStaleExecution(
-                    approval.taskId(), approval.action(), approval.approvalId(), approval.version())) {
+                    approval.taskId(), approval.requestExecutionEpoch(),
+                    approval.action(), approval.approvalId(), approval.version())) {
                 throw new IllegalStateException("stale tool execution recovery lost approval ownership");
             }
             approval = approvalRepository.find(
-                            approval.taskId(), approval.action(), approval.approvalId())
+                            approval.taskId(), approval.requestExecutionEpoch(),
+                            approval.action(), approval.approvalId())
                     .orElseThrow(() -> new IllegalStateException(
                             "recovered tool approval disappeared"));
         }

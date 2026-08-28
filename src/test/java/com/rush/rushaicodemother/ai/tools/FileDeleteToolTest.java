@@ -81,7 +81,7 @@ class FileDeleteToolTest {
         ToolWorkspaceFileService.ToolWorkspaceFile file = file("src/obsolete.ts");
         GenerationToolExecutionContextService.ToolInvocationExecution invocation =
                 new GenerationToolExecutionContextService.ToolInvocationExecution(
-                        "task-delete", "call-1", "deleteFile", "args-hash");
+                        "task-delete", 1L, "call-1", "deleteFile", "args-hash");
         String approvalId = DigestUtil.sha256Hex("9:FILE_DELETE:src/obsolete.ts");
         when(workspaceFileService.resolveFile(9L, "src/obsolete.ts")).thenReturn(file);
         when(workspaceFileService.exists(file)).thenReturn(true);

@@ -48,7 +48,9 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
     public ToolApprovalRecord createPending(ToolApprovalRecord approval) {
         validateRecord(approval);
         mapper.insertPending(toEntity(approval));
-        ToolApprovalRecord persisted = find(approval.taskId(), approval.action(), approval.approvalId())
+        ToolApprovalRecord persisted = find(
+                        approval.taskId(), approval.requestExecutionEpoch(),
+                        approval.action(), approval.approvalId())
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.OPERATION_ERROR, "工具审批请求持久化失败"));
         if (!sameRequest(persisted, approval)) {
@@ -67,10 +69,12 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
  */
     @Override
     public Optional<ToolApprovalRecord> find(String taskId,
+                                             long requestExecutionEpoch,
                                              DestructiveToolAction action,
                                              String approvalId) {
-        validateIdentity(taskId, action, approvalId);
-        return Optional.ofNullable(mapper.selectOne(taskId, action.value(), approvalId)).map(this::toRecord);
+        validateIdentity(taskId, requestExecutionEpoch, action, approvalId);
+        return Optional.ofNullable(mapper.selectOne(
+                taskId, requestExecutionEpoch, action.value(), approvalId)).map(this::toRecord);
     }
 
     /**
@@ -84,14 +88,16 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
  */
     @Override
     public ToolApprovalRecord attachInvocationCheckpoint(String taskId,
+                                                         long requestExecutionEpoch,
                                                          DestructiveToolAction action,
                                                          String approvalId,
                                                          ToolInvocationCheckpoint checkpoint) {
-        validateIdentity(taskId, action, approvalId);
+        validateIdentity(taskId, requestExecutionEpoch, action, approvalId);
         validateCheckpoint(checkpoint);
         String checkpointJson = serializeCheckpoint(checkpoint);
         int changed = mapper.attachInvocationCheckpoint(
                 taskId,
+                requestExecutionEpoch,
                 action.value(),
                 approvalId,
                 checkpoint.requestId(),
@@ -100,7 +106,7 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
                 checkpointJson,
                 toLocal(checkpoint.capturedAt())
         );
-        ToolApprovalRecord persisted = find(taskId, action, approvalId)
+        ToolApprovalRecord persisted = find(taskId, requestExecutionEpoch, action, approvalId)
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.OPERATION_ERROR, "工具审批请求不存在，无法保存调用断点"));
         if (changed != 1 && !Objects.equals(persisted.invocationCheckpoint(), checkpoint)) {
@@ -124,12 +130,14 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
  */
     @Override
     public boolean approve(String taskId,
+                           long requestExecutionEpoch,
                            DestructiveToolAction action,
                            String approvalId,
                            Long decidedBy,
                            Instant decidedAt) {
-        validateDecision(taskId, action, approvalId, decidedBy, decidedAt);
-        return mapper.approve(taskId, action.value(), approvalId, decidedBy, toLocal(decidedAt)) == 1;
+        validateDecision(taskId, requestExecutionEpoch, action, approvalId, decidedBy, decidedAt);
+        return mapper.approve(taskId, requestExecutionEpoch, action.value(), approvalId,
+                decidedBy, toLocal(decidedAt)) == 1;
     }
 
     /**
@@ -144,12 +152,14 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
  */
     @Override
     public boolean reject(String taskId,
+                          long requestExecutionEpoch,
                           DestructiveToolAction action,
                           String approvalId,
                           Long decidedBy,
                           Instant decidedAt) {
-        validateDecision(taskId, action, approvalId, decidedBy, decidedAt);
-        return mapper.reject(taskId, action.value(), approvalId, decidedBy, toLocal(decidedAt)) == 1;
+        validateDecision(taskId, requestExecutionEpoch, action, approvalId, decidedBy, decidedAt);
+        return mapper.reject(taskId, requestExecutionEpoch, action.value(), approvalId,
+                decidedBy, toLocal(decidedAt)) == 1;
     }
 
     /**
@@ -165,17 +175,18 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
  */
     @Override
     public boolean beginExecution(String taskId,
+                                  long requestExecutionEpoch,
                                   DestructiveToolAction action,
                                   String approvalId,
                                   String toolRequestId,
                                   Instant executionStartedAt,
                                   int maxAttempts) {
-        validateIdentity(taskId, action, approvalId);
+        validateIdentity(taskId, requestExecutionEpoch, action, approvalId);
         if (toolRequestId == null || toolRequestId.isBlank()
                 || executionStartedAt == null || maxAttempts <= 0) {
             throw new IllegalArgumentException("tool execution start identity is incomplete");
         }
-        return mapper.beginExecution(taskId, action.value(), approvalId, toolRequestId,
+        return mapper.beginExecution(taskId, requestExecutionEpoch, action.value(), approvalId, toolRequestId,
                 toLocal(executionStartedAt), maxAttempts) == 1;
     }
 
@@ -192,17 +203,18 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
  */
     @Override
     public boolean completeExecution(String taskId,
+                                     long requestExecutionEpoch,
                                      DestructiveToolAction action,
                                      String approvalId,
                                      String toolRequestId,
                                      ToolExecutionOutcome outcome,
                                      Instant consumedAt) {
-        validateIdentity(taskId, action, approvalId);
+        validateIdentity(taskId, requestExecutionEpoch, action, approvalId);
         if (toolRequestId == null || toolRequestId.isBlank() || outcome == null || consumedAt == null) {
             throw new IllegalArgumentException("tool execution completion is incomplete");
         }
         String serializedOutcome = serializeOutcome(outcome);
-        return mapper.completeExecution(taskId, action.value(), approvalId, toolRequestId,
+        return mapper.completeExecution(taskId, requestExecutionEpoch, action.value(), approvalId, toolRequestId,
                 serializedOutcome, toLocal(consumedAt)) == 1;
     }
 
@@ -231,15 +243,16 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
  */
     @Override
     public boolean resetStaleExecution(String taskId,
+                                       long requestExecutionEpoch,
                                        DestructiveToolAction action,
                                        String approvalId,
                                        long expectedVersion) {
-        validateIdentity(taskId, action, approvalId);
+        validateIdentity(taskId, requestExecutionEpoch, action, approvalId);
         if (expectedVersion < 0) {
             throw new IllegalArgumentException("tool approval version is invalid");
         }
         return mapper.resetStaleExecution(
-                taskId, action.value(), approvalId, expectedVersion) == 1;
+                taskId, requestExecutionEpoch, action.value(), approvalId, expectedVersion) == 1;
     }
 
     /**
@@ -280,6 +293,7 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
         return GenerationToolApproval.builder()
                 .approvalId(approval.approvalId())
                 .taskId(approval.taskId())
+                .requestExecutionEpoch(approval.requestExecutionEpoch())
                 .appId(approval.appId())
                 .userId(approval.userId())
                 .action(approval.action().value())
@@ -307,7 +321,9 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "工具审批数据状态不合法");
         }
         return new ToolApprovalRecord(
-                entity.getApprovalId(), entity.getTaskId(), entity.getAppId(), entity.getUserId(),
+                entity.getApprovalId(), entity.getTaskId(),
+                entity.getRequestExecutionEpoch() == null ? 0L : entity.getRequestExecutionEpoch(),
+                entity.getAppId(), entity.getUserId(),
                 action, entity.getRequestJson(), status, toInstant(entity.getRequestedAt()),
                 toInstant(entity.getExpiresAt()), entity.getDecidedBy(), toInstant(entity.getDecidedAt()),
                 toInstant(entity.getConsumedAt()), entity.getVersion() == null ? 0 : entity.getVersion(),
@@ -445,6 +461,7 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
 
     private boolean sameRequest(ToolApprovalRecord left, ToolApprovalRecord right) {
         return Objects.equals(left.taskId(), right.taskId())
+                && left.requestExecutionEpoch() == right.requestExecutionEpoch()
                 && Objects.equals(left.appId(), right.appId())
                 && Objects.equals(left.userId(), right.userId())
                 && left.action() == right.action()
@@ -455,7 +472,8 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
     /** 校验{@code ate}记录是否有效。 */
     private void validateRecord(ToolApprovalRecord approval) {
         Objects.requireNonNull(approval, "approval");
-        validateIdentity(approval.taskId(), approval.action(), approval.approvalId());
+        validateIdentity(approval.taskId(), approval.requestExecutionEpoch(),
+                approval.action(), approval.approvalId());
         if (approval.appId() == null || approval.appId() <= 0
                 || approval.userId() == null || approval.userId() <= 0
                 || approval.status() != ToolApprovalStatus.PENDING
@@ -463,17 +481,17 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
                 || !approval.expiresAt().isAfter(approval.requestedAt())) {
             throw new IllegalArgumentException("tool approval request is incomplete");
         }
-        if (approval.invocationCheckpoint() != null) {
-            validateCheckpoint(approval.invocationCheckpoint());
-        }
+        // 新审批必须在首次落库时绑定工具名和参数摘要，不能留下可后补身份的授权空窗。
+        validateCheckpoint(approval.invocationCheckpoint());
     }
 
     private void validateDecision(String taskId,
+                                  long requestExecutionEpoch,
                                   DestructiveToolAction action,
                                   String approvalId,
                                   Long decidedBy,
                                   Instant decidedAt) {
-        validateIdentity(taskId, action, approvalId);
+        validateIdentity(taskId, requestExecutionEpoch, action, approvalId);
         if (decidedBy == null || decidedBy <= 0 || decidedAt == null) {
             throw new IllegalArgumentException("tool approval decision identity is incomplete");
         }
@@ -502,9 +520,11 @@ public class MyBatisToolApprovalRepository implements ToolApprovalRepository {
     }
 
     private void validateIdentity(String taskId,
+                                  long requestExecutionEpoch,
                                   DestructiveToolAction action,
                                   String approvalId) {
         if (taskId == null || !taskId.matches("[A-Za-z0-9_-]{1,128}")
+                || requestExecutionEpoch <= 0
                 || action == null || approvalId == null || !approvalId.matches("[a-f0-9]{64}")) {
             throw new IllegalArgumentException("tool approval identity is invalid");
         }

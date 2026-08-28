@@ -461,7 +461,8 @@ public class DefaultGenerationAgentRuntime implements GenerationAgentRuntime {
         ToolInvocationCheckpoint checkpoint = execution.invocationCheckpoint();
         GenerationToolExecutionContextService.ToolInvocationExecution invocation =
                 new GenerationToolExecutionContextService.ToolInvocationExecution(
-                        execution.taskId(), checkpoint.requestId(), checkpoint.toolName(),
+                        execution.taskId(), execution.requestExecutionEpoch(),
+                        checkpoint.requestId(), checkpoint.toolName(),
                         checkpoint.argumentsDigest());
         ToolExecutionResult result = toolExecutionContextService.withInvocation(
                 invocation,

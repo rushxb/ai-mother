@@ -925,7 +925,7 @@ class DefaultGenerationAgentRuntimeTest {
             DestructiveToolAction action
     ) {
         return new ToolApprovalRecord(
-                "a".repeat(64), "task-1", 11L, 7L,
+                "a".repeat(64), "task-1", 1L, 11L, 7L,
                 action, "{}", status,
                 NOW.minusSeconds(10), NOW.plusSeconds(600),
                 7L, NOW, null, 2L, checkpoint);
@@ -1097,7 +1097,7 @@ class DefaultGenerationAgentRuntimeTest {
             DestructiveToolAction action
     ) {
         return new ToolApprovalRecord(
-                "a".repeat(64), "task-1", 11L, 7L,
+                "a".repeat(64), "task-1", 1L, 11L, 7L,
                 action, "{}", status,
                 NOW.minusSeconds(10), NOW.plusSeconds(600), 7L, NOW,
                 status == ToolApprovalStatus.CONSUMED ? NOW : null,

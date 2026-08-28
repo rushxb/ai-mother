@@ -10,27 +10,32 @@ public interface ToolApprovalRepository {
     ToolApprovalRecord createPending(ToolApprovalRecord approval);
 
     Optional<ToolApprovalRecord> find(String taskId,
+                                      long requestExecutionEpoch,
                                       DestructiveToolAction action,
                                       String approvalId);
 
     ToolApprovalRecord attachInvocationCheckpoint(String taskId,
-                                                  DestructiveToolAction action,
-                                                  String approvalId,
-                                                  ToolInvocationCheckpoint checkpoint);
+                                                   long requestExecutionEpoch,
+                                                   DestructiveToolAction action,
+                                                   String approvalId,
+                                                   ToolInvocationCheckpoint checkpoint);
 
     boolean approve(String taskId,
+                    long requestExecutionEpoch,
                     DestructiveToolAction action,
                     String approvalId,
                     Long decidedBy,
                     Instant decidedAt);
 
     boolean reject(String taskId,
+                   long requestExecutionEpoch,
                    DestructiveToolAction action,
                    String approvalId,
                    Long decidedBy,
                    Instant decidedAt);
 
     boolean beginExecution(String taskId,
+                           long requestExecutionEpoch,
                            DestructiveToolAction action,
                            String approvalId,
                            String toolRequestId,
@@ -38,6 +43,7 @@ public interface ToolApprovalRepository {
                            int maxAttempts);
 
     boolean completeExecution(String taskId,
+                              long requestExecutionEpoch,
                               DestructiveToolAction action,
                               String approvalId,
                               String toolRequestId,
@@ -47,6 +53,7 @@ public interface ToolApprovalRepository {
     Optional<ToolApprovalRecord> findRecoverableExecution(String taskId);
 
     boolean resetStaleExecution(String taskId,
+                                long requestExecutionEpoch,
                                 DestructiveToolAction action,
                                 String approvalId,
                                 long expectedVersion);

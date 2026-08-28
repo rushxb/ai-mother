@@ -31,7 +31,7 @@ class ToolApprovalServiceTest {
         DurableGenerationTaskRepository tasks = taskRepository();
         String approvalId = "a".repeat(64);
         when(approvals.createPending(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(approvals.approve("task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+        when(approvals.approve("task-1", 1L, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 approvalId, 7L, NOW)).thenReturn(true);
         ToolApprovalRecord approved = executionRecord(
                 approvalId, ToolApprovalStatus.APPROVED, null, null, 0);
@@ -40,26 +40,31 @@ class ToolApprovalServiceTest {
         ToolExecutionOutcome outcome = new ToolExecutionOutcome(false, "rolled back");
         ToolApprovalRecord consumed = executionRecord(
                 approvalId, ToolApprovalStatus.CONSUMED, NOW, outcome, 1);
-        when(approvals.find("task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, approvalId))
+        when(approvals.find("task-1", 1L, DestructiveToolAction.SNAPSHOT_ROLLBACK, approvalId))
                 .thenReturn(Optional.of(approved), Optional.of(executing), Optional.of(consumed));
         when(approvals.beginExecution(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                "task-1", 1L, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 approvalId, "call-1", NOW, 3)).thenReturn(true);
         when(approvals.completeExecution(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK,
+                "task-1", 1L, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 approvalId, "call-1", outcome, NOW)).thenReturn(true);
         AiToolApprovalProperties properties = new AiToolApprovalProperties();
         ToolApprovalService service = service(approvals, tasks, properties);
 
         service.requestApproval(
                 "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, approvalId,
-                java.util.Map.of("snapshotName", "safe")
+                java.util.Map.of("snapshotName", "safe"),
+                approved.invocationCheckpoint()
         );
         service.approve("task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, approvalId, 7L);
 
         verify(approvals).createPending(org.mockito.ArgumentMatchers.argThat(record ->
                 record.appId().equals(11L)
                         && record.userId().equals(7L)
+                        && record.requestExecutionEpoch() == 1L
+                        && record.invocationCheckpoint().toolName().equals("manageSnapshot")
+                        && record.invocationCheckpoint().argumentsDigest()
+                        .equals(approved.invocationCheckpoint().argumentsDigest())
                         && record.expiresAt().equals(NOW.plus(properties.getTtl()))));
         ToolApprovalRecord started = service.beginExecution(approved);
         ToolApprovalRecord completed = service.completeExecution(started, outcome);
@@ -72,9 +77,9 @@ class ToolApprovalServiceTest {
     @Test
     void rejectionMustUseAtomicPendingTransition() {
         ToolApprovalRepository approvals = mock(ToolApprovalRepository.class);
-        when(approvals.reject("task-1", DestructiveToolAction.SNAPSHOT_DELETE,
+        when(approvals.reject("task-1", 1L, DestructiveToolAction.SNAPSHOT_DELETE,
                 "b".repeat(64), 7L, NOW)).thenReturn(true);
-        when(approvals.find("task-1", DestructiveToolAction.SNAPSHOT_DELETE, "b".repeat(64)))
+        when(approvals.find("task-1", 1L, DestructiveToolAction.SNAPSHOT_DELETE, "b".repeat(64)))
                 .thenReturn(Optional.of(record(
                         "b".repeat(64), DestructiveToolAction.SNAPSHOT_DELETE,
                         ToolApprovalStatus.REJECTED, 7L)));
@@ -82,7 +87,7 @@ class ToolApprovalServiceTest {
 
         service.reject("task-1", DestructiveToolAction.SNAPSHOT_DELETE, "b".repeat(64), 7L);
 
-        verify(approvals).reject("task-1", DestructiveToolAction.SNAPSHOT_DELETE,
+        verify(approvals).reject("task-1", 1L, DestructiveToolAction.SNAPSHOT_DELETE,
                 "b".repeat(64), 7L, NOW);
     }
 
@@ -102,7 +107,7 @@ class ToolApprovalServiceTest {
     void repeatedDecisionMustOnlyBeIdempotentForSameActorAndOutcome() {
         String approvalId = "c".repeat(64);
         ToolApprovalRepository approvals = mock(ToolApprovalRepository.class);
-        when(approvals.find("task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, approvalId))
+        when(approvals.find("task-1", 1L, DestructiveToolAction.SNAPSHOT_ROLLBACK, approvalId))
                 .thenReturn(Optional.of(record(
                         approvalId, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                         ToolApprovalStatus.APPROVED, 7L)));
@@ -120,7 +125,7 @@ class ToolApprovalServiceTest {
     void expiredApprovalMustNotBeApprovedOrAuthorizeExecution() {
         String approvalId = "d".repeat(64);
         ToolApprovalRepository approvals = mock(ToolApprovalRepository.class);
-        when(approvals.find("task-1", DestructiveToolAction.SNAPSHOT_DELETE, approvalId))
+        when(approvals.find("task-1", 1L, DestructiveToolAction.SNAPSHOT_DELETE, approvalId))
                 .thenReturn(Optional.of(record(
                         approvalId, DestructiveToolAction.SNAPSHOT_DELETE,
                         ToolApprovalStatus.EXPIRED, null)));
@@ -133,7 +138,32 @@ class ToolApprovalServiceTest {
         assertFalse(service.isExecutionAuthorized(
                 "task-1", DestructiveToolAction.SNAPSHOT_DELETE, approvalId,
                 new GenerationToolExecutionContextService.ToolInvocationExecution(
-                        "task-1", "call-1", "manageSnapshot", "a".repeat(64))));
+                        "task-1", 1L, "call-1", "manageSnapshot", "a".repeat(64))));
+    }
+
+    @Test
+    void executionAuthorizationMustMatchImmutableApprovalRequestEpoch() {
+        String approvalId = "9".repeat(64);
+        ToolApprovalRepository approvals = mock(ToolApprovalRepository.class);
+        ToolApprovalRecord executing = executionRecord(
+                approvalId, ToolApprovalStatus.EXECUTING, NOW, null, 1);
+        when(approvals.find(
+                "task-1", 1L, DestructiveToolAction.SNAPSHOT_ROLLBACK, approvalId))
+                .thenReturn(Optional.of(executing));
+        ToolApprovalService service = service(
+                approvals, taskRepository(), new AiToolApprovalProperties());
+        ToolInvocationCheckpoint checkpoint = executing.invocationCheckpoint();
+
+        assertTrue(service.isExecutionAuthorized(
+                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, approvalId,
+                new GenerationToolExecutionContextService.ToolInvocationExecution(
+                        "task-1", 1L, checkpoint.requestId(), checkpoint.toolName(),
+                        checkpoint.argumentsDigest())));
+        assertFalse(service.isExecutionAuthorized(
+                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, approvalId,
+                new GenerationToolExecutionContextService.ToolInvocationExecution(
+                        "task-1", 2L, checkpoint.requestId(), checkpoint.toolName(),
+                        checkpoint.argumentsDigest())));
     }
 
     @Test
@@ -173,12 +203,13 @@ class ToolApprovalServiceTest {
                 approvalId, DestructiveToolAction.SNAPSHOT_ROLLBACK,
                 ToolApprovalStatus.PENDING, null);
         persisted = new ToolApprovalRecord(
-                persisted.approvalId(), persisted.taskId(), persisted.appId(), persisted.userId(),
+                persisted.approvalId(), persisted.taskId(), persisted.requestExecutionEpoch(),
+                persisted.appId(), persisted.userId(),
                 persisted.action(), persisted.requestJson(), persisted.status(), persisted.requestedAt(),
                 persisted.expiresAt(), persisted.decidedBy(), persisted.decidedAt(), persisted.consumedAt(),
                 persisted.version(), checkpoint);
         when(approvals.attachInvocationCheckpoint(
-                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, approvalId, checkpoint))
+                "task-1", 1L, DestructiveToolAction.SNAPSHOT_ROLLBACK, approvalId, checkpoint))
                 .thenReturn(persisted);
         ToolApprovalService service = service(
                 approvals, taskRepository(), new AiToolApprovalProperties());
@@ -216,7 +247,8 @@ class ToolApprovalServiceTest {
                 "codegen", "running", NOW.minusSeconds(5), NOW.plusSeconds(600),
                 cancellationRequested, cancellationRequested ? "user_requested" : null,
                 leased ? "worker-1" : null, leased ? NOW.plusSeconds(30) : null,
-                leased ? NOW : null, 1, 1, status.isTerminal() ? NOW : null, null
+                leased ? NOW : null, 1L, 1, 1,
+                status.isTerminal() ? NOW : null, null
         );
     }
 
@@ -225,7 +257,7 @@ class ToolApprovalServiceTest {
                                       ToolApprovalStatus status,
                                       Long decidedBy) {
         return new ToolApprovalRecord(
-                approvalId, "task-1", 11L, 7L, action, "{}", status,
+                approvalId, "task-1", 1L, 11L, 7L, action, "{}", status,
                 NOW.minusSeconds(30), NOW.plusSeconds(600), decidedBy,
                 decidedBy == null ? null : NOW, null, 1, null
         );
@@ -242,7 +274,7 @@ class ToolApprovalServiceTest {
                 ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
                 "call-1", "manageSnapshot", "{}", "{\"taskId\":\"task-1\"}", NOW);
         return new ToolApprovalRecord(
-                approvalId, "task-1", 11L, 7L,
+                approvalId, "task-1", 1L, 11L, 7L,
                 DestructiveToolAction.SNAPSHOT_ROLLBACK, "{}", status,
                 NOW.minusSeconds(30), NOW.plusSeconds(600), 7L, NOW,
                 status == ToolApprovalStatus.CONSUMED ? NOW : null,

@@ -197,7 +197,7 @@ class GenerationToolContinuationSchedulerTest {
                 "task-1", 11L, 7L, 3L, "heavy_generation",
                 GenerationTaskStatus.WAITING_APPROVAL, "approval", "waiting",
                 NOW.minusSeconds(60), deadlineAt, false, null,
-                null, null, null, 1, 4L, null, null
+                null, null, null, 1L, 1, 4L, null, null
         );
     }
 
@@ -222,7 +222,7 @@ class GenerationToolContinuationSchedulerTest {
                 ToolInvocationCheckpoint.CURRENT_SCHEMA_VERSION,
                 "call-1", "manageSnapshot", "{}", "{\"taskId\":\"task-1\"}", NOW);
         ToolApprovalRecord decision = new ToolApprovalRecord(
-                "a".repeat(64), "task-1", 11L, 7L,
+                "a".repeat(64), "task-1", 1L, 11L, 7L,
                 DestructiveToolAction.SNAPSHOT_ROLLBACK, "{}", ToolApprovalStatus.APPROVED,
                 NOW.minusSeconds(10), NOW.plusSeconds(600), 7L, NOW, null, 2L, checkpoint);
         GenerationSession session = mock(GenerationSession.class);

@@ -46,9 +46,37 @@ class ToolApprovalPersistenceBoundaryArchitectureTest {
         assertTrue(source.contains("executionResult = #{executionResult}"));
         assertTrue(source.contains("toolRequestId IS NULL"));
         assertTrue(source.contains("argumentsDigest = #{argumentsDigest}"));
+        assertTrue(source.contains("requestExecutionEpoch = #{requestExecutionEpoch}"));
         assertTrue(source.contains("task.status = 'waiting_approval'"));
         assertTrue(source.contains("approval.status IN ('approved', 'rejected', 'consumed', 'expired')"));
         assertTrue(source.contains("LIMIT #{limit}"));
+    }
+
+    @Test
+    void approvalIdentityMustBindTaskEpochToolAndArgumentsDigest() throws Exception {
+        String mapper = Files.readString(Path.of(
+                "src", "main", "java", "com", "rush", "rushaicodemother",
+                "mapper", "GenerationToolApprovalMapper.java"));
+        String migration = Files.readString(Path.of(
+                "sql", "migrations", "V20260828_1__tool_approval_request_epoch.sql"));
+        String record = Files.readString(Path.of(
+                "src", "main", "java", "com", "rush", "rushaicodemother",
+                "orchestration", "tool", "ToolApprovalRecord.java"));
+        String invocation = Files.readString(Path.of(
+                "src", "main", "java", "com", "rush", "rushaicodemother",
+                "orchestration", "tool", "GenerationToolExecutionContextService.java"));
+
+        assertTrue(record.contains("long requestExecutionEpoch"));
+        assertTrue(invocation.contains("long requestExecutionEpoch"));
+        assertTrue(mapper.contains("AND requestExecutionEpoch = #{requestExecutionEpoch}"));
+        assertTrue(mapper.contains("approval.requestExecutionEpoch = task.executionEpoch"));
+        assertTrue(mapper.contains("newer.requestExecutionEpoch > approval.requestExecutionEpoch"));
+        assertTrue(migration.contains("requestExecutionEpoch bigint default 0 not null"));
+        assertTrue(migration.contains("task.status = 'waiting_approval'"));
+        assertTrue(migration.contains(
+                "uk_task_epoch_approval (taskId, requestExecutionEpoch, approvalId)"));
+        assertTrue(migration.contains(
+                "uk_task_epoch_tool_request (taskId, requestExecutionEpoch, toolRequestId)"));
     }
 
     @Test

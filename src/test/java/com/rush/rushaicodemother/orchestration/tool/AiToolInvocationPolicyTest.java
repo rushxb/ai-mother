@@ -116,7 +116,7 @@ class AiToolInvocationPolicyTest {
         ToolExecutionRequest request = request(tool.getToolName(), "{\"path\":\"safe.txt\"}");
         GenerationToolExecutionContextService.ToolInvocationExecution invocation =
                 new GenerationToolExecutionContextService.ToolInvocationExecution(
-                        TASK_ID, request.id(), request.name(), DigestUtil.sha256Hex("different"));
+                        TASK_ID, 1L, request.id(), request.name(), DigestUtil.sha256Hex("different"));
 
         ToolPolicyViolationException violation = assertThrows(
                 ToolPolicyViolationException.class,

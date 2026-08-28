@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
 import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostSummary;
 import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +22,10 @@ class GenerationTerminalStreamEventFactoryReceiptTest {
                 GenerationTaskStatus.FAILED,
                 GenerationCompletionEvidenceSet.empty(),
                 GenerationOutcomeQuality.ofFailure("build", 2, 1, 3_000L)
-        );
+        ).withCostSummary(new GenerationCostSummary(
+                "settled", 120_000L, 2L, true,
+                5L, 140_000L, null, 3L, "actual_cost_below_reserved",
+                20_000L, "provider_timeout", "实际扣费 2 积分，已退还 3 积分"));
 
         GenerationStreamEvent event = GenerationPublicEventSanitizer.sanitize(
                 GenerationTerminalStreamEventFactory.create(
@@ -35,6 +39,12 @@ class GenerationTerminalStreamEventFactoryReceiptTest {
         assertEquals("heavy_generation", projectedReceipt.get("actualRoute"));
         assertEquals("provisional", projectedReceipt.get("previewMaturity"));
         assertInstanceOf(java.util.Map.class, event.getData().get("validationSummary"));
-        assertInstanceOf(java.util.Map.class, event.getData().get("costSummary"));
+        java.util.Map<?, ?> costSummary = assertInstanceOf(
+                java.util.Map.class, event.getData().get("costSummary"));
+        assertEquals(5L, costSummary.get("maximumReservedCredit"));
+        assertEquals(3L, costSummary.get("refundedCredit"));
+        assertEquals("actual_cost_below_reserved", costSummary.get("refundReason"));
+        assertEquals(20_000L, costSummary.get("waivedTokens"));
+        assertEquals("provider_timeout", costSummary.get("waiverReason"));
     }
 }

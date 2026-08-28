@@ -2,6 +2,7 @@ package com.rush.rushaicodemother.model.vo;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostEstimate;
 
 import java.time.Instant;
 
@@ -12,8 +13,13 @@ public record GenerationTaskSubmissionVO(
         String route,
         String status,
         @JsonFormat(shape = JsonFormat.Shape.STRING) Instant submittedAt,
-        @JsonFormat(shape = JsonFormat.Shape.STRING) Instant deadlineAt
+        @JsonFormat(shape = JsonFormat.Shape.STRING) Instant deadlineAt,
+        GenerationCostEstimate costEstimate,
+        int contractVersion
 ) {
+    /** 成本预计字段从版本 2 起可用。 */
+    public static final int CURRENT_CONTRACT_VERSION = 2;
+
     /**
      * 根据输入数据创建当前对象。
      *
@@ -23,6 +29,7 @@ public record GenerationTaskSubmissionVO(
     public static GenerationTaskSubmissionVO from(GenerationTaskSubmissionReceipt submission) {
         return new GenerationTaskSubmissionVO(
                 submission.taskId(), submission.appId(), submission.route(), submission.status().getValue(),
-                submission.submittedAt(), submission.deadlineAt());
+                submission.submittedAt(), submission.deadlineAt(), submission.costEstimate(),
+                CURRENT_CONTRACT_VERSION);
     }
 }

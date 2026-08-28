@@ -5,6 +5,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationTerminalStreamEventFactory;
 import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEvent;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
 import reactor.core.publisher.Flux;
 
 /**
@@ -22,11 +23,22 @@ final class DurableGenerationTerminalEventProjection {
     }
 
     static Flux<GenerationStreamEvent> legacy(DurableGenerationTaskRecord task) {
-        return Flux.just(event(task));
+        return legacy(task, task == null ? null : task.deliveryReceipt());
+    }
+
+    static Flux<GenerationStreamEvent> legacy(DurableGenerationTaskRecord task,
+                                              GenerationDeliveryReceipt receipt) {
+        return Flux.just(event(task, receipt));
     }
 
     static Flux<SequencedGenerationEvent> sequenced(DurableGenerationTaskRecord task,
                                                      long afterSequence) {
+        return sequenced(task, afterSequence, task == null ? null : task.deliveryReceipt());
+    }
+
+    static Flux<SequencedGenerationEvent> sequenced(DurableGenerationTaskRecord task,
+                                                     long afterSequence,
+                                                     GenerationDeliveryReceipt receipt) {
         if (afterSequence >= COMPLETE_SEQUENCE) {
             return Flux.empty();
         }
@@ -34,15 +46,16 @@ final class DurableGenerationTerminalEventProjection {
             return Flux.just(SequencedGenerationEvent.complete(COMPLETE_SEQUENCE));
         }
         return Flux.just(
-                SequencedGenerationEvent.event(TERMINAL_SEQUENCE, event(task)),
+                SequencedGenerationEvent.event(TERMINAL_SEQUENCE, event(task, receipt)),
                 SequencedGenerationEvent.complete(COMPLETE_SEQUENCE));
     }
 
-    private static GenerationStreamEvent event(DurableGenerationTaskRecord task) {
+    private static GenerationStreamEvent event(DurableGenerationTaskRecord task,
+                                               GenerationDeliveryReceipt receipt) {
         if (task == null || !task.terminal()) {
             throw new IllegalArgumentException("durable terminal task is required");
         }
         return GenerationTerminalStreamEventFactory.create(
-                task.taskId(), task.status(), task.deliveryReceipt());
+                task.taskId(), task.status(), receipt);
     }
 }

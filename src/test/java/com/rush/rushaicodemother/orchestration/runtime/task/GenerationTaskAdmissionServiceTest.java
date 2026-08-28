@@ -72,6 +72,9 @@ class GenerationTaskAdmissionServiceTest {
         assertEquals("task-1", reservationCaptor.getValue().taskId());
         assertEquals(7L, reservationCaptor.getValue().userId());
         assertEquals(2L, reservationCaptor.getValue().reservedCredit());
+        assertEquals(0L, result.submission().costEstimate().estimatedCreditMin());
+        assertEquals(2L, result.submission().costEstimate().estimatedCreditMax());
+        assertEquals(2L, result.submission().costEstimate().maximumReservedCredit());
     }
 
     @Test

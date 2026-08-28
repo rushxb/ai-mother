@@ -83,6 +83,7 @@ class MyBatisGenerationTaskAdmissionRepositoryTest {
                         .submittedAt(LocalDateTime.of(2026, 7, 20, 10, 0))
                         .deadlineAt(LocalDateTime.of(2026, 7, 20, 10, 15))
                         .requestFingerprint("b".repeat(64))
+                        .reservedCredit(9L)
                         .build());
         MyBatisGenerationTaskAdmissionRepository repository =
                 new MyBatisGenerationTaskAdmissionRepository(mapper);
@@ -93,6 +94,7 @@ class MyBatisGenerationTaskAdmissionRepositoryTest {
         assertEquals(11L, existing.submission().appId());
         assertEquals("heavy_generation", existing.submission().route());
         assertEquals(GenerationTaskStatus.RUNNING, existing.submission().status());
+        assertEquals(9L, existing.submission().costEstimate().maximumReservedCredit());
         assertEquals("b".repeat(64), existing.requestFingerprint());
     }
 }

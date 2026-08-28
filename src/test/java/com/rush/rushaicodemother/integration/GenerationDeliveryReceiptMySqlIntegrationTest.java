@@ -1,16 +1,24 @@
 package com.rush.rushaicodemother.integration;
 
+import com.rush.rushaicodemother.config.UserCreditProperties;
+import com.rush.rushaicodemother.infrastructure.persistence.task.MyBatisGenerationTaskAdmissionRepository;
 import com.rush.rushaicodemother.infrastructure.persistence.task.MyBatisDurableGenerationTaskRepository;
 import com.rush.rushaicodemother.mapper.GenerationTaskRuntimeMapper;
+import com.rush.rushaicodemother.mapper.UserCreditMapper;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
 import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostSummary;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommandCodec;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
+import com.rush.rushaicodemother.service.credit.DefaultUserCreditPersistenceService;
+import com.rush.rushaicodemother.service.credit.GenerationTaskCostProjectionService;
+import com.rush.rushaicodemother.service.credit.ProviderCostGenerationUserBillingPolicy;
+import com.rush.rushaicodemother.service.credit.UserCreditCostCalculator;
 import org.apache.ibatis.datasource.pooled.PooledDataSource;
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.Configuration;
@@ -86,16 +94,39 @@ class GenerationDeliveryReceiptMySqlIntegrationTest {
                     """);
             statement.executeUpdate("""
                     INSERT INTO generation_task
-                        (taskId, appId, userId, tenantId, route, status, stage,
-                         submittedAt, leaseOwner, leaseUntil, heartbeatAt,
+                        (taskId, appId, userId, tenantId, idempotencyKeyHash,
+                         requestFingerprint, route, status, stage,
+                         submittedAt, deadlineAt, leaseOwner, leaseUntil, heartbeatAt,
                          executionEpoch, attempt, version, startTime,
                          totalTokens, creditCost, creditCharged, isDelete)
                     VALUES
-                        ('task-delivery-receipt-it', 11, 7, 3, 'heavy_generation',
+                        ('task-delivery-receipt-it', 11, 7, 3, REPEAT('a', 64),
+                         REPEAT('b', 64), 'heavy_generation',
                          'running', 'generating', '2026-08-28 12:00:00.000000',
+                         '2026-08-28 12:15:00.000000',
                          'delivery-receipt-worker', '2099-01-01 00:00:00.000000',
                          '2026-08-28 12:00:00.000000', 3, 1, 0,
                          '2026-08-28 12:00:00.000000', 0, 0, 0, 0)
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO user_credit_transaction
+                        (userId, tenantId, changeAmount, balanceAfter, type, bizId, remark, tokenCount)
+                    VALUES
+                        (7, 3, -5, 995, 'GENERATION_RESERVATION',
+                         'task-delivery-receipt-it', 'reservation:policy-v1', NULL)
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO generation_model_call
+                        (callId, taskId, appId, userId, invocationPurpose, billingMode,
+                         provider, model, callStatus, totalTokens, usageSource, errorCategory)
+                    VALUES
+                        ('11111111-1111-1111-1111-111111111111',
+                         'task-delivery-receipt-it', 11, 7, 'GENERATION', 'BILLABLE',
+                         'integration', 'integration-model', 'SUCCESS', 120000, 'OFFICIAL', NULL),
+                        ('22222222-2222-2222-2222-222222222222',
+                         'task-delivery-receipt-it', 11, 7, 'GENERATION', 'BILLABLE',
+                         'integration', 'integration-model', 'ERROR', 20000, 'OFFICIAL',
+                         'model_timeout')
                     """);
         }
     }
@@ -135,6 +166,8 @@ class GenerationDeliveryReceiptMySqlIntegrationTest {
             session.commit();
         }
 
+        assertRunningCostAndIdempotentReplay(factory);
+
         markTerminalAndSettled();
 
         try (var session = factory.openSession(true)) {
@@ -152,9 +185,11 @@ class GenerationDeliveryReceiptMySqlIntegrationTest {
                     frozenReceipt.validationSummary(),
                     restored.deliveryReceipt().validationSummary());
             assertEquals("settled", restored.deliveryReceipt().costSummary().settlementStatus());
-            assertEquals(12_345L, restored.deliveryReceipt().costSummary().totalTokens());
-            assertEquals(13L, restored.deliveryReceipt().costSummary().creditCost());
+            assertEquals(120_000L, restored.deliveryReceipt().costSummary().totalTokens());
+            assertEquals(2L, restored.deliveryReceipt().costSummary().creditCost());
         }
+
+        assertSettledCostProjection(factory);
 
         try (Connection connection = DriverManager.getConnection(JDBC_URL, USERNAME, PASSWORD);
              Statement statement = connection.createStatement();
@@ -166,6 +201,48 @@ class GenerationDeliveryReceiptMySqlIntegrationTest {
             assertTrue(result.next());
             assertEquals(GenerationFinalizationCommandCodec.CURRENT_SCHEMA_VERSION, result.getInt(1));
         }
+    }
+
+    private void assertRunningCostAndIdempotentReplay(SqlSessionFactory factory) {
+        try (var session = factory.openSession(true)) {
+            MyBatisGenerationTaskAdmissionRepository admissionRepository =
+                    new MyBatisGenerationTaskAdmissionRepository(
+                            session.getMapper(GenerationTaskRuntimeMapper.class));
+            var replay = admissionRepository.findByIdempotencyKey(
+                    3L, 7L, 11L, "a".repeat(64)).orElseThrow();
+            assertEquals(5L, replay.submission().costEstimate().maximumReservedCredit());
+
+            GenerationCostSummary running = costProjectionService(session).project(TASK_ID, false);
+            assertEquals("reserved", running.settlementStatus());
+            assertEquals(5L, running.maximumReservedCredit());
+            assertEquals(140_000L, running.providerObservedTokens());
+            assertEquals(2L, running.provisionalCreditCost());
+            assertEquals(20_000L, running.waivedTokens());
+            assertEquals("provider_timeout", running.waiverReason());
+        }
+    }
+
+    private void assertSettledCostProjection(SqlSessionFactory factory) {
+        try (var session = factory.openSession(true)) {
+            GenerationCostSummary settled = costProjectionService(session).project(TASK_ID, true);
+            assertEquals("settled", settled.settlementStatus());
+            assertEquals(2L, settled.creditCost());
+            assertEquals(3L, settled.refundedCredit());
+            assertEquals("actual_cost_below_reserved", settled.refundReason());
+            assertEquals(20_000L, settled.waivedTokens());
+            assertEquals("provider_timeout", settled.waiverReason());
+        }
+    }
+
+    private GenerationTaskCostProjectionService costProjectionService(
+            org.apache.ibatis.session.SqlSession session) {
+        UserCreditProperties properties = new UserCreditProperties();
+        properties.setTokensPerCredit(100_000L);
+        return new GenerationTaskCostProjectionService(
+                new DefaultUserCreditPersistenceService(
+                        session.getMapper(UserCreditMapper.class)),
+                new ProviderCostGenerationUserBillingPolicy(),
+                new UserCreditCostCalculator(properties));
     }
 
     private void markTerminalAndSettled() throws Exception {
@@ -183,8 +260,8 @@ class GenerationDeliveryReceiptMySqlIntegrationTest {
                          repairRounds = 1,
                          firstPreviewMillis = 1500,
                          failureCategory = 'model_timeout',
-                         totalTokens = 12345,
-                         creditCost = 13,
+                         totalTokens = 120000,
+                         creditCost = 2,
                          creditCharged = 1,
                          terminalIntentFinalizedAt = ?
                      WHERE taskId = ?
@@ -192,6 +269,17 @@ class GenerationDeliveryReceiptMySqlIntegrationTest {
             statement.setObject(1, finalizedAt);
             statement.setObject(2, finalizedAt);
             statement.setString(3, TASK_ID);
+            assertEquals(1, statement.executeUpdate());
+        }
+        try (Connection connection = DriverManager.getConnection(JDBC_URL, USERNAME, PASSWORD);
+             PreparedStatement statement = connection.prepareStatement("""
+                     INSERT INTO user_credit_transaction
+                         (userId, tenantId, changeAmount, balanceAfter, type, bizId, remark, tokenCount)
+                     VALUES
+                         (7, 3, 3, 998, 'GENERATION_SETTLEMENT', ?,
+                          'settlement:structured-facts-only', 120000)
+                     """)) {
+            statement.setString(1, TASK_ID);
             assertEquals(1, statement.executeUpdate());
         }
     }
@@ -203,6 +291,7 @@ class GenerationDeliveryReceiptMySqlIntegrationTest {
                 "test", new JdbcTransactionFactory(), dataSource);
         Configuration configuration = new Configuration(environment);
         configuration.addMapper(GenerationTaskRuntimeMapper.class);
+        configuration.addMapper(UserCreditMapper.class);
         return new SqlSessionFactoryBuilder().build(configuration);
     }
 

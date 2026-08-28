@@ -56,7 +56,9 @@ public record GenerationTaskStatusVO(
                 receipt == null ? null : receipt.recoveryAction(),
                 receipt == null ? null : receipt.validationSummary(),
                 receipt,
-                receipt == null ? null : receipt.costSummary(),
+                snapshot.costSummary() != null
+                        ? snapshot.costSummary()
+                        : receipt == null ? null : receipt.costSummary(),
                 GenerationTaskGuidanceVO.from(snapshot),
                 CURRENT_CONTRACT_VERSION);
     }

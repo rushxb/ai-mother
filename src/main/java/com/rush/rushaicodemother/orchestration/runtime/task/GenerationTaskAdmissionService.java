@@ -104,7 +104,8 @@ public class GenerationTaskAdmissionService {
                 quote.pricingReference()
         ));
         runtimeLifecycleService.submit(command, idempotency);
-        return GenerationTaskAdmissionResult.created(GenerationTaskSubmissionReceipt.queued(command));
+        return GenerationTaskAdmissionResult.created(
+                GenerationTaskSubmissionReceipt.queued(command, quote));
     }
 
     /**

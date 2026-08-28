@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.mapper.GenerationTaskRuntimeMapper;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostEstimate;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskAdmissionSnapshot;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskAdmissionRepository;
@@ -99,7 +100,11 @@ public class MyBatisGenerationTaskAdmissionRepository implements GenerationTaskA
                         task.getRoute(),
                         status,
                         task.getSubmittedAt().atZone(databaseZone).toInstant(),
-                        task.getDeadlineAt().atZone(databaseZone).toInstant()
+                        task.getDeadlineAt().atZone(databaseZone).toInstant(),
+                        task.getReservedCredit() == null
+                                ? null
+                                : GenerationCostEstimate.fromMaximumReservation(
+                                        task.getReservedCredit())
                 ),
                 task.getRequestFingerprint()
         ));

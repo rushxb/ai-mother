@@ -19,10 +19,13 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableG
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationTaskProgressEstimate;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationTaskProgressEstimator;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostSummary;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
+import com.rush.rushaicodemother.service.credit.GenerationTaskCostProjectionService;
 import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -33,7 +36,6 @@ import java.util.Optional;
 /** 具有本地实时数据、持久回退和遥测派生的 ETA 的只读任务查询服务。 */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class GenerationTaskQueryService {
 
     private static final String RUNNING_STATUS = "running";
@@ -45,6 +47,38 @@ public class GenerationTaskQueryService {
     private final GenerationEventStream generationEventStream;
     private final AppPersistenceService appPersistenceService;
     private final TenantAuthorizationService tenantAuthorizationService;
+    private final GenerationTaskCostProjectionService costProjectionService;
+
+    @Autowired
+    public GenerationTaskQueryService(
+            GenerationSessionRegistry generationSessionRegistry,
+            DurableGenerationTaskRepository durableRepository,
+            GenerationTaskProgressEstimator progressEstimator,
+            GenerationEventStream generationEventStream,
+            AppPersistenceService appPersistenceService,
+            TenantAuthorizationService tenantAuthorizationService,
+            GenerationTaskCostProjectionService costProjectionService) {
+        this.generationSessionRegistry = generationSessionRegistry;
+        this.durableRepository = durableRepository;
+        this.progressEstimator = progressEstimator;
+        this.generationEventStream = generationEventStream;
+        this.appPersistenceService = appPersistenceService;
+        this.tenantAuthorizationService = tenantAuthorizationService;
+        this.costProjectionService = costProjectionService;
+    }
+
+    /** 兼容不关心成本投影的既有单元测试构造入口。 */
+    public GenerationTaskQueryService(
+            GenerationSessionRegistry generationSessionRegistry,
+            DurableGenerationTaskRepository durableRepository,
+            GenerationTaskProgressEstimator progressEstimator,
+            GenerationEventStream generationEventStream,
+            AppPersistenceService appPersistenceService,
+            TenantAuthorizationService tenantAuthorizationService) {
+        this(generationSessionRegistry, durableRepository, progressEstimator,
+                generationEventStream, appPersistenceService,
+                tenantAuthorizationService, null);
+    }
 
     /**
  * 获取指定资源。
@@ -112,7 +146,7 @@ public class GenerationTaskQueryService {
             assertOwnedSession(session, actor);
             DurableGenerationTaskRecord durableTask = findAuthorizedDurableTask(taskId, actor);
             if (durableTask != null && durableTask.terminal()) {
-                return DurableGenerationTerminalEventProjection.legacy(durableTask);
+                return durableTerminalEvents(durableTask);
             }
             if (session.isActive()) {
                 return session.asFlux();
@@ -127,7 +161,7 @@ public class GenerationTaskQueryService {
         DurableGenerationTaskRecord task = requireDurableTask(taskId);
         assertOwnedTask(task, actor);
         if (task.terminal()) {
-            return DurableGenerationTerminalEventProjection.legacy(task);
+            return durableTerminalEvents(task);
         }
         return generationEventStream.stream(taskId);
     }
@@ -145,8 +179,7 @@ public class GenerationTaskQueryService {
             assertOwnedSession(session, actor);
             DurableGenerationTaskRecord durableTask = findAuthorizedDurableTask(taskId, actor);
             if (durableTask != null && durableTask.terminal()) {
-                return DurableGenerationTerminalEventProjection.sequenced(
-                        durableTask, afterSequence);
+                return durableTerminalSequencedEvents(durableTask, afterSequence);
             }
             if (session.isActive()) {
                 return generationEventStream.stream(taskId, afterSequence);
@@ -163,7 +196,7 @@ public class GenerationTaskQueryService {
         DurableGenerationTaskRecord task = requireDurableTask(taskId);
         assertOwnedTask(task, actor);
         if (task.terminal()) {
-            return DurableGenerationTerminalEventProjection.sequenced(task, afterSequence);
+            return durableTerminalSequencedEvents(task, afterSequence);
         }
         return generationEventStream.stream(taskId, afterSequence);
     }
@@ -186,7 +219,7 @@ public class GenerationTaskQueryService {
             DurableGenerationTaskRecord durableTask = findAuthorizedDurableTaskForSession(
                     session, actor);
             if (durableTask != null && durableTask.terminal()) {
-                return DurableGenerationTerminalEventProjection.legacy(durableTask);
+                return durableTerminalEvents(durableTask);
             }
             if (session.isActive()) {
                 return session.asFlux();
@@ -274,10 +307,13 @@ public class GenerationTaskQueryService {
         String stageMessage = durableMetadata == null ? null : durableMetadata.stageMessage();
         GenerationTaskProgressEstimate progress = progressEstimator.estimate(
                 route, status, submittedAt, deadlineAt, stage);
+        GenerationCostSummary costSummary = safeProjectCost(
+                execution.taskId(), isTerminalStatus(status));
         return new GenerationTaskSnapshot(
                 execution.taskId(), execution.appId(), execution.userId(), route, status,
                 stage, stageMessage, submittedAt, deadlineAt, execution.cancelled(),
-                execution.cancellationReason(), execution.usages(), execution.limits(), progress
+                execution.cancellationReason(), execution.usages(), execution.limits(), progress,
+                null, costSummary
         );
     }
 
@@ -285,12 +321,57 @@ public class GenerationTaskQueryService {
         String status = task.status().getValue();
         GenerationTaskProgressEstimate progress = progressEstimator.estimate(
                 task.route(), status, task.submittedAt(), task.deadlineAt(), task.stage());
+        GenerationCostSummary costSummary = safeProjectCost(task.taskId(), task.terminal());
+        GenerationDeliveryReceipt deliveryReceipt = withCostSummary(
+                task.deliveryReceipt(), costSummary);
         return new GenerationTaskSnapshot(
                 task.taskId(), task.appId(), task.userId(), task.route(), status,
                 task.stage(), task.stageMessage(), task.submittedAt(), task.deadlineAt(),
                 task.cancellationRequested(), task.cancellationReason(), Map.of(), Map.of(), progress,
-                task.deliveryReceipt()
+                deliveryReceipt, costSummary
         );
+    }
+
+    private Flux<GenerationStreamEvent> durableTerminalEvents(
+            DurableGenerationTaskRecord task) {
+        GenerationCostSummary costSummary = safeProjectCost(task.taskId(), true);
+        return DurableGenerationTerminalEventProjection.legacy(
+                task, withCostSummary(task.deliveryReceipt(), costSummary));
+    }
+
+    private Flux<SequencedGenerationEvent> durableTerminalSequencedEvents(
+            DurableGenerationTaskRecord task,
+            long afterSequence) {
+        GenerationCostSummary costSummary = safeProjectCost(task.taskId(), true);
+        return DurableGenerationTerminalEventProjection.sequenced(
+                task, afterSequence, withCostSummary(task.deliveryReceipt(), costSummary));
+    }
+
+    private GenerationDeliveryReceipt withCostSummary(
+            GenerationDeliveryReceipt deliveryReceipt,
+            GenerationCostSummary costSummary) {
+        return deliveryReceipt == null || costSummary == null
+                ? deliveryReceipt
+                : deliveryReceipt.withCostSummary(costSummary);
+    }
+
+    /** 成本投影故障不能遮蔽任务状态；账本数据保留原样并由运维修复。 */
+    private GenerationCostSummary safeProjectCost(String taskId, boolean terminal) {
+        if (costProjectionService == null) {
+            return null;
+        }
+        try {
+            return costProjectionService.project(taskId, terminal);
+        } catch (RuntimeException failure) {
+            log.warn("Generation task cost projection unavailable, taskId: {}",
+                    taskId, LogExceptionSanitizer.sanitize(failure));
+            return null;
+        }
+    }
+
+    private boolean isTerminalStatus(String status) {
+        GenerationTaskStatus taskStatus = GenerationTaskStatus.fromValue(status);
+        return taskStatus != null && taskStatus.isTerminal();
     }
 
     /** 返回安全{@code Find}持久元数据。 */

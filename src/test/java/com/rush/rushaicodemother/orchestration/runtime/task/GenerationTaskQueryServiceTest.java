@@ -14,10 +14,12 @@ import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecu
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostSummary;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationTaskProgressEstimator;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
+import com.rush.rushaicodemother.service.credit.GenerationTaskCostProjectionService;
 import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +30,8 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -43,6 +47,7 @@ class GenerationTaskQueryServiceTest {
     private DurableGenerationTaskRepository durableRepository;
     private GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
     private TenantAuthorizationService tenantAuthorizationService;
+    private GenerationTaskCostProjectionService costProjectionService;
     private User owner;
 
     @BeforeEach
@@ -52,9 +57,11 @@ class GenerationTaskQueryServiceTest {
         durableRepository = mock(DurableGenerationTaskRepository.class);
         runtimeLifecycleService = mock(GenerationTaskRuntimeLifecycleService.class);
         tenantAuthorizationService = mock(TenantAuthorizationService.class);
+        costProjectionService = mock(GenerationTaskCostProjectionService.class);
         queryService = new GenerationTaskQueryService(
                 registry, durableRepository, mock(GenerationTaskProgressEstimator.class),
-                mock(GenerationEventStream.class), mock(AppPersistenceService.class), tenantAuthorizationService);
+                mock(GenerationEventStream.class), mock(AppPersistenceService.class),
+                tenantAuthorizationService, costProjectionService);
         owner = user(2L);
     }
 
@@ -69,6 +76,32 @@ class GenerationTaskQueryServiceTest {
         assertEquals("running", snapshot.status());
         assertTrue(snapshot.deadlineAt().isAfter(snapshot.submittedAt()));
         assertEquals(snapshot.limits().keySet(), snapshot.usages().keySet());
+    }
+
+    @Test
+    void runningQueryMustExposeIndependentCostProjection() {
+        register("task-cost", owner);
+        GenerationCostSummary costSummary = new GenerationCostSummary(
+                "reserved", null, null, null,
+                5L, 140_000L, 2L, null, null,
+                20_000L, "provider_timeout", "已冻结 5 积分，当前暂估消耗 2 积分");
+        when(costProjectionService.project("task-cost", false)).thenReturn(costSummary);
+
+        GenerationTaskSnapshot snapshot = queryService.get("task-cost", owner);
+
+        assertSame(costSummary, snapshot.costSummary());
+    }
+
+    @Test
+    void costProjectionFailureMustNotHideTheAuthoritativeTaskStatus() {
+        register("task-cost-unavailable", owner);
+        doThrow(new IllegalStateException("ledger temporarily unavailable"))
+                .when(costProjectionService).project("task-cost-unavailable", false);
+
+        GenerationTaskSnapshot snapshot = queryService.get("task-cost-unavailable", owner);
+
+        assertEquals("running", snapshot.status());
+        assertNull(snapshot.costSummary());
     }
 
     @Test

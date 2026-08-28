@@ -77,12 +77,19 @@ public class DefaultUserCreditPersistenceService implements UserCreditPersistenc
                 || task.getTaskId() == null || task.getTaskId().isBlank()) {
             throw corruptedData("生成任务积分结算数据不完整");
         }
+        boolean settled = Integer.valueOf(1).equals(task.getCreditCharged());
+        if (settled && (task.getCreditCost() == null || task.getCreditCost() < 0
+                || task.getTotalTokens() == null || task.getTotalTokens() < 0)) {
+            throw corruptedData("已结算生成任务缺少成本明细");
+        }
         return new GenerationCreditTask(
                 task.getId(),
                 task.getTaskId(),
                 task.getUserId(),
                 task.getTenantId(),
-                Integer.valueOf(1).equals(task.getCreditCharged())
+                settled,
+                task.getCreditCost(),
+                task.getTotalTokens()
         );
     }
 

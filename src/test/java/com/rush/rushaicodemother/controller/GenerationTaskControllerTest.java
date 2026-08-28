@@ -14,6 +14,7 @@ import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEv
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
 import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostEstimate;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskControlService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSnapshot;
@@ -101,7 +102,8 @@ class GenerationTaskControllerTest {
                                 "lightweight_edit",
                                 GenerationTaskStatus.QUEUED,
                                 submittedAt,
-                                submittedAt.plusSeconds(600)
+                                submittedAt.plusSeconds(600),
+                                GenerationCostEstimate.fromMaximumReservation(5L)
                         ),
                         mock(GenerationWorkspace.class),
                         Flux.never()
@@ -120,6 +122,10 @@ class GenerationTaskControllerTest {
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.data.taskId").value("task-api-1"))
                 .andExpect(jsonPath("$.data.status").value("queued"))
+                .andExpect(jsonPath("$.data.contractVersion").value(2))
+                .andExpect(jsonPath("$.data.costEstimate.estimatedCreditMin").value(0))
+                .andExpect(jsonPath("$.data.costEstimate.estimatedCreditMax").value(5))
+                .andExpect(jsonPath("$.data.costEstimate.maximumReservedCredit").value(5))
                 .andExpect(jsonPath("$.data.submittedAt").value("2026-07-20T10:00:00Z"))
                 .andExpect(jsonPath("$.data.deadlineAt").value("2026-07-20T10:10:00Z"));
 

@@ -34,7 +34,7 @@ public interface UserCreditMapper {
     User selectActiveCreditAccountForUpdate(@Param("userId") Long userId);
 
     @Select("""
-            SELECT id, taskId, userId, tenantId, creditCharged
+            SELECT id, taskId, userId, tenantId, creditCharged, creditCost, totalTokens
             FROM generation_task
             WHERE taskId = #{taskId}
               AND isDelete = 0
@@ -43,7 +43,7 @@ public interface UserCreditMapper {
     GenerationTask selectGenerationTaskForUpdate(@Param("taskId") String taskId);
 
     @Select("""
-            SELECT id, taskId, userId, tenantId, creditCharged
+            SELECT id, taskId, userId, tenantId, creditCharged, creditCost, totalTokens
             FROM generation_task
             WHERE taskId = #{taskId}
               AND isDelete = 0

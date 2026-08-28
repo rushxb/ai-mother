@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
 import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostSummary;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSnapshot;
 import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import org.junit.jupiter.api.Test;
@@ -78,6 +79,25 @@ class GenerationTaskStatusVOTest {
         assertEquals("审批决定已记录，系统正在重试恢复执行；可继续等待或取消任务",
                 view.guidance().message());
         assertEquals("wait_or_cancel", view.guidance().action());
+    }
+
+    @Test
+    void runningStatusMustExposeCostWithoutRequiringATerminalReceipt() {
+        Instant submittedAt = Instant.parse("2026-08-28T01:00:00Z");
+        GenerationCostSummary costSummary = new GenerationCostSummary(
+                "reserved", null, null, null,
+                5L, 140_000L, 2L, null, null,
+                20_000L, "provider_timeout", "已冻结 5 积分，当前暂估消耗 2 积分");
+        GenerationTaskSnapshot snapshot = new GenerationTaskSnapshot(
+                "task-cost", 1L, 2L, "agent_edit", "running",
+                "generating", null, submittedAt, submittedAt.plusSeconds(600),
+                false, null, Map.of(), Map.of(), null, null, costSummary);
+
+        GenerationTaskStatusVO view = GenerationTaskStatusVO.from(snapshot);
+
+        assertSame(costSummary, view.costSummary());
+        assertEquals(5L, view.costSummary().maximumReservedCredit());
+        assertEquals(2L, view.costSummary().provisionalCreditCost());
     }
 
     private GenerationTaskSnapshot snapshot(String status,

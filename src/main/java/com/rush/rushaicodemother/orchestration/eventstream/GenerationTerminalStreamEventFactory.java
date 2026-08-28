@@ -87,6 +87,13 @@ public final class GenerationTerminalStreamEventFactory {
         projected.put("totalTokens", summary.totalTokens());
         projected.put("creditCost", summary.creditCost());
         projected.put("charged", summary.charged());
+        projected.put("maximumReservedCredit", summary.maximumReservedCredit());
+        projected.put("providerObservedTokens", summary.providerObservedTokens());
+        projected.put("provisionalCreditCost", summary.provisionalCreditCost());
+        projected.put("refundedCredit", summary.refundedCredit());
+        projected.put("refundReason", summary.refundReason());
+        projected.put("waivedTokens", summary.waivedTokens());
+        projected.put("waiverReason", summary.waiverReason());
         projected.put("summary", summary.summary());
         removeNullValues(projected);
         return Map.copyOf(projected);

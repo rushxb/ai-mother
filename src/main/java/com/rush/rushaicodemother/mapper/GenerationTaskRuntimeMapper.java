@@ -139,13 +139,19 @@ public interface GenerationTaskRuntimeMapper {
                                         @Param("periodEnd") LocalDateTime periodEnd);
 
     @Select("""
-            SELECT taskId, appId, route, status, submittedAt, deadlineAt, requestFingerprint
-            FROM generation_task
-            WHERE tenantId = #{tenantId}
-              AND userId = #{userId}
-              AND appId = #{appId}
-              AND idempotencyKeyHash = #{idempotencyKeyHash}
-              AND isDelete = 0
+            SELECT task.taskId, task.appId, task.route, task.status,
+                   task.submittedAt, task.deadlineAt, task.requestFingerprint,
+                   GREATEST(0, -reservation.changeAmount) AS reservedCredit
+            FROM generation_task task
+            LEFT JOIN user_credit_transaction reservation
+              ON reservation.type = 'GENERATION_RESERVATION'
+             AND reservation.bizId = task.taskId
+             AND reservation.isDelete = 0
+            WHERE task.tenantId = #{tenantId}
+              AND task.userId = #{userId}
+              AND task.appId = #{appId}
+              AND task.idempotencyKeyHash = #{idempotencyKeyHash}
+              AND task.isDelete = 0
             LIMIT 1
             """)
     GenerationTask selectBySubmissionIdempotency(@Param("tenantId") Long tenantId,

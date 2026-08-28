@@ -14,6 +14,7 @@ import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEv
 import com.rush.rushaicodemother.orchestration.attempt.completion.GenerationCompletionEvidenceSet;
 import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceipt;
 import com.rush.rushaicodemother.orchestration.delivery.GenerationDeliveryReceiptFactory;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostSummary;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionSnapshot;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
@@ -21,6 +22,7 @@ import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableG
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationTaskProgressEstimate;
 import com.rush.rushaicodemother.orchestration.runtime.task.progress.GenerationTaskProgressEstimator;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
+import com.rush.rushaicodemother.service.credit.GenerationTaskCostProjectionService;
 import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
 import com.rush.rushaicodemother.service.trace.GenerationOutcomeQuality;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,6 +57,7 @@ class GenerationTaskQueryServiceDurableFallbackTest {
     private AppPersistenceService appPersistenceService;
     private TenantAuthorizationService tenantAuthorizationService;
     private GenerationSessionRegistry sessionRegistry;
+    private GenerationTaskCostProjectionService costProjectionService;
 
     @BeforeEach
     void setUp() {
@@ -64,9 +67,11 @@ class GenerationTaskQueryServiceDurableFallbackTest {
         appPersistenceService = mock(AppPersistenceService.class);
         tenantAuthorizationService = mock(TenantAuthorizationService.class);
         sessionRegistry = mock(GenerationSessionRegistry.class);
+        costProjectionService = mock(GenerationTaskCostProjectionService.class);
         service = new GenerationTaskQueryService(
                 sessionRegistry, repository,
-                progressEstimator, eventStream, appPersistenceService, tenantAuthorizationService);
+                progressEstimator, eventStream, appPersistenceService,
+                tenantAuthorizationService, costProjectionService);
     }
 
     @Test
@@ -241,16 +246,24 @@ class GenerationTaskQueryServiceDurableFallbackTest {
                 null, null, SUBMITTED_AT, 3L, 1, 4L,
                 SUBMITTED_AT.plusSeconds(30), "internal failure", receipt);
         when(repository.findByTaskId("task-durable")).thenReturn(Optional.of(record));
+        GenerationCostSummary costSummary = new GenerationCostSummary(
+                "settled", 120_000L, 2L, true,
+                5L, 140_000L, null, 3L, "actual_cost_below_reserved",
+                20_000L, "provider_timeout", "实际扣费 2 积分，已退还 3 积分");
+        when(costProjectionService.project("task-durable", true)).thenReturn(costSummary);
 
         GenerationTaskSnapshot snapshot = service.get("task-durable", user(2L));
         GenerationStreamEvent event = service.events("task-durable", user(2L))
                 .blockFirst(Duration.ofSeconds(1));
 
-        assertEquals(receipt, snapshot.deliveryReceipt());
+        assertEquals(receipt.withCostSummary(costSummary), snapshot.deliveryReceipt());
         assertEquals("heavy_generation", ((java.util.Map<?, ?>)
                 event.getData().get("deliveryReceipt")).get("actualRoute"));
         assertEquals("model_timeout", event.getData().get("failureCategory"));
         assertEquals("retry", event.getData().get("recoveryAction"));
+        java.util.Map<?, ?> eventCost = (java.util.Map<?, ?>) event.getData().get("costSummary");
+        assertEquals(3L, eventCost.get("refundedCredit"));
+        assertEquals("provider_timeout", eventCost.get("waiverReason"));
     }
 
     @Test

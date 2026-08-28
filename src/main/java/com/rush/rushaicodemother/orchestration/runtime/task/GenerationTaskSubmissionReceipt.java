@@ -1,7 +1,9 @@
 package com.rush.rushaicodemother.orchestration.runtime.task;
 
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.delivery.GenerationCostEstimate;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskCommand;
+import com.rush.rushaicodemother.service.credit.GenerationCreditReservationQuote;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -13,8 +15,19 @@ public record GenerationTaskSubmissionReceipt(
         String route,
         GenerationTaskStatus status,
         Instant submittedAt,
-        Instant deadlineAt
+        Instant deadlineAt,
+        GenerationCostEstimate costEstimate
 ) {
+
+    /** 兼容迁移前没有成本预计字段的持久回执。 */
+    public GenerationTaskSubmissionReceipt(String taskId,
+                                           Long appId,
+                                           String route,
+                                           GenerationTaskStatus status,
+                                           Instant submittedAt,
+                                           Instant deadlineAt) {
+        this(taskId, appId, route, status, submittedAt, deadlineAt, null);
+    }
 
     /** 创建提交回执并校验其持久化身份与时间边界。 */
     public GenerationTaskSubmissionReceipt {
@@ -44,7 +57,20 @@ public record GenerationTaskSubmissionReceipt(
                 command.route(),
                 GenerationTaskStatus.QUEUED,
                 command.submittedAt(),
-                command.deadlineAt()
+                command.deadlineAt(),
+                null
         );
+    }
+
+    /** 根据准入报价创建带成本上界的排队回执。 */
+    public static GenerationTaskSubmissionReceipt queued(
+            GenerationTaskCommand command,
+            GenerationCreditReservationQuote quote) {
+        Objects.requireNonNull(command, "生成任务命令不能为空");
+        Objects.requireNonNull(quote, "生成任务报价不能为空");
+        return new GenerationTaskSubmissionReceipt(
+                command.taskId(), command.appId(), command.route(), GenerationTaskStatus.QUEUED,
+                command.submittedAt(), command.deadlineAt(),
+                GenerationCostEstimate.fromMaximumReservation(quote.reservedCredit()));
     }
 }

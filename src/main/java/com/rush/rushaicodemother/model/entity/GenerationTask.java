@@ -52,6 +52,10 @@ public class GenerationTask implements Serializable {
     @Column("requestFingerprint")
     private String requestFingerprint;
 
+    /** 准入查询联表得到的最大冻结积分，不属于 generation_task 表字段。 */
+    @Column(ignore = true)
+    private Long reservedCredit;
+
     @Column("originalCodeGenType")
     private String originalCodeGenType;
 

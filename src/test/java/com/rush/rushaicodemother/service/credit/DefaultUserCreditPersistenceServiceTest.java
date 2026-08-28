@@ -79,7 +79,9 @@ class DefaultUserCreditPersistenceServiceTest {
                 .taskId("task-1")
                 .userId(7L)
                 .tenantId(100L)
-                .creditCharged(0)
+                .creditCharged(1)
+                .creditCost(3L)
+                .totalTokens(200_000L)
                 .build());
 
         GenerationCreditTask task = service.lockGenerationTask("task-1");
@@ -87,7 +89,9 @@ class DefaultUserCreditPersistenceServiceTest {
         assertEquals(101L, task.recordId());
         assertEquals(7L, task.userId());
         assertEquals(100L, task.tenantId());
-        assertFalse(task.settled());
+        assertTrue(task.settled());
+        assertEquals(3L, task.creditCost());
+        assertEquals(200_000L, task.totalTokens());
     }
 
     @Test

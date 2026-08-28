@@ -38,11 +38,22 @@ public interface UserCreditPersistenceService {
                                 String taskId,
                                 long userId,
                                 Long tenantId,
-                                boolean settled) {
+                                boolean settled,
+                                Long creditCost,
+                                Long totalTokens) {
+
+        /** 兼容不读取结算明细的旧调用方。 */
+        public GenerationCreditTask(long recordId,
+                                    String taskId,
+                                    long userId,
+                                    Long tenantId,
+                                    boolean settled) {
+            this(recordId, taskId, userId, tenantId, settled, null, null);
+        }
 
         /** 兼容旧测试和迁移前任务投影。 */
         public GenerationCreditTask(long recordId, String taskId, long userId, boolean settled) {
-            this(recordId, taskId, userId, null, settled);
+            this(recordId, taskId, userId, null, settled, null, null);
         }
     }
 

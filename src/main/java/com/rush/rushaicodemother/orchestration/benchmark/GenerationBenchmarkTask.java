@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 
 import java.util.List;
@@ -23,7 +24,8 @@ public record GenerationBenchmarkTask(
         List<String> forbiddenRoutes,
         IntentOperationType operation,
         GenerationBenchmarkFixtureKind fixtureKind,
-        List<GenerationBenchmarkResponseAssertion> responseAssertions
+        List<GenerationBenchmarkResponseAssertion> responseAssertions,
+        String sourceCodeGenType
 ) {
 
     public GenerationBenchmarkTask(String id,
@@ -47,8 +49,31 @@ public record GenerationBenchmarkTask(
                 List.of(),
                 inferOperation(mode),
                 inferFixtureKind(mode),
-                List.of()
+                List.of(),
+                codeGenType
         );
+    }
+
+    /** 保留 v3.3 及既有 Java 调用方的构造合同；未声明来源类型时视为同类型任务。 */
+    public GenerationBenchmarkTask(String id,
+                                   String mode,
+                                   String codeGenType,
+                                   String prompt,
+                                   String expectedValidation,
+                                   String scenario,
+                                   GenerationBenchmarkDifficulty difficulty,
+                                   List<String> capabilities,
+                                   List<GenerationBenchmarkQualityDimension> requiredQualityDimensions,
+                                   List<GenerationBenchmarkFixtureFile> fixtureFiles,
+                                   List<GenerationBenchmarkSourceAssertion> sourceAssertions,
+                                   String expectedRoute,
+                                   List<String> forbiddenRoutes,
+                                   IntentOperationType operation,
+                                   GenerationBenchmarkFixtureKind fixtureKind,
+                                   List<GenerationBenchmarkResponseAssertion> responseAssertions) {
+        this(id, mode, codeGenType, prompt, expectedValidation, scenario, difficulty, capabilities,
+                requiredQualityDimensions, fixtureFiles, sourceAssertions, expectedRoute, forbiddenRoutes,
+                operation, fixtureKind, responseAssertions, codeGenType);
     }
 
     public GenerationBenchmarkTask {
@@ -60,6 +85,9 @@ public record GenerationBenchmarkTask(
         sourceAssertions = sourceAssertions == null ? List.of() : List.copyOf(sourceAssertions);
         forbiddenRoutes = forbiddenRoutes == null ? List.of() : List.copyOf(forbiddenRoutes);
         responseAssertions = responseAssertions == null ? List.of() : List.copyOf(responseAssertions);
+        sourceCodeGenType = sourceCodeGenType == null || sourceCodeGenType.isBlank()
+                ? codeGenType
+                : sourceCodeGenType.trim();
     }
 
     /** 保留尚未声明响应断言的数据集与测试构造入口。 */
@@ -116,6 +144,23 @@ public record GenerationBenchmarkTask(
         this(id, mode, codeGenType, prompt, expectedValidation, scenario, difficulty, capabilities,
                 requiredQualityDimensions, fixtureFiles, sourceAssertions, mode, List.of(),
                 inferOperation(mode), inferFixtureKind(mode));
+    }
+
+    /** 返回夹具创建前的来源工程类型。 */
+    public CodeGenTypeEnum sourceProjectType() {
+        return CodeGenTypeEnum.getEnumByValue(sourceCodeGenType);
+    }
+
+    /** 返回数据集期望冻结并发布的目标工程类型。 */
+    public CodeGenTypeEnum targetProjectType() {
+        return CodeGenTypeEnum.getEnumByValue(codeGenType);
+    }
+
+    /** 判断当前任务是否要求保留既有能力并升级工程类型。 */
+    public boolean crossTypeUpgrade() {
+        CodeGenTypeEnum sourceType = sourceProjectType();
+        CodeGenTypeEnum targetType = targetProjectType();
+        return sourceType != null && targetType != null && sourceType != targetType;
     }
 
     private static IntentOperationType inferOperation(String mode) {

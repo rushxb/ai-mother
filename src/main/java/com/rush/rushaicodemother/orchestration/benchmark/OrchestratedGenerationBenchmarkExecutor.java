@@ -57,6 +57,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
     private final GenerationBenchmarkValidationEngine validationEngine;
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
     private final GenerationWorkspaceService workspaceService;
+    private final GenerationBenchmarkExecutionIdentityProvider executionIdentityProvider;
 
     @Value("${app.generation-benchmark.task-timeout:PT12M}")
     private Duration taskTimeout;
@@ -185,7 +186,8 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             String actualMode = resolvedMode(task, telemetry);
             GenerationBenchmarkQualityEvidence qualityEvidence = terminalObserved
                     ? validationEngine.evaluate(
-                            validationPlan(fixture, taskId, publicationSucceeded, actualMode),
+                            validationPlan(
+                                    task, fixture, taskId, publicationSucceeded, actualMode),
                             responseText.get())
                     : GenerationBenchmarkQualityEvidence.empty();
             return new GenerationBenchmarkRunResult(
@@ -412,6 +414,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
     }
 
     private GenerationBenchmarkValidationPlan validationPlan(
+            GenerationBenchmarkTask task,
             GenerationBenchmarkFixture fixture,
             String taskId,
             boolean publicationSucceeded,
@@ -420,13 +423,23 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
         if (!publicationSucceeded || "READ_ONLY".equalsIgnoreCase(actualMode)) {
             return plan;
         }
-        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(
-                fixture.request().app().getCodeGenType());
-        if (codeGenType == null) {
-            throw new IllegalStateException("benchmark publication code generation type is invalid");
+        GenerationBenchmarkExecutionIdentity executionIdentity = executionIdentityProvider
+                .findByTaskId(taskId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Benchmark 持久任务执行身份不存在"));
+        Long fixtureAppId = fixture.request().app().getId();
+        if (!taskId.equals(executionIdentity.taskId())
+                || !Objects.equals(fixtureAppId, executionIdentity.appId())) {
+            throw new IllegalStateException("Benchmark 持久任务执行身份与夹具不一致");
+        }
+        CodeGenTypeEnum expectedTargetType = task == null
+                ? null
+                : CodeGenTypeEnum.getEnumByValue(task.codeGenType());
+        if (expectedTargetType == null || executionIdentity.targetType() != expectedTargetType) {
+            throw new IllegalStateException("Benchmark 持久任务目标工程类型与数据集不一致");
         }
         GenerationWorkspace publishedWorkspace = workspaceService.resolvePublished(
-                fixture.request().app().getId(), codeGenType, taskId);
+                executionIdentity.appId(), executionIdentity.targetType(), taskId);
         return plan.withWorkspace(publishedWorkspace);
     }
 

@@ -67,6 +67,8 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService =
             mock(GenerationTaskRuntimeLifecycleService.class);
     private final GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
+    private final GenerationBenchmarkExecutionIdentityProvider executionIdentityProvider =
+            mock(GenerationBenchmarkExecutionIdentityProvider.class);
     private final GenerationWorkspace publishedWorkspace = workspace(
             Path.of(".").toAbsolutePath().normalize().resolve("published"));
 
@@ -242,6 +244,55 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                 ArgumentCaptor.forClass(GenerationBenchmarkValidationPlan.class);
         verify(validationEngine).evaluate(plan.capture(), anyString());
         assertSame(publishedWorkspace, plan.getValue().workspace());
+    }
+
+    @Test
+    void crossTypeBenchmarkMustResolvePublicationFromDurableTargetIdentity() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(generationResult(
+                "bench-upgrade", "heavy_expert", Flux.just(
+                        GenerationStreamEvent.buildResult(
+                                "build ok", Map.of("success", true)))));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        GenerationBenchmarkTask task = crossTypeTask();
+        GenerationWorkspace fullStackPublication = workspace(
+                Path.of(".").toAbsolutePath().normalize().resolve("published-fullstack"),
+                CodeGenTypeEnum.FULL_STACK_PROJECT);
+        when(executionIdentityProvider.findByTaskId("bench-upgrade"))
+                .thenReturn(Optional.of(new GenerationBenchmarkExecutionIdentity(
+                        "bench-upgrade", 101L, CodeGenTypeEnum.FULL_STACK_PROJECT)));
+        when(workspaceService.resolvePublished(
+                101L, CodeGenTypeEnum.FULL_STACK_PROJECT, "bench-upgrade"))
+                .thenReturn(fullStackPublication);
+
+        GenerationBenchmarkRunResult result = executor.execute(task);
+
+        assertTrue(result.success());
+        verify(workspaceService).resolvePublished(
+                101L, CodeGenTypeEnum.FULL_STACK_PROJECT, "bench-upgrade");
+        ArgumentCaptor<GenerationTaskRequest> request =
+                ArgumentCaptor.forClass(GenerationTaskRequest.class);
+        verify(orchestrator).start(request.capture());
+        assertEquals("vue_project", request.getValue().app().getCodeGenType());
+    }
+
+    @Test
+    void successfulPublicationMustFailClosedWhenDurableExecutionIdentityIsMissing() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(generationResult(
+                "bench-missing-identity", "create", Flux.just(
+                        GenerationStreamEvent.buildResult(
+                                "build ok", Map.of("success", true)))));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        when(executionIdentityProvider.findByTaskId("bench-missing-identity"))
+                .thenReturn(Optional.empty());
+
+        GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
+                "missing_identity", "CREATE", "vue_project", "生成项目", "build"));
+
+        assertFalse(result.success());
+        verify(workspaceService, never()).resolvePublished(
+                anyLong(), any(CodeGenTypeEnum.class), eq("bench-missing-identity"));
     }
 
     @Test
@@ -527,6 +578,9 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         when(runtimeLifecycleService.findByTaskId(anyString())).thenAnswer(invocation -> Optional.of(
                 record(invocation.getArgument(0), GenerationTaskStatus.SUCCESS)));
         when(runtimeLifecycleService.requestCancellation(anyString(), anyString())).thenReturn(true);
+        when(executionIdentityProvider.findByTaskId(anyString())).thenAnswer(invocation ->
+                Optional.of(new GenerationBenchmarkExecutionIdentity(
+                        invocation.getArgument(0), 101L, CodeGenTypeEnum.VUE_PROJECT)));
         when(workspaceService.resolvePublished(anyLong(), eq(CodeGenTypeEnum.VUE_PROJECT), anyString()))
                 .thenReturn(publishedWorkspace);
         OrchestratedGenerationBenchmarkExecutor executor = new OrchestratedGenerationBenchmarkExecutor(
@@ -538,7 +592,8 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                 usageRepository,
                 validationEngine,
                 runtimeLifecycleService,
-                workspaceService
+                workspaceService,
+                executionIdentityProvider
         );
         ReflectionTestUtils.setField(executor, "taskTimeout", Duration.ofMillis(200));
         ReflectionTestUtils.setField(executor, "cancellationGraceTimeout", Duration.ofMillis(50));
@@ -578,9 +633,51 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                 .userId(user.getId())
                 .appName("benchmark-" + task.id())
                 .initPrompt(task.prompt())
-                .codeGenType(task.codeGenType())
+                .codeGenType(task.sourceCodeGenType())
                 .build();
-        return new GenerationBenchmarkFixture(requestFactory.create(task, app, user), () -> { });
+        GenerationWorkspace sourceWorkspace = workspace(
+                Path.of(".").toAbsolutePath().normalize().resolve("source-" + task.id()),
+                task.sourceProjectType());
+        GenerationBenchmarkWorkspaceSnapshot baseline = new GenerationBenchmarkWorkspaceSnapshot(
+                sourceWorkspace.canonicalRootPath(),
+                Map.of(),
+                new GenerationBenchmarkWorkspaceIdentity(
+                        sourceWorkspace.appId(),
+                        sourceWorkspace.codeGenType(),
+                        task.targetProjectType())
+        );
+        GenerationBenchmarkValidationPlan validationPlan = new GenerationBenchmarkValidationPlan(
+                task, sourceWorkspace, baseline, List.of(), List.of(), user.getId());
+        return new GenerationBenchmarkFixture(
+                requestFactory.create(task, app, user), validationPlan, () -> { });
+    }
+
+    private GenerationBenchmarkTask crossTypeTask() {
+        return new GenerationBenchmarkTask(
+                "upgrade_vue_fullstack",
+                "HEAVY_EXPERT",
+                "full_stack_project",
+                "升级为全栈项目",
+                "build",
+                "cross_type_upgrade",
+                GenerationBenchmarkDifficulty.HARD,
+                List.of("project_migration"),
+                List.of(
+                        GenerationBenchmarkQualityDimension.STRUCTURAL,
+                        GenerationBenchmarkQualityDimension.FUNCTIONAL,
+                        GenerationBenchmarkQualityDimension.DIFF_SCOPE,
+                        GenerationBenchmarkQualityDimension.SECURITY,
+                        GenerationBenchmarkQualityDimension.RUNTIME,
+                        GenerationBenchmarkQualityDimension.VISUAL),
+                List.of(),
+                List.of(),
+                "HEAVY_EXPERT",
+                List.of("CREATE", "LIGHT_EDIT", "AGENT_EDIT"),
+                IntentOperationType.EDIT,
+                GenerationBenchmarkFixtureKind.TEMPLATE_PROJECT,
+                List.of(),
+                "vue_project"
+        );
     }
 
     private GenerationModeDecision decision(GenerationMode mode) {
@@ -619,17 +716,27 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     }
 
     private GenerationWorkspace workspace(Path root) {
+        return workspace(root, CodeGenTypeEnum.VUE_PROJECT);
+    }
+
+    private GenerationWorkspace workspace(Path root, CodeGenTypeEnum type) {
         Path normalized = root.toAbsolutePath().normalize();
+        Path frontendRoot = type == CodeGenTypeEnum.FULL_STACK_PROJECT
+                ? normalized.resolve("frontend")
+                : type.isFrontendCapable() ? normalized : null;
+        Path backendRoot = type == CodeGenTypeEnum.FULL_STACK_PROJECT
+                ? normalized.resolve("backend")
+                : type.isBackendCapable() ? normalized : null;
         return new GenerationWorkspace(
                 101L,
-                CodeGenTypeEnum.VUE_PROJECT,
+                type,
                 normalized,
                 normalized,
                 true,
-                normalized,
-                null,
+                frontendRoot,
+                backendRoot,
                 Set.of(),
-                Set.of("vue", "ts", "json")
+                Set.of("vue", "ts", "json", "go")
         );
     }
 }

@@ -46,7 +46,7 @@ public class ReadOnlyWorkspaceImmutabilityBenchmarkRule implements GenerationBen
             GenerationBenchmarkWorkspaceSnapshot baseline
     ) {
         Set<String> changedPaths = baseline.changedPaths(
-                inspector.capture(workspace.canonicalRootPath()));
+                inspector.capture(workspace));
         return new GenerationBenchmarkRuleResult(
                 RULE_ID,
                 dimension(),

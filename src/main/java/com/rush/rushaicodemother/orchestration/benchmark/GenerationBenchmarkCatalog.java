@@ -24,7 +24,7 @@ public class GenerationBenchmarkCatalog {
 
     private static final String DATASET_RESOURCE = "benchmark/generation-benchmark-dataset-v3.json";
     private static final int SUPPORTED_SCHEMA_VERSION = 3;
-    private static final int MINIMUM_TASK_COUNT = 58;
+    private static final int MINIMUM_TASK_COUNT = 59;
     private static final int MINIMUM_FIXTURES_PER_MATRIX_CELL = 3;
     private static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9][a-z0-9_-]{0,63}");
     private static final Pattern VERSION_PATTERN = Pattern.compile("[0-9][A-Za-z0-9._-]{0,31}");
@@ -91,9 +91,13 @@ public class GenerationBenchmarkCatalog {
                 || !ids.add(task.id())) {
             throw new IllegalStateException("生成质量评测任务标识无效或重复");
         }
+        CodeGenTypeEnum targetType = task.targetProjectType();
+        CodeGenTypeEnum sourceType = task.sourceProjectType();
         if (!MODES.contains(task.mode())
                 || task.expectedRoute() == null || !MODES.contains(task.expectedRoute())
-                || CodeGenTypeEnum.getEnumByValue(task.codeGenType()) == null
+                || targetType == null
+                || sourceType == null
+                || (sourceType != targetType && !sourceType.canUpgradeTo(targetType))
                 || task.prompt() == null || task.prompt().isBlank() || task.prompt().length() > 2_000
                 || !VALIDATIONS.contains(task.expectedValidation())) {
             throw new IllegalStateException("生成质量评测任务基础字段无效: " + task.id());
@@ -113,7 +117,7 @@ public class GenerationBenchmarkCatalog {
             throw new IllegalStateException("生成质量评测任务元数据无效: " + task.id());
         }
         validateExecutionContract(task);
-        CodeGenTypeEnum type = CodeGenTypeEnum.getEnumByValue(task.codeGenType());
+        CodeGenTypeEnum type = targetType;
         boolean readOnly = "READ_ONLY".equals(task.mode());
         boolean edit = task.operation() == IntentOperationType.EDIT
                 || task.operation() == IntentOperationType.REPAIR;
@@ -169,7 +173,8 @@ public class GenerationBenchmarkCatalog {
         } catch (IllegalArgumentException invalid) {
             throw new IllegalStateException("生成质量评测源码声明无效: " + task.id(), invalid);
         }
-        if (task.fixtureFiles().stream().anyMatch(fixture -> !compatible(type, fixture.root()))
+        if (task.fixtureFiles().stream().anyMatch(
+                fixture -> !compatible(sourceType, fixture.root()))
                 || task.sourceAssertions().stream().anyMatch(assertion -> !compatible(type, assertion.root()))) {
             throw new IllegalStateException("生成质量评测源码根目录与工程类型不匹配: " + task.id());
         }
@@ -200,6 +205,14 @@ public class GenerationBenchmarkCatalog {
                 || task.operation() == IntentOperationType.REPAIR)
                 && task.fixtureKind() != GenerationBenchmarkFixtureKind.TEMPLATE_PROJECT) {
             throw new IllegalStateException("编辑或修复评测必须使用模板项目夹具: " + task.id());
+        }
+        if (task.crossTypeUpgrade()
+                && ((task.operation() != IntentOperationType.EDIT
+                && task.operation() != IntentOperationType.REPAIR)
+                || task.fixtureKind() != GenerationBenchmarkFixtureKind.TEMPLATE_PROJECT
+                || !"HEAVY_EXPERT".equals(task.mode())
+                || !"HEAVY_EXPERT".equals(task.expectedRoute()))) {
+            throw new IllegalStateException("跨类型升级评测必须使用 HEAVY 模板编辑合同: " + task.id());
         }
     }
 

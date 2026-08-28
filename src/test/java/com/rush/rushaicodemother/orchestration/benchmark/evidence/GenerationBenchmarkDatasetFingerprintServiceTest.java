@@ -78,6 +78,22 @@ class GenerationBenchmarkDatasetFingerprintServiceTest {
         assertNotEquals(fingerprint, service.fingerprint(replace(
                 original, 0, changedResponseAssertions)));
 
+        int migrationIndex = original.tasks().stream()
+                .filter(GenerationBenchmarkTask::crossTypeUpgrade)
+                .map(original.tasks()::indexOf)
+                .findFirst()
+                .orElseThrow();
+        GenerationBenchmarkTask migration = original.tasks().get(migrationIndex);
+        GenerationBenchmarkTask changedSourceType = new GenerationBenchmarkTask(
+                migration.id(), migration.mode(), migration.codeGenType(), migration.prompt(),
+                migration.expectedValidation(), migration.scenario(), migration.difficulty(),
+                migration.capabilities(), migration.requiredQualityDimensions(),
+                migration.fixtureFiles(), migration.sourceAssertions(), migration.expectedRoute(),
+                migration.forbiddenRoutes(), migration.operation(), migration.fixtureKind(),
+                migration.responseAssertions(), "multi_file");
+        assertNotEquals(fingerprint, service.fingerprint(replace(
+                original, migrationIndex, changedSourceType)));
+
         int declaredIndex = indexOfDeclaredTask(original.tasks());
         GenerationBenchmarkTask declared = original.tasks().get(declaredIndex);
         List<GenerationBenchmarkFixtureFile> fixtures = new ArrayList<>(declared.fixtureFiles());
@@ -145,7 +161,8 @@ class GenerationBenchmarkDatasetFingerprintServiceTest {
                 task.forbiddenRoutes(),
                 task.operation(),
                 task.fixtureKind(),
-                task.responseAssertions()
+                task.responseAssertions(),
+                task.sourceCodeGenType()
         );
     }
 

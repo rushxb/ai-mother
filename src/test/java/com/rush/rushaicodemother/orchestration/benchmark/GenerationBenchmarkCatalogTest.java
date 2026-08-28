@@ -26,7 +26,7 @@ class GenerationBenchmarkCatalogTest {
         assertTrue(catalog.tasks().stream().anyMatch(task -> "AGENT_EDIT".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "READ_ONLY".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "HEAVY_EXPERT".equals(task.mode())));
-        assertTrue(catalog.tasks().size() >= 58);
+        assertTrue(catalog.tasks().size() >= 59);
         assertEquals(catalog.tasks().size(), catalog.tasks().stream()
                 .map(GenerationBenchmarkTask::id)
                 .distinct()
@@ -97,6 +97,47 @@ class GenerationBenchmarkCatalogTest {
                         || "multi_file".equals(task.codeGenType()))
                 .noneMatch(task -> task.requiredQualityDimensions()
                         .contains(GenerationBenchmarkQualityDimension.VISUAL)));
+        GenerationBenchmarkTask crossTypeUpgrade = catalog.tasks().stream()
+                .filter(GenerationBenchmarkTask::crossTypeUpgrade)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("vue_project", crossTypeUpgrade.sourceCodeGenType());
+        assertEquals("full_stack_project", crossTypeUpgrade.codeGenType());
+        assertEquals("HEAVY_EXPERT", crossTypeUpgrade.expectedRoute());
+    }
+
+    @Test
+    void datasetMustRejectCrossTypeUpgradeOutsideHeavyTemplateContract() {
+        GenerationBenchmarkCatalog catalog = catalog();
+        GenerationBenchmarkDataset dataset = catalog.dataset();
+        GenerationBenchmarkTask task = dataset.tasks().stream()
+                .filter(GenerationBenchmarkTask::crossTypeUpgrade)
+                .findFirst()
+                .orElseThrow();
+        GenerationBenchmarkTask invalid = new GenerationBenchmarkTask(
+                task.id(),
+                "AGENT_EDIT",
+                task.codeGenType(),
+                task.prompt(),
+                task.expectedValidation(),
+                task.scenario(),
+                task.difficulty(),
+                task.capabilities(),
+                task.requiredQualityDimensions(),
+                task.fixtureFiles(),
+                task.sourceAssertions(),
+                "AGENT_EDIT",
+                List.of("CREATE", "LIGHT_EDIT"),
+                task.operation(),
+                task.fixtureKind(),
+                task.responseAssertions(),
+                task.sourceCodeGenType()
+        );
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class, () ->
+                catalog.validate(replace(dataset, dataset.tasks().indexOf(task), invalid)));
+
+        assertTrue(failure.getMessage().contains("跨类型升级评测必须使用 HEAVY"));
     }
 
     @Test

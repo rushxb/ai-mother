@@ -4,6 +4,7 @@ import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 
 /** 内存中计划将一个夹具基线与其确定性分级器规则相结合。 */
 public record GenerationBenchmarkValidationPlan(
@@ -40,7 +41,16 @@ public record GenerationBenchmarkValidationPlan(
  */
     public GenerationBenchmarkValidationPlan withWorkspace(GenerationWorkspace publishedWorkspace) {
         if (publishedWorkspace == null) {
-            throw new IllegalArgumentException("published benchmark workspace cannot be null");
+            throw new IllegalArgumentException("Benchmark 发布工作区不能为空");
+        }
+        if (task == null || task.targetProjectType() == null
+                || publishedWorkspace.codeGenType() != task.targetProjectType()) {
+            throw new IllegalArgumentException("Benchmark 发布工作区类型与数据集目标不一致");
+        }
+        if (baseline.identity() == null
+                || !Objects.equals(
+                baseline.identity().appId(), publishedWorkspace.appId())) {
+            throw new IllegalArgumentException("Benchmark 发布工作区应用身份与基线不一致");
         }
         return new GenerationBenchmarkValidationPlan(
                 task,

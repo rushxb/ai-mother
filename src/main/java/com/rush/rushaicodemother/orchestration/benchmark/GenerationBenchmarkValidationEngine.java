@@ -1,6 +1,7 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
 import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer;
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.monitor.GenerationBenchmarkGraderMetricsCollector;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import lombok.extern.slf4j.Slf4j;
@@ -99,8 +100,12 @@ public class GenerationBenchmarkValidationEngine {
                 .filter(grader -> grader.supports(task))
                 .toList();
         selected.forEach(rule -> rule.prepare(task, workspace));
+        CodeGenTypeEnum targetType = task.targetProjectType();
+        if (targetType == null) {
+            throw new IllegalArgumentException("Benchmark 目标工程类型无效");
+        }
         GenerationBenchmarkWorkspaceSnapshot baseline =
-                inspector.capture(workspace.canonicalRootPath());
+                inspector.captureBaseline(workspace, targetType);
         return new GenerationBenchmarkValidationPlan(
                 task,
                 workspace,

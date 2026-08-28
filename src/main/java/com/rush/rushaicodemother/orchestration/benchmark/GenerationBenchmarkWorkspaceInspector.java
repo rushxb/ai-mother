@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.benchmark;
 
+import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspace;
 import com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspaceService;
 import org.springframework.stereotype.Component;
 
@@ -19,9 +21,41 @@ import java.util.Map;
 public class GenerationBenchmarkWorkspaceInspector {
 
     public GenerationBenchmarkWorkspaceSnapshot capture(Path root) {
+        return capture(root, null);
+    }
+
+    /** 捕获可跨执行/发布物理目录比较的当前工作区快照。 */
+    public GenerationBenchmarkWorkspaceSnapshot capture(GenerationWorkspace workspace) {
+        if (workspace == null) {
+            throw new IllegalArgumentException("Benchmark 工作区不能为空");
+        }
+        return capture(
+                workspace.canonicalRootPath(),
+                identity(workspace, workspace.codeGenType())
+        );
+    }
+
+    /** 捕获来源工作区，并冻结本次评分允许比较的唯一目标工程类型。 */
+    public GenerationBenchmarkWorkspaceSnapshot captureBaseline(
+            GenerationWorkspace workspace,
+            CodeGenTypeEnum expectedTargetType
+    ) {
+        if (workspace == null) {
+            throw new IllegalArgumentException("Benchmark 基线工作区不能为空");
+        }
+        return capture(
+                workspace.canonicalRootPath(),
+                identity(workspace, expectedTargetType)
+        );
+    }
+
+    private GenerationBenchmarkWorkspaceSnapshot capture(
+            Path root,
+            GenerationBenchmarkWorkspaceIdentity identity
+    ) {
         Path normalizedRoot = normalizeRoot(root);
         if (!Files.isDirectory(normalizedRoot, LinkOption.NOFOLLOW_LINKS)) {
-            return new GenerationBenchmarkWorkspaceSnapshot(normalizedRoot, Map.of());
+            return new GenerationBenchmarkWorkspaceSnapshot(normalizedRoot, Map.of(), identity);
         }
         Map<String, String> digests = new LinkedHashMap<>();
         try (var paths = Files.walk(normalizedRoot)) {
@@ -35,7 +69,15 @@ public class GenerationBenchmarkWorkspaceInspector {
         } catch (Exception failure) {
             throw new IllegalStateException("无法采集评测工作区快照", failure);
         }
-        return new GenerationBenchmarkWorkspaceSnapshot(normalizedRoot, digests);
+        return new GenerationBenchmarkWorkspaceSnapshot(normalizedRoot, digests, identity);
+    }
+
+    private GenerationBenchmarkWorkspaceIdentity identity(
+            GenerationWorkspace workspace,
+            CodeGenTypeEnum expectedTargetType
+    ) {
+        return new GenerationBenchmarkWorkspaceIdentity(
+                workspace.appId(), workspace.codeGenType(), expectedTargetType);
     }
 
     /**

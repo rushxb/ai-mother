@@ -91,7 +91,7 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
             GenerationWorkspace workspace,
             GenerationBenchmarkWorkspaceSnapshot baseline
     ) {
-        GenerationBenchmarkWorkspaceSnapshot current = inspector.capture(workspace.canonicalRootPath());
+        GenerationBenchmarkWorkspaceSnapshot current = inspector.capture(workspace);
         List<String> paths = current.fileDigests().keySet().stream().sorted().toList();
         LinkedHashSet<String> violations = new LinkedHashSet<>();
         Map<String, String> baselineFiles = baseline == null

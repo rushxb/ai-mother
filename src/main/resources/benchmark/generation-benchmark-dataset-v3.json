@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "datasetId": "generation_app_quality",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "tasks": [
     {
       "id": "create_vue_admin_crud",
@@ -867,6 +867,44 @@
           "root": "WORKSPACE",
           "paths": ["src/benchmark/tenantContext.ts", "internal/benchmark/order_architecture.go"],
           "allOf": ["tenant", "transaction", "audit"]
+        }
+      ]
+    },
+    {
+      "id": "upgrade_vue_to_fullstack_orders",
+      "operation": "EDIT",
+      "mode": "HEAVY_EXPERT",
+      "expectedRoute": "HEAVY_EXPERT",
+      "forbiddenRoutes": ["CREATE", "LIGHT_EDIT", "AGENT_EDIT"],
+      "fixtureKind": "TEMPLATE_PROJECT",
+      "sourceCodeGenType": "vue_project",
+      "codeGenType": "full_stack_project",
+      "prompt": "将现有 Vue 订单前端升级为 Vue + Go 全栈项目；保留 frontend/src/benchmark/migrationContract.ts 中的 Harbor Atlas 品牌和 /api/orders 合同，并在 backend/internal/benchmark/order_handler.go 实现该接口，禁止退化为纯前端重写",
+      "expectedValidation": "build",
+      "scenario": "cross_type_upgrade",
+      "difficulty": "HARD",
+      "capabilities": ["vue", "go", "project_migration", "contract_preservation", "api_contract"],
+      "requiredQualityDimensions": ["STRUCTURAL", "FUNCTIONAL", "DIFF_SCOPE", "SECURITY", "RUNTIME", "VISUAL"],
+      "fixtureFiles": [
+        {
+          "root": "FRONTEND",
+          "path": "src/benchmark/migrationContract.ts",
+          "content": "export const productName = 'Harbor Atlas'\nexport const ordersEndpoint = '/api/orders'\n"
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "id": "migration_frontend_contract",
+          "root": "FRONTEND",
+          "paths": ["src/benchmark/migrationContract.ts"],
+          "allOf": ["Harbor Atlas", "/api/orders"]
+        },
+        {
+          "id": "migration_backend_contract",
+          "root": "BACKEND",
+          "paths": ["internal/benchmark/order_handler.go"],
+          "allOf": ["/api/orders"],
+          "anyOf": ["HandleFunc", "Handle", "GET"]
         }
       ]
     },

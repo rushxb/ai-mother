@@ -47,7 +47,7 @@ public class WorkspaceStructuralBenchmarkRule implements GenerationBenchmarkVali
             GenerationWorkspace workspace,
             GenerationBenchmarkWorkspaceSnapshot baseline
     ) {
-        GenerationBenchmarkWorkspaceSnapshot current = inspector.capture(workspace.canonicalRootPath());
+        GenerationBenchmarkWorkspaceSnapshot current = inspector.capture(workspace);
         Map<String, String> files = current.fileDigests();
         List<String> violations = new ArrayList<>();
         CodeGenTypeEnum type = CodeGenTypeEnum.getEnumByValue(task.codeGenType());

@@ -14,8 +14,10 @@ import com.rush.rushaicodemother.service.tenant.TenantProvisioningService;
 import com.rush.rushaicodemother.service.user.UserPersistenceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -108,6 +110,33 @@ class GenerationBenchmarkFixtureServiceTest {
     }
 
     @Test
+    void crossTypeUpgradeMustCreateAndBootstrapTheDeclaredSourceProject() {
+        User user = user(9L);
+        when(users.findActiveByAccount(GenerationBenchmarkFixtureService.BENCHMARK_ACCOUNT))
+                .thenReturn(user);
+        when(apps.createPrepared(any())).thenReturn(104L);
+        when(apps.findActiveById(104L)).thenReturn(app(104L, user.getId(), "vue_project"));
+        GenerationWorkspace sourceWorkspace = workspace(104L, CodeGenTypeEnum.VUE_PROJECT);
+        when(templateBootstrapRegistry.bootstrap(
+                104L, CodeGenTypeEnum.VUE_PROJECT, "升级为全栈项目"))
+                .thenReturn(bootstrapResult(sourceWorkspace));
+
+        GenerationBenchmarkTask task = crossTypeTask();
+        try (GenerationBenchmarkFixture fixture = service.create(task)) {
+            assertEquals("vue_project", fixture.request().app().getCodeGenType());
+            verify(templateBootstrapRegistry).bootstrap(
+                    104L, CodeGenTypeEnum.VUE_PROJECT, "升级为全栈项目");
+            verify(validationEngine).prepare(task, sourceWorkspace, user.getId());
+        }
+
+        ArgumentCaptor<AppPersistenceService.NewApp> appCaptor =
+                ArgumentCaptor.forClass(AppPersistenceService.NewApp.class);
+        verify(apps).createPrepared(appCaptor.capture());
+        assertEquals("vue_project", appCaptor.getValue().codeGenType());
+        assertEquals(CodeGenTypeEnum.FULL_STACK_PROJECT, task.targetProjectType());
+    }
+
+    @Test
     void missingBenchmarkUserMustBeCreatedAndReloaded() {
         User persisted = user(77L);
         when(users.findActiveByAccount(GenerationBenchmarkFixtureService.BENCHMARK_ACCOUNT)).thenReturn(null);
@@ -129,6 +158,34 @@ class GenerationBenchmarkFixtureServiceTest {
         user.setId(id);
         user.setUserAccount(GenerationBenchmarkFixtureService.BENCHMARK_ACCOUNT);
         return user;
+    }
+
+    private GenerationBenchmarkTask crossTypeTask() {
+        return new GenerationBenchmarkTask(
+                "upgrade_vue_fullstack",
+                "HEAVY_EXPERT",
+                "full_stack_project",
+                "升级为全栈项目",
+                "build",
+                "cross_type_upgrade",
+                GenerationBenchmarkDifficulty.HARD,
+                List.of("project_migration"),
+                List.of(
+                        GenerationBenchmarkQualityDimension.STRUCTURAL,
+                        GenerationBenchmarkQualityDimension.FUNCTIONAL,
+                        GenerationBenchmarkQualityDimension.DIFF_SCOPE,
+                        GenerationBenchmarkQualityDimension.SECURITY,
+                        GenerationBenchmarkQualityDimension.RUNTIME,
+                        GenerationBenchmarkQualityDimension.VISUAL),
+                List.of(),
+                List.of(),
+                "HEAVY_EXPERT",
+                List.of("CREATE", "LIGHT_EDIT", "AGENT_EDIT"),
+                com.rush.rushaicodemother.orchestration.intent.IntentOperationType.EDIT,
+                GenerationBenchmarkFixtureKind.TEMPLATE_PROJECT,
+                List.of(),
+                "vue_project"
+        );
     }
 
     private App app(Long id, Long userId, String type) {

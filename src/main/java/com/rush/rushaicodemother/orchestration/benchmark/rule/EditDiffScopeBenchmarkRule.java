@@ -45,7 +45,8 @@ public class EditDiffScopeBenchmarkRule implements GenerationBenchmarkValidation
     @Override
     public boolean supports(GenerationBenchmarkTask task) {
         return task != null && (task.operation() == IntentOperationType.EDIT
-                || task.operation() == IntentOperationType.REPAIR);
+                || task.operation() == IntentOperationType.REPAIR)
+                && !task.crossTypeUpgrade();
     }
 
     @Override
@@ -54,7 +55,7 @@ public class EditDiffScopeBenchmarkRule implements GenerationBenchmarkValidation
             GenerationWorkspace workspace,
             GenerationBenchmarkWorkspaceSnapshot baseline
     ) {
-        Set<String> changed = baseline.changedPaths(inspector.capture(workspace.canonicalRootPath()));
+        Set<String> changed = baseline.changedPaths(inspector.capture(workspace));
         List<String> violations = new ArrayList<>();
         if (changed.isEmpty()) {
             violations.add("no_source_change");

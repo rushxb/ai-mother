@@ -70,29 +70,38 @@ public class GenerationBenchmarkFixtureService {
         if (task == null || task.prompt() == null || task.prompt().isBlank()) {
             throw new IllegalArgumentException("benchmark task and prompt are required");
         }
-        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(task.codeGenType());
-        if (codeGenType == null) {
-            throw new IllegalArgumentException("benchmark code generation type is unsupported");
+        CodeGenTypeEnum targetType = task.targetProjectType();
+        CodeGenTypeEnum sourceType = task.sourceProjectType();
+        if (sourceType == null || targetType == null) {
+            throw new IllegalArgumentException("Benchmark 来源或目标工程类型不受支持");
+        }
+        if (sourceType != targetType && !sourceType.canUpgradeTo(targetType)) {
+            throw new IllegalArgumentException("Benchmark 不允许降低或丢失既有工程能力");
         }
         User user = benchmarkUser();
         Long tenantId = tenantProvisioningService.requirePersonalTenantId(user);
         long appId = appPersistenceService.createPrepared(new AppPersistenceService.NewApp(
                 "benchmark-" + normalizedTaskId(task.id()),
                 task.prompt(),
-                codeGenType.getValue(),
+                sourceType.getValue(),
                 AppConstant.DEFAULT_APP_PRIORITY,
                 user.getId(),
                 tenantId
         ));
         App app = appPersistenceService.findActiveById(appId);
         if (app == null) {
+            deleteFixtureSafely(appId);
             throw new IllegalStateException("persisted benchmark app cannot be loaded");
+        }
+        if (!sourceType.getValue().equals(app.getCodeGenType())) {
+            deleteFixtureSafely(appId);
+            throw new IllegalStateException("Benchmark 持久应用来源工程类型与夹具不一致");
         }
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {
             GenerationWorkspace workspace = requiresExistingWorkspace(task)
-                    ? bootstrapWorkspace(appId, codeGenType, task.prompt())
-                    : generationWorkspaceService.resolve(appId, codeGenType);
+                    ? bootstrapWorkspace(appId, sourceType, task.prompt())
+                    : generationWorkspaceService.resolve(appId, sourceType);
             GenerationBenchmarkValidationPlan validationPlan = validationEngine.prepare(
                     task,
                     workspace,

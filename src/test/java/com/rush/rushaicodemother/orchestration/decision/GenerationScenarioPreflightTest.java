@@ -26,6 +26,8 @@ import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleas
 import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentityProvider;
 import com.rush.rushaicodemother.orchestration.recipe.GenerationRecipeLibrary;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskAdmissionService;
 import com.rush.rushaicodemother.orchestration.skill.GenerationSkillLibrary;
@@ -44,11 +46,13 @@ import java.util.function.UnaryOperator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -150,6 +154,104 @@ class GenerationScenarioPreflightTest {
         verify(router).select(eq(request), eq(CodeGenTypeEnum.FULL_STACK_PROJECT),
                 eq(workspace), any());
         assertSame(refinedProfile, decision.intentProfile());
+    }
+
+    @Test
+    void localPreflightTimeoutMustFallbackAndKeepReservationForMainTaskAdmission() {
+        App app = App.builder().id(11L).userId(21L).tenantId(31L)
+                .codeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue()).build();
+        GenerationTaskRequest request = new GenerationTaskRequest(
+                app, "请帮我处理这个需求", User.builder().id(21L).build());
+        GenerationWorkspace workspace = mock(GenerationWorkspace.class);
+        IntentProfile initialProfile = ambiguousProfile(IntentOperationType.EDIT);
+        GenerationModeRouter router = routingThroughRefinement(
+                request, workspace, initialProfile, GenerationMode.AGENT_EDIT);
+        GenerationTaskAdmissionService admissionService = mock(GenerationTaskAdmissionService.class);
+        IntentClarificationRefiner refiner = mock(IntentClarificationRefiner.class);
+        when(refiner.canRefine(initialProfile)).thenReturn(true);
+        when(refiner.refine(eq(initialProfile), eq(request.message()), eq("task-preflight-timeout"), any()))
+                .thenThrow(new GenerationDeadlineExceededException("task-preflight-timeout"));
+
+        GenerationScenarioPreflightResult result = preflight(router, refiner, admissionService).prepare(
+                "task-preflight-timeout", NOW, request, CodeGenTypeEnum.VUE_PROJECT, workspace);
+
+        assertSame(initialProfile, result.scenarioDecision().intentProfile());
+        assertTrue(result.creditReserved());
+        verify(admissionService, never()).settlePreflightReservation("task-preflight-timeout");
+    }
+
+    @Test
+    void explicitPreflightCancellationMustSettleReservationAndAbortSubmission() {
+        App app = App.builder().id(12L).userId(22L).tenantId(32L)
+                .codeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue()).build();
+        GenerationTaskRequest request = new GenerationTaskRequest(
+                app, "请帮我处理这个需求", User.builder().id(22L).build());
+        GenerationWorkspace workspace = mock(GenerationWorkspace.class);
+        IntentProfile initialProfile = ambiguousProfile(IntentOperationType.EDIT);
+        GenerationModeRouter router = routingThroughRefinement(
+                request, workspace, initialProfile, GenerationMode.AGENT_EDIT);
+        GenerationTaskAdmissionService admissionService = mock(GenerationTaskAdmissionService.class);
+        IntentClarificationRefiner refiner = mock(IntentClarificationRefiner.class);
+        when(refiner.canRefine(initialProfile)).thenReturn(true);
+        GenerationExecutionCancelledException cancellation =
+                new GenerationExecutionCancelledException("user_requested");
+        when(refiner.refine(eq(initialProfile), eq(request.message()), eq("task-preflight-cancel"), any()))
+                .thenThrow(cancellation);
+
+        GenerationExecutionCancelledException thrown = assertThrows(
+                GenerationExecutionCancelledException.class,
+                () -> preflight(router, refiner, admissionService).prepare(
+                        "task-preflight-cancel", NOW, request,
+                        CodeGenTypeEnum.VUE_PROJECT, workspace));
+
+        assertSame(cancellation, thrown);
+        verify(admissionService).settlePreflightReservation("task-preflight-cancel");
+    }
+
+    private GenerationModeRouter routingThroughRefinement(
+            GenerationTaskRequest request,
+            GenerationWorkspace workspace,
+            IntentProfile initialProfile,
+            GenerationMode mode
+    ) {
+        GenerationModeRouter router = mock(GenerationModeRouter.class);
+        when(router.select(eq(request), eq(CodeGenTypeEnum.VUE_PROJECT), eq(workspace), any()))
+                .thenAnswer(invocation -> {
+                    UnaryOperator<IntentProfile> refinement = invocation.getArgument(3);
+                    IntentProfile effectiveProfile = refinement.apply(initialProfile);
+                    return new GenerationRouteSelection(
+                            effectiveProfile,
+                            GenerationModeDecision.of(
+                                    mode, 0.9, "preflight fault test", FallbackPolicy.NONE,
+                                    ExpectedValidationLevel.FAST),
+                            "intent-lexical/preflight-fault-test");
+                });
+        return router;
+    }
+
+    private GenerationScenarioPreflight preflight(
+            GenerationModeRouter router,
+            IntentClarificationRefiner refiner,
+            GenerationTaskAdmissionService admissionService
+    ) {
+        GenerationExecutionReleaseIdentityProvider releaseIdentityProvider =
+                mock(GenerationExecutionReleaseIdentityProvider.class);
+        when(releaseIdentityProvider.current("intent-lexical/preflight-fault-test"))
+                .thenReturn(new GenerationExecutionReleaseIdentity(
+                        "a".repeat(40), false, "b".repeat(64), "c".repeat(64),
+                        "d".repeat(64), "intent-lexical/preflight-fault-test"));
+        GenerationScenarioDecisionKernel kernel = new GenerationScenarioDecisionKernel(
+                router,
+                releaseIdentityProvider,
+                new GenerationGuidanceSelector(
+                        new GenerationRecipeLibrary(),
+                        new GenerationSkillLibrary(List.of(), false)),
+                readOnlyCapabilityRegistry());
+        AiModelRuntimeProperties runtimeProperties = new AiModelRuntimeProperties();
+        runtimeProperties.setIntentClarificationEnabled(true);
+        return new GenerationScenarioPreflight(
+                kernel, refiner, admissionService, runtimeProperties,
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private IntentProfile ambiguousProfile(IntentOperationType operationType) {

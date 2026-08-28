@@ -23,6 +23,7 @@ import com.rush.rushaicodemother.orchestration.router.FallbackPolicy;
 import com.rush.rushaicodemother.orchestration.router.GenerationMode;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaPolicy;
@@ -386,6 +387,40 @@ class GenerationTaskSubmissionServiceTest {
         verifyNoInteractions(preflight);
         verify(executionPlanner, never()).plan(any(), any());
         verify(dispatcher, never()).dispatch(any());
+    }
+
+    @Test
+    void preflightCancellationMustNotPlanAdmitOrDispatchDurableTask() {
+        GenerationScenarioPreflight preflight = mock(GenerationScenarioPreflight.class);
+        GenerationPipelineRequest input = request(1L);
+        GenerationExecutionCancelledException cancellation =
+                new GenerationExecutionCancelledException("user_requested");
+        when(preflight.prepare(
+                eq("task-preflight-cancelled"), eq(NOW), eq(input.taskRequest()),
+                eq(input.codeGenType()), eq(input.workspace())))
+                .thenThrow(cancellation);
+        GenerationTaskSubmissionService service = new GenerationTaskSubmissionService(
+                () -> "task-preflight-cancelled",
+                preflight,
+                executionPlanner,
+                dispatcher,
+                admissionService,
+                taskFinalizer,
+                eventStream,
+                null,
+                traceContextBridge,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertSame(cancellation, assertThrows(
+                GenerationExecutionCancelledException.class,
+                () -> service.submit(
+                        input.taskRequest(), input.codeGenType(), input.workspace(),
+                        GenerationTaskIdempotency.none())));
+
+        verify(executionPlanner, never()).plan(any(), any());
+        verify(admissionService, never()).admit(any(), any());
+        verify(dispatcher, never()).dispatch(any());
+        verifyNoInteractions(taskFinalizer);
     }
 
     private GenerationTaskSubmissionService service(String taskId) {

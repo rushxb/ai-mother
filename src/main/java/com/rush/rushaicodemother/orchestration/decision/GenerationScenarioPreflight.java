@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.intent.IntentClarificationRefiner;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionLimits;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
@@ -121,6 +122,9 @@ public class GenerationScenarioPreflight {
         try {
             return withMonitorContext(request, taskId, () -> clarificationRefiner.refine(
                     profile, request.message(), taskId, context));
+        } catch (GenerationExecutionCancelledException cancellation) {
+            // 明确取消是用户/平台终止意图，不得降级为本地决策后继续创建任务。
+            throw cancellation;
         } catch (GenerationExecutionPolicyException preflightBudgetFailure) {
             // preflight 是可选增益；局部截止时保留已消费用量并退回确定性画像。
             log.warn("场景 preflight 达到局部预算或截止时间，沿用本地决策，taskId: {}", taskId);

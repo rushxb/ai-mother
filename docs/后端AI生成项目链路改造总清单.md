@@ -164,7 +164,7 @@
 | 工作区 Trust/Sandbox | ✅ E1-E2 / 🟡 E3-E5 | 控制文件、生命周期脚本、依赖源、锁文件、环境、网络、registry egress、Repository Context Trust 与执行前复核 | 统一代码边界已落地；真实恶意仓库、OS 资源上限和攻击演练待补 |
 | 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt；E2 故障矩阵已统一 | 缺真实 kill/DB/Redis/磁盘/移动窗口 E3 证据；刷新后终态仍过度泛化 |
 | 快照/回滚 | ✅ P0 代码闭环 / 🟡 跨平台补证 | UUID 自包含 bundle、Manifest/provenance/tree hash、v2 制品、统一消费者与恢复前 fail-closed；Manifest/树篡改已纳入 E2 矩阵 | 当前 Windows 有 3 项 symlink 测试因权限跳过，仍需支持环境的跨平台补证 |
-| 成本/容量 | ✅ E1-E3 / 🟡 E4-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算、管理员只读控制面、终态结算幂等矩阵、双实例公平补投与预算串行化 | 待真实 Redis 重复投递/进程故障、Provider 成本和生产规模长稳压测 |
+| 成本/容量 | ✅ E1-E3 / 🟡 E4-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算、管理员只读控制面、终态结算幂等矩阵、双实例公平补投与预算串行化、模型策略联合晋级门禁 | 待真实 Redis 重复投递/进程故障、Provider 货币成本和生产规模长稳压测 |
 | Benchmark/学习 | ✅ E2 样本 / 🟡 E3-E5 | v3.5 Dataset 共 59 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件、部分读取、Vue→Full Stack 升级与 Fallback 已有确定性评分；取消、审批、恢复和发布故障均有绑定持久身份与可执行测试的 E2 样本；真实 Selenium 探针已有独立 E3 smoke | 尚缺真实模型、端到端浏览器、Backend/Full Stack 基线、真实故障注入与线上关联 |
 | 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
 | 安全/应用治理 | ✅ E1-E3 / 🟡 E4-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界、生成控制面 RBAC/所有权矩阵、威胁模型、脱敏审计与定期保留清理 | 需真实攻防、审计存储故障注入、多实例、外部不可变归档和生产告警/运维验收 |
@@ -375,7 +375,7 @@
 - [x] ✅ 建立应用级控制：暂停生成、最大并发、模型策略、网络/依赖权限、预算上限、危险工具策略和紧急 kill switch。
 - [x] ✅ 建立控制面 RBAC/所有权矩阵，覆盖提交、查询、取消、审批、恢复、终态重放、Benchmark、模型配置和应用删除。
 - [x] ✅ 形成威胁模型与审计事件：谁在何时对哪个 app/task 执行了什么受控操作、结果如何；日志必须脱敏且可保留/删除。
-- [ ] 模型 failover、hedge、降级和路由学习必须同时通过质量、尾延迟、Provider 成本、用户积分和容量门禁。
+- [x] ✅ 模型 failover、hedge、降级和路由学习必须同时通过质量、尾延迟、Provider 成本、用户积分和容量门禁。
 
 **验收出口**：无横向越权、无重复扣费、无预算超发；用户能解释单任务费用，管理员能控制租户和应用，策略变更可审计和回滚。
 
@@ -641,6 +641,16 @@
 - 在干净 detached `c7160b6` 工作树使用 JDK 21 执行默认 `.\mvnw.cmd test`：796 reports、3518 tests、0 failure、0 error、42 skipped。使用 MySQL Community Server `8.0.38` 和正式 `integration-test` profile 执行 Flyway 全迁移与审计闭环：2 tests、0 failure、0 error、0 skipped；46 条迁移资源校验通过，空库在 baseline 后成功应用 34 条迁移到 `20260828.5`，审计验证了开始、一次性完成、重复完成拒绝及仅清理到期事件，专用数据库由测试清理。
 - 本轮闭合第 377 项的确定性 E2 与单机真实 MySQL E3。尚未完成真实多实例越权/降权攻击、审计数据库故障注入、外部不可变归档、生产告警和长周期容量/清理验证，因此不能据此宣称 E4-E5 或生产安全验收完成。
 
+### 11.13 模型策略联合晋级门禁证据
+
+- 2026-08-28 提交 `532ec9d`：删除同步与流式 failover 池的 `stickyProvider/preferredCandidateIndex/promote` 在线候选晋级状态；单次逻辑调用内仍允许串行 failover 和首 Token hedge，但成功的备用 Provider 或 hedge 胜者不再改变后续回合的候选顺序，跨回合策略只能通过带发布身份的显式晋级流程生效。
+- 模型池指纹覆盖 failover 候选上限、hedge 开关、延迟和 Provider 隔离要求，完整 release identity 同时绑定代码、运行策略、Prompt、模型池和决策策略；routing 池向 chat 池的受控降级属于该代码与运行策略身份，不能用手写版本号合并不同发布桶。
+- 场景归因只聚合 `invocationPurpose=GENERATION` 的 `generation_model_call` 物理账本，分别记录总调用数、单任务峰值、完整终态观测和 `model_rate_limit` 失败。遗留 `STARTED` 会使容量证据不完整并失败关闭，外围 Prompt 优化等模型调用不会污染生成策略成本或容量。
+- 同一 `GenerationStrategyPromotionGate` 同时检查质量、P95 首个有效结果/交付尾延迟、Provider token 消耗、用户积分和物理请求容量；容量绝对门禁为单任务最多 6 次、每次成功交付最多 7 次、容量失败率最多 5%，候选还必须相对基线无调用放大和失败率回归。管理接口返回同桶的观测覆盖率、调用总量、单任务峰值、单位成功调用数和容量失败率。
+- 聚焦执行 failover、hedge、发布身份、场景 SQL/映射、门禁、配置校验、服务和管理接口测试：72 tests、0 failure、0 error、0 skipped。在干净 detached `532ec9d` 工作树使用 JDK 21 执行默认 `.\mvnw.cmd test`：797 reports、3525 tests、0 failure、0 error、42 skipped。
+- 使用 MySQL Community Server `8.0.38` 和正式 `integration-test` profile 验证生成用途过滤、多物理调用、未收敛 `STARTED`、容量失败及 Provider token/用户积分同桶聚合：1 test、0 failure、0 error、0 skipped；46 条迁移资源校验通过，空库在 baseline 后成功应用 34 条迁移到 `20260828.5`，专用数据库由测试清理。
+- 本轮闭合第 378 项的确定性 E2 与单机真实 MySQL 聚合 E3；Provider 成本当前指物理调用的 token 消耗，不等于真实供应商货币账单。本机没有 Redis、真实模型凭据、Docker 和 Go，因此未执行真实 Provider failover/hedge、跨实例容量竞争、Backend/Full Stack Benchmark、shadow/canary 或生产回滚演练，不能据此宣称 E4-E5，也没有实际晋级任何模型或路由策略。
+
 ## 12. 推荐执行顺序
 
 ### 第一阶段：事实正确性
@@ -722,4 +732,4 @@
 
 ---
 
-最后更新：2026-08-28。下一轮推进模型 failover/hedge/降级与路由学习联合门禁，以及真实 Redis、多 Worker、模型、Backend、Full Stack 和跨平台 E3-E5 验收。
+最后更新：2026-08-28。下一轮推进真实 Redis、多 Worker、模型、Backend、Full Stack 和跨平台 E3-E5 验收。

@@ -6,6 +6,9 @@ import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTask;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationFinalizationCommand;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
+import com.rush.rushaicodemother.orchestration.governance.audit.GenerationControlAuditResource;
+import com.rush.rushaicodemother.orchestration.governance.audit.GenerationControlAuditService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionFence;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
@@ -25,8 +28,11 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -80,6 +86,36 @@ class GenerationTaskRecoveryServiceTest {
         verify(taskFinalizer).finalizeExpiredLease(
                 raced, GenerationTaskStatus.FAILED, NOW,
                 GenerationTaskRecoveryPolicy.ORPHAN_FAILURE_REASON);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void everySystemRecoveryCandidateMustUseTheControlAuditBoundary() {
+        GenerationControlAuditService auditService = mock(GenerationControlAuditService.class);
+        service = new GenerationTaskRecoveryService(
+                repository, properties(), new GenerationTaskRecoveryPolicy(),
+                taskFinalizer, publicationJournal, executionContextService,
+                null, null, null, null, auditService,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        GenerationTaskRecoveryCandidate candidate = orphanCandidate("task-audited", 1L, 7L);
+        when(repository.findExpiredLeases(NOW, 25)).thenReturn(List.of(candidate));
+        when(taskFinalizer.finalizeExpiredLease(
+                candidate, GenerationTaskStatus.FAILED, NOW,
+                GenerationTaskRecoveryPolicy.ORPHAN_FAILURE_REASON)).thenReturn(true);
+        when(auditService.executeSystem(
+                eq(GenerationControlPermission.TASK_RECOVERY),
+                eq(GenerationControlAuditResource.TASK),
+                eq("task-audited"),
+                any(Supplier.class)))
+                .thenAnswer(invocation -> ((Supplier<Integer>) invocation.getArgument(3)).get());
+
+        assertEquals(1, service.recoverExpiredTasks());
+
+        verify(auditService).executeSystem(
+                eq(GenerationControlPermission.TASK_RECOVERY),
+                eq(GenerationControlAuditResource.TASK),
+                eq("task-audited"),
+                any(Supplier.class));
     }
 
     @Test

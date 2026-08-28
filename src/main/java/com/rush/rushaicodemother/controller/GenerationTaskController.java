@@ -16,6 +16,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.feedback.GenerationFeedbackCommand;
 import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlAccess;
 import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
+import com.rush.rushaicodemother.orchestration.governance.audit.GenerationControlAuditResource;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskControlService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSnapshot;
@@ -76,7 +77,10 @@ public class GenerationTaskController {
  * @return 统一封装的接口响应
  */
     @PostMapping
-    @GenerationControlAccess(GenerationControlPermission.TASK_SUBMIT)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.TASK_SUBMIT,
+            auditResource = GenerationControlAuditResource.APP,
+            auditResourceId = "#p0.appId")
     @ResponseStatus(HttpStatus.ACCEPTED)
     @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60,
             message = "AI 生成任务请求过于频繁，请稍后再试")
@@ -99,7 +103,10 @@ public class GenerationTaskController {
  * @return 统一封装的接口响应
  */
     @GetMapping("/{taskId}")
-    @GenerationControlAccess(GenerationControlPermission.TASK_QUERY)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.TASK_QUERY,
+            auditResource = GenerationControlAuditResource.TASK,
+            auditResourceId = "#p0")
     public BaseResponse<GenerationTaskStatusVO> get(
             @PathVariable @Pattern(regexp = TASK_ID_PATTERN) String taskId,
             HttpServletRequest servletRequest
@@ -109,7 +116,10 @@ public class GenerationTaskController {
     }
 
     @GetMapping("/by-app/{appId}/active")
-    @GenerationControlAccess(GenerationControlPermission.TASK_QUERY)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.TASK_QUERY,
+            auditResource = GenerationControlAuditResource.APP,
+            auditResourceId = "#p0")
     public BaseResponse<GenerationTaskStatusVO> getActiveForApp(
             @PathVariable @Positive Long appId,
             HttpServletRequest servletRequest
@@ -130,7 +140,10 @@ public class GenerationTaskController {
  * @return 异步响应式处理结果
  */
     @GetMapping(value = "/{taskId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @GenerationControlAccess(GenerationControlPermission.TASK_QUERY)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.TASK_QUERY,
+            auditResource = GenerationControlAuditResource.TASK,
+            auditResourceId = "#p0")
     public Flux<ServerSentEvent<String>> events(
             @PathVariable @Pattern(regexp = TASK_ID_PATTERN) String taskId,
             @RequestParam(name = "afterSequence", required = false) @PositiveOrZero Long afterSequence,
@@ -151,7 +164,10 @@ public class GenerationTaskController {
  * @return 满足条件时返回 {@code true}，否则返回 {@code false}
  */
     @PostMapping("/{taskId}/cancel")
-    @GenerationControlAccess(GenerationControlPermission.TASK_CANCEL)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.TASK_CANCEL,
+            auditResource = GenerationControlAuditResource.TASK,
+            auditResourceId = "#p0")
     public BaseResponse<GenerationTaskStatusVO> cancel(
             @PathVariable @Pattern(regexp = TASK_ID_PATTERN) String taskId,
             HttpServletRequest servletRequest
@@ -170,7 +186,10 @@ public class GenerationTaskController {
  * @return 统一封装的接口响应
  */
     @PostMapping("/{taskId}/approvals")
-    @GenerationControlAccess(GenerationControlPermission.TOOL_APPROVAL)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.TOOL_APPROVAL,
+            auditResource = GenerationControlAuditResource.TASK,
+            auditResourceId = "#p0")
     public BaseResponse<Boolean> approveToolAction(
             @PathVariable @Pattern(regexp = TASK_ID_PATTERN) String taskId,
             @Valid @RequestBody GenerationToolApprovalRequest request,

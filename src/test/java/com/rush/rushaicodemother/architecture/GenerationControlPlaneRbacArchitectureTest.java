@@ -111,6 +111,14 @@ class GenerationControlPlaneRbacArchitectureTest {
         GenerationControlAccess access = method.getAnnotation(GenerationControlAccess.class);
         assertNotNull(access, () -> controller.getSimpleName() + "#" + methodName + " 缺少控制权限声明");
         assertEquals(expected, access.value());
+        assertNotNull(access.auditResource(),
+                () -> controller.getSimpleName() + "#" + methodName + " 缺少审计资源类型");
+        assertFalse(access.auditResourceId().isBlank(),
+                () -> controller.getSimpleName() + "#" + methodName + " 缺少审计资源编号表达式");
+        assertTrue(access.auditResourceId().matches(
+                        "(?:#p\\d+(?:\\.(?:appId|id|taskId))?|'[a-z0-9_:-]{1,64}')"),
+                () -> controller.getSimpleName() + "#" + methodName
+                        + " 使用了超出允许范围的审计 SpEL");
     }
 
     private Set<Method> guardedMethods() {

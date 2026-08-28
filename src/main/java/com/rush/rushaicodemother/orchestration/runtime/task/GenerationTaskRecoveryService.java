@@ -5,6 +5,9 @@ import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
 import com.rush.rushaicodemother.orchestration.dag.GenerationDagCheckpointRecoveryPolicy;
 import com.rush.rushaicodemother.orchestration.dag.GenerationOrchestrationTaskStore;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
+import com.rush.rushaicodemother.orchestration.governance.audit.GenerationControlAuditResource;
+import com.rush.rushaicodemother.orchestration.governance.audit.GenerationControlAuditService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.tool.GenerationToolContinuationScheduler;
 import com.rush.rushaicodemother.orchestration.tool.ToolApprovalRecord;
@@ -41,6 +44,7 @@ public class GenerationTaskRecoveryService {
     private final GenerationToolContinuationScheduler toolContinuationScheduler;
     private final GenerationOrchestrationTaskStore orchestrationTaskStore;
     private final GenerationTaskDispatcher taskDispatcher;
+    private final GenerationControlAuditService controlAuditService;
     private final Clock clock;
 
     @Autowired
@@ -53,10 +57,12 @@ public class GenerationTaskRecoveryService {
                                          ToolExecutionRecoveryService toolExecutionRecoveryService,
                                          GenerationToolContinuationScheduler toolContinuationScheduler,
                                          GenerationOrchestrationTaskStore orchestrationTaskStore,
-                                         GenerationTaskDispatcher taskDispatcher) {
+                                         GenerationTaskDispatcher taskDispatcher,
+                                         GenerationControlAuditService controlAuditService) {
         this(repository, properties, recoveryPolicy, generationTaskFinalizer, publicationJournalRepository,
                 executionContextService, toolExecutionRecoveryService,
-                toolContinuationScheduler, orchestrationTaskStore, taskDispatcher, Clock.systemUTC());
+                toolContinuationScheduler, orchestrationTaskStore, taskDispatcher,
+                controlAuditService, Clock.systemUTC());
     }
 
     /** 创建生成任务恢复服务实例并完成必要的依赖和初始状态设置。 */
@@ -77,6 +83,7 @@ public class GenerationTaskRecoveryService {
         this.toolContinuationScheduler = null;
         this.orchestrationTaskStore = null;
         this.taskDispatcher = null;
+        this.controlAuditService = null;
         this.clock = clock;
     }
 
@@ -92,6 +99,25 @@ public class GenerationTaskRecoveryService {
                                   GenerationOrchestrationTaskStore orchestrationTaskStore,
                                   GenerationTaskDispatcher taskDispatcher,
                                   Clock clock) {
+        this(repository, properties, recoveryPolicy, generationTaskFinalizer,
+                publicationJournalRepository, executionContextService,
+                toolExecutionRecoveryService, toolContinuationScheduler,
+                orchestrationTaskStore, taskDispatcher, null, clock);
+    }
+
+    /** 创建可验证系统审计边界的生成任务恢复服务。 */
+    GenerationTaskRecoveryService(DurableGenerationTaskRepository repository,
+                                  GenerationTaskLeaseProperties properties,
+                                  GenerationTaskRecoveryPolicy recoveryPolicy,
+                                  GenerationTaskFinalizer generationTaskFinalizer,
+                                  GenerationWorkspacePublicationJournalRepository publicationJournalRepository,
+                                  GenerationExecutionContextService executionContextService,
+                                  ToolExecutionRecoveryService toolExecutionRecoveryService,
+                                  GenerationToolContinuationScheduler toolContinuationScheduler,
+                                  GenerationOrchestrationTaskStore orchestrationTaskStore,
+                                  GenerationTaskDispatcher taskDispatcher,
+                                  GenerationControlAuditService controlAuditService,
+                                  Clock clock) {
         this.repository = repository;
         this.properties = properties;
         this.recoveryPolicy = recoveryPolicy;
@@ -102,6 +128,7 @@ public class GenerationTaskRecoveryService {
         this.toolContinuationScheduler = toolContinuationScheduler;
         this.orchestrationTaskStore = orchestrationTaskStore;
         this.taskDispatcher = taskDispatcher;
+        this.controlAuditService = controlAuditService;
         this.clock = clock;
     }
 
@@ -118,73 +145,85 @@ public class GenerationTaskRecoveryService {
         // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationTaskRecoveryCandidate candidate : candidates) {
             try {
-                Optional<GenerationWorkspacePublicationJournalEntry> publicationEntry =
-                        publicationJournalRepository.findByTaskId(candidate.taskId());
-                GenerationWorkspacePublicationJournalEntry publication = publicationEntry == null
-                        ? null
-                        : publicationEntry.orElse(null);
-                if (publication != null
-                        && publication.status() == GenerationWorkspacePublicationJournalStatus.COMMITTED) {
-                    var terminalIntent = repository.findFinalizationIntent(
-                                    candidate.taskId(), candidate.executionEpoch())
-                            .orElseThrow(() -> new IllegalStateException(
-                                    "已发布任务缺少可恢复终态意图"));
-                    if (generationTaskFinalizer.finalizeExpiredPublishedTask(
-                            candidate, terminalIntent, now)) {
-                        recovered++;
-                        log.warn("已发布生成任务的终态已恢复为成功，taskId: {}", candidate.taskId());
-                    }
-                    continue;
-                }
-                if (publication != null
-                        && publication.status().requiresReconciliation()) {
-                    log.warn("生成任务等待发布 journal 对账，暂缓终态化，taskId: {}", candidate.taskId());
-                    continue;
-                }
-                GenerationTaskRecoveryDecision decision = recoveryPolicy.decide(candidate, now);
-                if (isRecoverableToolOrphan(decision)) {
-                    ToolApprovalRecord approval = toolExecutionRecoveryService
-                            .recover(candidate, now)
-                            .orElse(null);
-                    if (approval != null) {
-                        recovered++;
-                        try {
-                            toolContinuationScheduler.schedule(approval);
-                        } catch (RuntimeException dispatchFailure) {
-                            log.warn("已恢复的工具续执行仍在队列中等待重试，taskId: {}",
-                                    candidate.taskId(), LogExceptionSanitizer.sanitize(dispatchFailure));
-                        }
-                        continue;
-                    }
-                }
-                if (isRecoverableDagOrphan(candidate, decision)
-                        && hasRecoverableDagCheckpoint(candidate)
-                        && repository.requeueExpiredLease(candidate, now, "checkpoint_resume")) {
-                    recovered++;
-                    try {
-                        taskDispatcher.dispatch(candidate.taskId());
-                    } catch (RuntimeException dispatchFailure) {
-                        log.warn("已恢复的生成任务仍在队列中等待重新分派，taskId: {}",
-                                candidate.taskId(), LogExceptionSanitizer.sanitize(dispatchFailure));
-                    }
-                    continue;
-                }
-                if (!generationTaskFinalizer.finalizeExpiredLease(
-                        candidate, decision.status(), now, decision.reason())) {
-                    continue;
-                }
-                recovered++;
-                executionContextService.cancelByTaskId(candidate.taskId(), decision.reason());
-                log.warn(
-                        "过期生成任务已进入终态，taskId: {}，status: {}，previousOwner: {}",
-                        candidate.taskId(), decision.status().getValue(), candidate.leaseOwner()
-                );
+                recovered += auditRecovery(candidate, now);
             } catch (RuntimeException recoveryFailure) {
                 log.error("处理过期生成任务失败，taskId: {}",
                         candidate.taskId(), LogExceptionSanitizer.sanitize(recoveryFailure));
             }
         }
         return recovered;
+    }
+
+    private int auditRecovery(GenerationTaskRecoveryCandidate candidate, Instant now) {
+        if (controlAuditService == null) {
+            return recoverCandidate(candidate, now);
+        }
+        return controlAuditService.executeSystem(
+                GenerationControlPermission.TASK_RECOVERY,
+                GenerationControlAuditResource.TASK,
+                candidate.taskId(),
+                () -> recoverCandidate(candidate, now));
+    }
+
+    private int recoverCandidate(GenerationTaskRecoveryCandidate candidate, Instant now) {
+        Optional<GenerationWorkspacePublicationJournalEntry> publicationEntry =
+                publicationJournalRepository.findByTaskId(candidate.taskId());
+        GenerationWorkspacePublicationJournalEntry publication = publicationEntry == null
+                ? null
+                : publicationEntry.orElse(null);
+        if (publication != null
+                && publication.status() == GenerationWorkspacePublicationJournalStatus.COMMITTED) {
+            var terminalIntent = repository.findFinalizationIntent(
+                            candidate.taskId(), candidate.executionEpoch())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "已发布任务缺少可恢复终态意图"));
+            if (generationTaskFinalizer.finalizeExpiredPublishedTask(
+                    candidate, terminalIntent, now)) {
+                log.warn("已发布生成任务的终态已恢复为成功，taskId: {}", candidate.taskId());
+                return 1;
+            }
+            return 0;
+        }
+        if (publication != null && publication.status().requiresReconciliation()) {
+            log.warn("生成任务等待发布 journal 对账，暂缓终态化，taskId: {}", candidate.taskId());
+            return 0;
+        }
+        GenerationTaskRecoveryDecision decision = recoveryPolicy.decide(candidate, now);
+        if (isRecoverableToolOrphan(decision)) {
+            ToolApprovalRecord approval = toolExecutionRecoveryService
+                    .recover(candidate, now)
+                    .orElse(null);
+            if (approval != null) {
+                try {
+                    toolContinuationScheduler.schedule(approval);
+                } catch (RuntimeException dispatchFailure) {
+                    log.warn("已恢复的工具续执行仍在队列中等待重试，taskId: {}",
+                            candidate.taskId(), LogExceptionSanitizer.sanitize(dispatchFailure));
+                }
+                return 1;
+            }
+        }
+        if (isRecoverableDagOrphan(candidate, decision)
+                && hasRecoverableDagCheckpoint(candidate)
+                && repository.requeueExpiredLease(candidate, now, "checkpoint_resume")) {
+            try {
+                taskDispatcher.dispatch(candidate.taskId());
+            } catch (RuntimeException dispatchFailure) {
+                log.warn("已恢复的生成任务仍在队列中等待重新分派，taskId: {}",
+                        candidate.taskId(), LogExceptionSanitizer.sanitize(dispatchFailure));
+            }
+            return 1;
+        }
+        if (!generationTaskFinalizer.finalizeExpiredLease(
+                candidate, decision.status(), now, decision.reason())) {
+            return 0;
+        }
+        executionContextService.cancelByTaskId(candidate.taskId(), decision.reason());
+        log.warn(
+                "过期生成任务已进入终态，taskId: {}，status: {}，previousOwner: {}",
+                candidate.taskId(), decision.status().getValue(), candidate.leaseOwner()
+        );
+        return 1;
     }
 
     private boolean isRecoverableToolOrphan(GenerationTaskRecoveryDecision decision) {

@@ -1,5 +1,7 @@
 package com.rush.rushaicodemother.orchestration.governance.access;
 
+import com.rush.rushaicodemother.orchestration.governance.audit.GenerationControlAuditResource;
+
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -16,4 +18,15 @@ import java.lang.annotation.Target;
 public @interface GenerationControlAccess {
 
     GenerationControlPermission value();
+
+    /** 脱敏审计中的受控资源类型。 */
+    GenerationControlAuditResource auditResource();
+
+    /**
+     * 从 Controller 参数取得资源编号的受信 SpEL。
+     *
+     * <p>只允许使用代码中的常量表达式，不接收用户提供的表达式。
+     * 参数按 {@code #p0}、{@code #p1} 索引引用。</p>
+     */
+    String auditResourceId();
 }

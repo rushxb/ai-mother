@@ -10,6 +10,7 @@ import com.rush.rushaicodemother.model.vo.GenerationTerminalEffectItemVO;
 import com.rush.rushaicodemother.model.vo.GenerationTerminalEffectReplayVO;
 import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlAccess;
 import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
+import com.rush.rushaicodemother.orchestration.governance.audit.GenerationControlAuditResource;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTerminalEffectManagementService;
 import com.rush.rushaicodemother.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -56,7 +57,10 @@ public class GenerationTerminalEffectController {
 
     @PostMapping("/replay")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    @GenerationControlAccess(GenerationControlPermission.TERMINAL_EFFECT_REPLAY)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.TERMINAL_EFFECT_REPLAY,
+            auditResource = GenerationControlAuditResource.TASK,
+            auditResourceId = "#p0.taskId")
     public BaseResponse<GenerationTerminalEffectReplayVO> replayDeadLetter(
             @Valid @RequestBody GenerationTerminalEffectReplayRequest request,
             HttpServletRequest servletRequest) {

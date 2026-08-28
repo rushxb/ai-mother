@@ -18,6 +18,7 @@ import com.rush.rushaicodemother.model.vo.OwnerAppVO;
 import com.rush.rushaicodemother.model.vo.PublicAppVO;
 import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlAccess;
 import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
+import com.rush.rushaicodemother.orchestration.governance.audit.GenerationControlAuditResource;
 import com.rush.rushaicodemother.ratelimiter.annotation.RateLimit;
 import com.rush.rushaicodemother.ratelimiter.enums.RateLimitType;
 import com.rush.rushaicodemother.service.UserService;
@@ -89,7 +90,10 @@ public class AppController {
 
     /** 删除当前用户拥有的应用；管理员也可通过该入口删除。 */
     @PostMapping("/delete")
-    @GenerationControlAccess(GenerationControlPermission.APP_DELETE)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.APP_DELETE,
+            auditResource = GenerationControlAuditResource.APP,
+            auditResourceId = "#p0.id")
     public BaseResponse<Boolean> deleteApp(@Valid @RequestBody DeleteRequest requestBody,
                                            HttpServletRequest servletRequest) {
         User loginUser = userService.getLoginUser(servletRequest);
@@ -126,7 +130,10 @@ public class AppController {
     /** 管理员删除应用。 */
     @PostMapping("/admin/delete")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    @GenerationControlAccess(GenerationControlPermission.APP_DELETE)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.APP_DELETE,
+            auditResource = GenerationControlAuditResource.APP,
+            auditResourceId = "#p0.id")
     public BaseResponse<Boolean> deleteAppByAdmin(@Valid @RequestBody DeleteRequest requestBody) {
         appManagementApplicationService.deleteAsAdministrator(requestBody.getId());
         return ResultUtils.success(true);

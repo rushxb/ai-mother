@@ -12,6 +12,7 @@ import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.vo.AppDatabaseResourceVO;
 import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlAccess;
 import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
+import com.rush.rushaicodemother.orchestration.governance.audit.GenerationControlAuditResource;
 import com.rush.rushaicodemother.ratelimiter.annotation.RateLimit;
 import com.rush.rushaicodemother.ratelimiter.enums.RateLimitType;
 import com.rush.rushaicodemother.service.AppService;
@@ -75,7 +76,10 @@ public class AppGenerationController {
  * @return 统一封装的接口响应
  */
     @PostMapping("/chat/gen/code")
-    @GenerationControlAccess(GenerationControlPermission.TASK_SUBMIT)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.TASK_SUBMIT,
+            auditResource = GenerationControlAuditResource.APP,
+            auditResourceId = "#p0.appId")
     @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60,
             message = "AI 对话请求过于频繁，请稍后再试")
     public BaseResponse<Boolean> startChatToGenCode(@Valid @RequestBody AppChatRequest request,
@@ -93,7 +97,10 @@ public class AppGenerationController {
  * @return 统一封装的接口响应
  */
     @PostMapping("/chat/gen/code/stop")
-    @GenerationControlAccess(GenerationControlPermission.TASK_CANCEL)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.TASK_CANCEL,
+            auditResource = GenerationControlAuditResource.APP,
+            auditResourceId = "#p0.appId")
     public BaseResponse<Boolean> stopChatToGenCode(@Valid @RequestBody AppStopRequest request,
                                                    HttpServletRequest servletRequest) {
         User loginUser = userService.getLoginUser(servletRequest);
@@ -109,7 +116,10 @@ public class AppGenerationController {
  * @return 异步响应式处理结果
  */
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @GenerationControlAccess(GenerationControlPermission.TASK_QUERY)
+    @GenerationControlAccess(
+            value = GenerationControlPermission.TASK_QUERY,
+            auditResource = GenerationControlAuditResource.APP,
+            auditResourceId = "#p0")
     public Flux<ServerSentEvent<String>> subscribeChatToGenCode(@RequestParam @Positive Long appId,
                                                                  HttpServletRequest servletRequest) {
         User loginUser = userService.getLoginUser(servletRequest);

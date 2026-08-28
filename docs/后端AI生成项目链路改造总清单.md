@@ -165,7 +165,7 @@
 | 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt；E2 故障矩阵已统一 | 缺真实 kill/DB/Redis/磁盘/移动窗口 E3 证据；刷新后终态仍过度泛化 |
 | 快照/回滚 | ✅ P0 代码闭环 / 🟡 跨平台补证 | UUID 自包含 bundle、Manifest/provenance/tree hash、v2 制品、统一消费者与恢复前 fail-closed；Manifest/树篡改已纳入 E2 矩阵 | 当前 Windows 有 3 项 symlink 测试因权限跳过，仍需支持环境的跨平台补证 |
 | 成本/容量 | ✅ E1-E2 / 🟡 E3-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算 | 用户看不到预计上限、实际扣费和退还；缺跨实例公平压测和租户管理员视图 |
-| Benchmark/学习 | 🚧 E2 / 🟡 E3-E5 | v3.3 Dataset 已扩充为 58 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件与部分读取样本已有确定性响应评分 | 尚缺跨类型升级、Fallback、取消、审批、恢复和发布 Benchmark 样本，以及真实模型/浏览器/Backend/Full Stack 基线与线上关联 |
+| Benchmark/学习 | 🚧 E2 / 🟡 E3-E5 | v3.3 Dataset 已扩充为 58 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件与部分读取样本已有确定性响应评分；真实 Selenium 探针已有独立 E3 smoke | 尚缺跨类型升级、Fallback、取消、审批、恢复和发布 Benchmark 样本，以及真实模型、端到端浏览器、Backend/Full Stack 基线与线上关联 |
 | 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
 | 安全/应用治理 | ✅ 基础 / 🟡 E3-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界 | 需端到端 RBAC/所有权矩阵、威胁模型、审计事件、租户/应用控制面和真实攻防验收 |
 
@@ -501,6 +501,12 @@
 - 使用 JDK 21 执行整个 `orchestration/benchmark` 测试包：173 tests、0 failure、0 error、0 skipped；该结果仅属于 E2，未运行真实模型、真实浏览器或容器故障基线。
 - 本轮未调整 Prompt、模型池、规划 DAG 或路由阈值；历史 `buildPassRate` 字段仍是兼容报告口径，READ_ONLY 的有效性由 FUNCTIONAL/DIFF_SCOPE/SECURITY 证据评估，不表示执行了构建。
 - `3035dc4` 修复了显式取消被 Preflight 局部降级吞掉的问题；`626bada` 建立统一故障矩阵入口，`a5714d4` 将快照篡改场景纳入矩阵，本地 E2 执行 104 tests、0 failure、0 error、0 skipped。
+
+### 11.3 P0-5 真实环境局部证据
+
+- 2026-08-28 提交 `fc49b74`：新增 `generation-browser-smoke` profile，以部署方显式提供的 Chrome 与 ChromeDriver 启动真实 Selenium 会话，访问仅环回 HTTP 页面并采集 DOM、console、network 与 screenshot 证据。
+- 本机 Chrome `151.0.7922.175`、ChromeDriver `151.0.7922.138` 执行 1 test、0 failure、0 error、0 skipped；该结果只证明浏览器探针 E3，不等于真实模型或完整生成任务 E3。
+- Selenium 对 Chrome 151 输出“缺少匹配 typed CDP 模块”警告；本项目网络证据来自 performance log，本次断言确认 `captured=true`。本机仍缺 Docker、Redis 与 Go，相关 E3 未执行。
 
 ## 12. 推荐执行顺序
 

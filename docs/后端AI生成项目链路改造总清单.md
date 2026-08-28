@@ -273,12 +273,12 @@
 - [x] ✅ 取消信号贯穿同步模型、工具、Go 构建和共享等待。
 - [x] ✅ 工具失败协议区分调用失败、业务失败、部分成功和 no-op；模型可见 Markdown 不作为持久事实。
 - [x] ✅ 批量读取只保存真实成功项；有效 mutation 由工具执行结果而非模型声明决定。
-- [ ] **P0 Bug** Agent Edit 不得用 `expectedValidationLevel` 直接构造 successful mutation evidence；改为消费 `AgentEditVerificationOutcome` 或等价的 observed outcome。
-- [ ] **P0 Bug** Light Edit 成功不得返回空 evidence；FAST/BUILD/RUNTIME 证据必须来自实际执行的对应 Validator。
+- [x] ✅ **P0 Bug** Agent Edit 已改为消费 `AgentEditVerificationOutcome` 的 observed evidence；Pipeline 不再按 `expectedValidationLevel` 构造或升格成功证据。
+- [x] ✅ **P0 Bug** Light Edit 成功证据已由实际 `GenerationValidationObservation` 生成；无 Validator 观察时 evidence 保持为空并由完成门禁拒绝。
 - [x] ✅ Fallback 后使用 `effectiveRequest` 完成失败终态、SSE、质量记忆、成本与 release fingerprint 归因，禁止回落到初始 request。
 - [ ] 定义不可伪造链路：`Validator Observation → Typed Evidence → Completion Gate → Delivery Receipt`，禁止 Pipeline 手写“验证通过”文本。
 - [ ] 为工具副作用建立稳定 receipt/idempotency key；Continuation 恢复时核对已完成工具，避免重复安装、重复写、重复回滚。
-- [ ] 审批持久化必须绑定 task/epoch/tool/arguments digest，并覆盖批准、拒绝、过期、刷新、重复提交与越权。
+- [ ] 审批持久化已绑定 `taskId/requestExecutionEpoch/toolName/argumentsDigest`，批准、拒绝、过期、重复提交、执行恢复和越权已有持久状态机与测试；仍缺用户刷新后的查询/恢复合同验收。
 - [ ] 对 Provider 超时、连接中断、已发送未确认等结果不确定场景定义重试策略；不得把未知调用当作未发生。
 - [ ] 统一 failure taxonomy：低基数内部分类用于恢复和学习；公开 reason 单独脱敏，禁止用自由异常文本做指标标签。
 

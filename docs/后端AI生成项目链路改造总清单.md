@@ -152,7 +152,7 @@
 
 ## 6. 当前完成面与审计结论
 
-从 `53d0657` 到代码基线 `d33f6eb` 共有 155 个提交。它们证明项目已从“单条生成流程”发展成有场景、能力、工作区安全、持久任务、验证、发布和评测边界的系统；但提交数量不等于链路已经验收完成。
+从 `53d0657` 到代码基线 `e45ba95` 共有 157 个提交。它们证明项目已从“单条生成流程”发展成有场景、能力、工作区安全、持久任务、验证、发布和评测边界的系统；但提交数量不等于链路已经验收完成。
 
 | 领域 | 当前状态 | 已有基础 | 仍未闭环的核心问题 |
 |---|---|---|---|
@@ -165,7 +165,7 @@
 | 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt；E2 故障矩阵已统一 | 缺真实 kill/DB/Redis/磁盘/移动窗口 E3 证据；刷新后终态仍过度泛化 |
 | 快照/回滚 | ✅ P0 代码闭环 / 🟡 跨平台补证 | UUID 自包含 bundle、Manifest/provenance/tree hash、v2 制品、统一消费者与恢复前 fail-closed；Manifest/树篡改已纳入 E2 矩阵 | 当前 Windows 有 3 项 symlink 测试因权限跳过，仍需支持环境的跨平台补证 |
 | 成本/容量 | ✅ E1-E2 / 🟡 E3-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算 | 用户看不到预计上限、实际扣费和退还；缺跨实例公平压测和租户管理员视图 |
-| Benchmark/学习 | 🚧 E2 / 🟡 E3-E5 | v3.4 Dataset 已扩充为 59 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件、部分读取与 Vue→Full Stack 跨类型升级已有确定性评分；真实 Selenium 探针已有独立 E3 smoke | 尚缺 Fallback、取消、审批、恢复和发布 Benchmark 样本，以及真实模型、端到端浏览器、Backend/Full Stack 基线与线上关联 |
+| Benchmark/学习 | 🚧 E2 / 🟡 E3-E5 | v3.5 Dataset 共 59 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件、部分读取、Vue→Full Stack 升级与 Fallback 已有确定性评分；真实 Selenium 探针已有独立 E3 smoke | 尚缺取消、审批、恢复和发布 Benchmark 样本，以及真实模型、端到端浏览器、Backend/Full Stack 基线与线上关联 |
 | 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
 | 安全/应用治理 | ✅ 基础 / 🟡 E3-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界 | 需端到端 RBAC/所有权矩阵、威胁模型、审计事件、租户/应用控制面和真实攻防验收 |
 
@@ -275,7 +275,7 @@
 - [x] ✅ 批量读取只保存真实成功项；有效 mutation 由工具执行结果而非模型声明决定。
 - [ ] **P0 Bug** Agent Edit 不得用 `expectedValidationLevel` 直接构造 successful mutation evidence；改为消费 `AgentEditVerificationOutcome` 或等价的 observed outcome。
 - [ ] **P0 Bug** Light Edit 成功不得返回空 evidence；FAST/BUILD/RUNTIME 证据必须来自实际执行的对应 Validator。
-- [ ] **P0 Bug** Fallback 后使用 `effectiveRequest` 完成失败终态、SSE、质量记忆、成本与 release fingerprint 归因，禁止回落到初始 request。
+- [x] ✅ Fallback 后使用 `effectiveRequest` 完成失败终态、SSE、质量记忆、成本与 release fingerprint 归因，禁止回落到初始 request。
 - [ ] 定义不可伪造链路：`Validator Observation → Typed Evidence → Completion Gate → Delivery Receipt`，禁止 Pipeline 手写“验证通过”文本。
 - [ ] 为工具副作用建立稳定 receipt/idempotency key；Continuation 恢复时核对已完成工具，避免重复安装、重复写、重复回滚。
 - [ ] 审批持久化必须绑定 task/epoch/tool/arguments digest，并覆盖批准、拒绝、过期、刷新、重复提交与越权。
@@ -390,7 +390,8 @@
 - [x] ✅ E2 **P0** 扩充能力矩阵数据：CREATE、READ_ONLY、LIGHT、AGENT、HEAVY，以及 HTML/MULTI_FILE 的支持合同。
 - [x] ✅ 每个已声明的 route × 工程类型矩阵单元至少 3 个确定性 Fixture；高风险路由已有至少 10 个中文表达变体与负例。
 - [x] ✅ 空项目 PLAN、仓库 AUDIT、提示注入、秘密文件、部分读取与 Vue→Full Stack 跨类型升级已有确定性样本。
-- [ ] 补齐 Fallback、取消、审批、恢复和发布故障样本；每类样本必须绑定可持久恢复的执行身份和可判定断言。
+- [x] ✅ Fallback 样本声明 `REQUIRED / FORBIDDEN / OPTIONAL` 三态期望，并由持久任务命令恢复目标类型与回退原因后判定报告。
+- [ ] 补齐取消、审批、恢复和发布故障样本；每类样本必须绑定可持久恢复的执行身份和可判定断言。
 - [ ] 运行真实模型、真实浏览器、Backend/Full Stack，并保留候选、数据、环境和报告身份；Mock 结果不进入晋级。
 - [ ] 运行规划层三组同源消融，在质量不降的前提下比较准备耗时、总耗时、Token、工具轮次和成功成本；报告前暂停删除/增加节点。
 - [ ] 建立离线与在线关联：Benchmark 维度必须能解释生产失败、返工和低评分，否则删除无价值指标。
@@ -508,6 +509,11 @@
 - 使用 JDK 21 执行 Benchmark 与相关架构测试：45 reports、185 tests、0 failure、0 error、0 skipped；统一故障矩阵仍为 104 tests、0 failure、0 error、0 skipped。
 - 在干净的 detached `d33f6eb` 工作树上使用 JDK 21 执行默认 `.\mvnw.cmd test`：777 reports、3439 tests、0 failure、0 error、42 skipped；该结果不包含主工作树并行 WIP，也不包含默认关闭的 `generation-browser-smoke` 集成 profile。
 - 上述结果只证明确定性 E2 评测事实链可判定；本轮未修改生产执行工作区的跨类型源目录种子语义，因此不能据此宣称真实模型迁移成功或源工程内容已在生产链路保留，仍需在 E4 样本中验证。
+- 2026-08-28 提交 `e45ba95`：Dataset 升级到 v3.5，6 条 HTML/MULTI_FILE 样本要求观测能力协商回退，1 条 Vue CREATE 样本禁止回退；未声明旧样本默认 `OPTIONAL`，保持兼容。
+- 报告校验拒绝缺失必需回退或出现禁用回退的任务结果；Fallback 期望进入 Dataset 指纹，旧候选报告不能绕过新合同。Benchmark 执行事实模块从持久任务命令读取 `taskId`、`appId`、目标类型和 `fallbackReason`，本地事件或遥测丢失时仍可跨实例恢复。
+- 使用 JDK 21 执行 Benchmark、相关决策与架构测试：47 reports、200 tests、0 failure、0 error、0 skipped；统一故障矩阵为 15 reports、104 tests、0 failure、0 error、0 skipped。
+- 在干净的 detached `e45ba95` 工作树上使用 JDK 21 执行默认 `.\mvnw.cmd test`：777 reports、3444 tests、0 failure、0 error、42 skipped；该结果不包含主工作树并行 WIP，也不包含默认关闭的 `generation-browser-smoke` 集成 profile。
+- 上述 Fallback 结果仍是 E2 确定性合同与提交态回归证据，不等于真实模型下 HTML/MULTI_FILE 已完成 E4 生成质量验收。
 
 ### 11.3 P0-5 真实环境局部证据
 
@@ -595,4 +601,4 @@
 
 ---
 
-最后更新：2026-08-28。下一轮继续 P0-5，补齐 Fallback、取消、审批、恢复和发布 Benchmark 故障样本，并执行真实 Redis、模型、Backend、Full Stack 和跨平台 E3-E5 验收。
+最后更新：2026-08-28。下一轮继续 P0-5，补齐取消、审批、恢复和发布 Benchmark 故障样本，并执行真实 Redis、模型、Backend、Full Stack 和跨平台 E3-E5 验收。

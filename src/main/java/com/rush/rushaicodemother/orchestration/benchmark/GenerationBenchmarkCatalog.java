@@ -24,7 +24,7 @@ public class GenerationBenchmarkCatalog {
 
     private static final String DATASET_RESOURCE = "benchmark/generation-benchmark-dataset-v3.json";
     private static final int SUPPORTED_SCHEMA_VERSION = 3;
-    private static final int MINIMUM_TASK_COUNT = 50;
+    private static final int MINIMUM_TASK_COUNT = 51;
     private static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9][a-z0-9_-]{0,63}");
     private static final Pattern VERSION_PATTERN = Pattern.compile("[0-9][A-Za-z0-9._-]{0,31}");
     private static final Set<String> MODES = Set.of(
@@ -211,11 +211,17 @@ public class GenerationBenchmarkCatalog {
                 Collectors.counting()
         ));
         long scenarioCount = tasks.stream().map(GenerationBenchmarkTask::scenario).distinct().count();
+        long highRiskNegativeCount = tasks.stream()
+                .filter(task -> !"AGENT_EDIT".equals(task.expectedRoute())
+                        && !"HEAVY_EXPERT".equals(task.expectedRoute()))
+                .filter(task -> task.forbiddenRoutes().contains("AGENT_EDIT")
+                        || task.forbiddenRoutes().contains("HEAVY_EXPERT"))
+                .count();
         if (modes.getOrDefault("CREATE", 0L) < 10
                 || modes.getOrDefault("READ_ONLY", 0L) < 9
                 || modes.getOrDefault("LIGHT_EDIT", 0L) < 6
                 || modes.getOrDefault("AGENT_EDIT", 0L) < 10
-                || modes.getOrDefault("HEAVY_EXPERT", 0L) < 3
+                || modes.getOrDefault("HEAVY_EXPERT", 0L) < 10
                 || operations.getOrDefault(IntentOperationType.EXPLAIN, 0L) < 3
                 || operations.getOrDefault(IntentOperationType.AUDIT, 0L) < 3
                 || operations.getOrDefault(IntentOperationType.PLAN, 0L) < 3
@@ -224,6 +230,7 @@ public class GenerationBenchmarkCatalog {
                 || types.getOrDefault("full_stack_project", 0L) < 5
                 || types.getOrDefault("html", 0L) < 3
                 || types.getOrDefault("multi_file", 0L) < 3
+                || highRiskNegativeCount < 10
                 || difficulties.getOrDefault(GenerationBenchmarkDifficulty.EASY, 0L) < 6
                 || difficulties.getOrDefault(GenerationBenchmarkDifficulty.MEDIUM, 0L) < 10
                 || difficulties.getOrDefault(GenerationBenchmarkDifficulty.HARD, 0L) < 6

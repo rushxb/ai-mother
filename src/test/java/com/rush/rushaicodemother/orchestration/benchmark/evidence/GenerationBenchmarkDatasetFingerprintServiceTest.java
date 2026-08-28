@@ -25,7 +25,7 @@ class GenerationBenchmarkDatasetFingerprintServiceTest {
         String fingerprint = service.fingerprint(original);
 
         assertNotEquals(fingerprint, service.fingerprint(new GenerationBenchmarkDataset(
-                original.schemaVersion(), original.datasetId(), "3.0.1", original.tasks())));
+                original.schemaVersion(), original.datasetId(), "3.1.1", original.tasks())));
 
         GenerationBenchmarkTask first = original.tasks().getFirst();
         GenerationBenchmarkTask changedMetadata = copy(

@@ -26,7 +26,7 @@ class GenerationBenchmarkCatalogTest {
         assertTrue(catalog.tasks().stream().anyMatch(task -> "AGENT_EDIT".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "READ_ONLY".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "HEAVY_EXPERT".equals(task.mode())));
-        assertTrue(catalog.tasks().size() >= 50);
+        assertTrue(catalog.tasks().size() >= 51);
         assertEquals(catalog.tasks().size(), catalog.tasks().stream()
                 .map(GenerationBenchmarkTask::id)
                 .distinct()
@@ -36,7 +36,7 @@ class GenerationBenchmarkCatalogTest {
                 "READ_ONLY", 9L,
                 "LIGHT_EDIT", 6L,
                 "AGENT_EDIT", 10L,
-                "HEAVY_EXPERT", 3L
+                "HEAVY_EXPERT", 10L
         ));
         assertCoverage(catalog.tasks(), GenerationBenchmarkTask::codeGenType, Map.of(
                 "vue_project", 12L,
@@ -54,6 +54,12 @@ class GenerationBenchmarkCatalogTest {
                 && !task.expectedRoute().isBlank()
                 && task.operation() != null
                 && task.fixtureKind() != null));
+        assertTrue(catalog.tasks().stream()
+                .filter(task -> !"AGENT_EDIT".equals(task.expectedRoute())
+                        && !"HEAVY_EXPERT".equals(task.expectedRoute()))
+                .filter(task -> task.forbiddenRoutes().contains("AGENT_EDIT")
+                        || task.forbiddenRoutes().contains("HEAVY_EXPERT"))
+                .count() >= 10);
         Set<GenerationBenchmarkDifficulty> difficulties = catalog.tasks().stream()
                 .map(GenerationBenchmarkTask::difficulty)
                 .collect(Collectors.toSet());

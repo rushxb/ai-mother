@@ -398,7 +398,7 @@
 - [x] ✅ 发布故障样本已绑定 `taskId + executionEpoch` 和实际 JUnit 测试方法，覆盖 active pointer 回滚失败与文件系统已激活 crash window 的安全前滚。
 - [ ] 运行真实模型、真实浏览器、Backend/Full Stack，并保留候选、数据、环境和报告身份；Mock 结果不进入晋级。
 - [ ] 运行规划层三组同源消融，在质量不降的前提下比较准备耗时、总耗时、Token、工具轮次和成功成本；报告前暂停删除/增加节点。
-- [ ] 建立离线与在线关联：Benchmark 维度必须能解释生产失败、返工和低评分，否则删除无价值指标。
+- [x] ✅ 建立离线与在线关联：Benchmark 维度必须能解释生产失败、返工和低评分，否则删除无价值指标。
 - [ ] 所有新策略先 shadow/canary，门禁通过后小流量晋级；保留自动回滚阈值和旧 release identity。
 - [ ] 性能分析按端到端关键路径进行：预检、排队、上下文、首 Token、工具、构建、预览、发布、终态；禁止只优化局部方法耗时。
 - [ ] 代码健康门禁：重复事实源、跨层依赖、中心类分支预算、未使用兼容层、异常吞噬、无界缓存、低信息注释和高圈复杂度。
@@ -651,6 +651,16 @@
 - 使用 MySQL Community Server `8.0.38` 和正式 `integration-test` profile 验证生成用途过滤、多物理调用、未收敛 `STARTED`、容量失败及 Provider token/用户积分同桶聚合：1 test、0 failure、0 error、0 skipped；46 条迁移资源校验通过，空库在 baseline 后成功应用 34 条迁移到 `20260828.5`，专用数据库由测试清理。
 - 本轮闭合第 378 项的确定性 E2 与单机真实 MySQL 聚合 E3；Provider 成本当前指物理调用的 token 消耗，不等于真实供应商货币账单。本机没有 Redis、真实模型凭据、Docker 和 Go，因此未执行真实 Provider failover/hedge、跨实例容量竞争、Backend/Full Stack Benchmark、shadow/canary 或生产回滚演练，不能据此宣称 E4-E5，也没有实际晋级任何模型或路由策略。
 
+### 11.14 离线与在线策略证据关联
+
+- 2026-08-28 提交 `a4a0df2`：策略晋级查询新增必填 `benchmarkEvidenceId`，删除仅凭两组线上 release identity 即可返回晋级通过的旧入口；发布证据会重放当前协议、时效、数据集、grader、报告摘要、签名、provenance、报告重算和绝对发布门禁，存储中的历史 `passed` 标记不能直接授权晋级。
+- 关联服务使用签名载荷中的完整 Git commit、运行策略、Prompt 包和模型池指纹，加上生产候选桶实际记录的决策版本重建 release identity；重建结果必须与候选线上指纹完全一致。Benchmark 评估时间必须不晚于线上观测窗口起点，逐任务报告还必须实际覆盖候选 route，身份或顺序不一致均失败关闭。
+- 离线诊断只保留三组可解释映射：Benchmark 交付失败率对应生产失败率，Benchmark 平均修复轮次对应生产平均返工轮次，Benchmark 质量规则失败率及分维度失败率对应生产低评分率。各组同时返回离线/在线指标名、观测数和值；与失败、返工或低评分无关的延迟、Token 等指标仍由既有联合晋级门禁负责，不重复包装为“质量解释”。
+- 线上质量、尾延迟、Provider token、用户积分和容量的纯门禁结果与最终晋级评估已拆分；只有签名离线证据完成关联后才能形成带回滚 identity 的最终评估，避免纯线上门禁对象被误当作完整晋级授权。
+- 使用 JDK 21 执行证据重放、离线在线关联、联合门禁、服务和管理接口聚焦回归：37 tests、0 failure、0 error、0 skipped。在干净 detached `a4a0df2` 工作树执行默认 `.\mvnw.cmd test`：798 reports、3529 tests、0 failure、0 error、42 skipped。
+- 使用 MySQL Community Server `8.0.38` 和正式 `integration-test` profile 执行场景容量及离线在线关联：2 tests、0 failure、0 error、0 skipped；46 条迁移资源校验通过，空库在 baseline 后成功应用 34 条迁移到 `20260828.5`。测试从真实 `generation_task`、`generation_feedback` 和 `generation_model_call` 聚合生产失败、返工、评分与容量后再执行关联，专用数据库由测试清理。
+- 本轮闭合第 401 项的确定性 E2 与单机真实 MySQL E3。第 399 项的真实模型/浏览器/Backend/Full Stack 报告尚未运行，因此当前证明的是“真实证据到生产事实的关联机制”，不是某个候选已取得真实离线质量收益；第 402 项的 shadow/canary、小流量晋级和自动回滚仍未完成。
+
 ## 12. 推荐执行顺序
 
 ### 第一阶段：事实正确性
@@ -732,4 +742,4 @@
 
 ---
 
-最后更新：2026-08-28。下一轮推进真实 Redis、多 Worker、模型、Backend、Full Stack 和跨平台 E3-E5 验收。
+最后更新：2026-08-28。下一轮推进 shadow/canary、自动回滚，以及真实 Redis、多 Worker、模型、Backend、Full Stack 和跨平台 E3-E5 验收。

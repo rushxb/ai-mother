@@ -162,10 +162,10 @@
 | Agent/工具协议 | ✅ P0 已闭环 / 🟡 E3-E5 | 回合预算、逐项工具事实、有效 mutation、Observed Validation Evidence 与分场景完成证据 | 待真实 Provider、失败注入和长会话验收 |
 | 路由回退归因 | ✅ P0 已闭环 | CREATE/LIGHT/AGENT 回退后统一使用 effective request 持久化路由、成本、事件和 release identity | 待跨实例压力与真实成本报表验收 |
 | 工作区 Trust/Sandbox | ✅ E1-E2 / 🟡 E3-E5 | 控制文件、生命周期脚本、依赖源、锁文件、环境、网络、registry egress、Repository Context Trust 与执行前复核 | 统一代码边界已落地；真实恶意仓库、OS 资源上限和攻击演练待补 |
-| 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt | 缺 kill/DB/Redis/磁盘/移动窗口故障矩阵；刷新后终态仍过度泛化 |
-| 快照/回滚 | ✅ P0 代码闭环 / 🟡 跨平台补证 | UUID 自包含 bundle、Manifest/provenance/tree hash、v2 制品、统一消费者与恢复前 fail-closed | 当前 Windows 有 3 项 symlink 测试因权限跳过，仍需支持环境补证与完整故障矩阵 |
+| 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt；E2 故障矩阵已统一 | 缺真实 kill/DB/Redis/磁盘/移动窗口 E3 证据；刷新后终态仍过度泛化 |
+| 快照/回滚 | ✅ P0 代码闭环 / 🟡 跨平台补证 | UUID 自包含 bundle、Manifest/provenance/tree hash、v2 制品、统一消费者与恢复前 fail-closed；Manifest/树篡改已纳入 E2 矩阵 | 当前 Windows 有 3 项 symlink 测试因权限跳过，仍需支持环境的跨平台补证 |
 | 成本/容量 | ✅ E1-E2 / 🟡 E3-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算 | 用户看不到预计上限、实际扣费和退还；缺跨实例公平压测和租户管理员视图 |
-| Benchmark/学习 | 🚧 E2 / 🟡 E3-E5 | v3 Dataset 已扩充为 50 条，覆盖五路 route、READ_ONLY 三种操作及 HTML/MULTI_FILE；operation、fixture 与 expectedRoute 均显式入指纹 | 尚缺高风险中文变体、完整故障样本、真实模型/浏览器/Backend/Full Stack 基线与线上关联 |
+| Benchmark/学习 | 🚧 E2 / 🟡 E3-E5 | v3.1 Dataset 已扩充为 51 条，覆盖五路 route、READ_ONLY 三种操作及 HTML/MULTI_FILE；AGENT/HEAVY 正例与 10 个低风险负例已入指纹 | 尚缺所有受支持矩阵单元的 3 份 Fixture、完整 Benchmark 故障样本、真实模型/浏览器/Backend/Full Stack 基线与线上关联 |
 | 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
 | 安全/应用治理 | ✅ 基础 / 🟡 E3-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界 | 需端到端 RBAC/所有权矩阵、威胁模型、审计事件、租户/应用控制面和真实攻防验收 |
 
@@ -458,18 +458,20 @@
 
 ### 10.2 必做故障矩阵
 
-| 故障点 | 必须证明的结果 |
-|---|---|
-| Preflight 模型超时/取消 | 不创建收费任务，预检额度正确结算 |
-| 队列重复投递/Worker 重启 | 只有一个 epoch 获得副作用权限 |
-| 工具部分成功/返回丢失 | 已成功项可追踪，不重复不可逆操作 |
-| 构建阻塞/孙进程残留 | Deadline/取消可终止进程树并释放资源 |
-| 发布 candidate 移动前后 | active pointer、journal、正式目录最终一致 |
-| 发布后 DB 终态失败 | Reconciler/Terminal Intent 最终补齐，不误报失败 |
-| Redis 中断/SSE 重连 | gap 显式，数据库终态可回退，不重复终态 |
-| 计费结算前后崩溃 | 幂等结算，余额、流水、任务一致 |
-| 快照 Manifest/树内容篡改 | 恢复前拒绝，目标目录保持不变 |
-| 回滚激活结果未知 | workspace invalidated，禁止自动重试 |
+| 故障点 | 必须证明的结果 | 当前证据 |
+|---|---|---|
+| Preflight 模型超时/取消 | 不创建独立收费任务；局部超时的预授权由主任务接管，明确取消结算预检额度并中止提交 | ✅ E2 `3035dc4` |
+| 队列重复投递/Worker 重启 | 只有一个 epoch 获得副作用权限 | ✅ E2；Redis 跨实例 E3 待环境 |
+| 工具部分成功/返回丢失 | 已成功项可追踪，不重复不可逆操作 | ✅ E2 |
+| 构建阻塞/孙进程残留 | Deadline/取消可终止进程树并释放资源 | ✅ E2 / 🟡 真实构建 E3 |
+| 发布 candidate 移动前后 | active pointer、journal、正式目录最终一致 | ✅ E2 / 🟡 kill/磁盘 E3 |
+| 发布后 DB 终态失败 | Reconciler/Terminal Intent 最终补齐，不误报失败 | ✅ E2 / 🟡 真实 DB E3 |
+| Redis 中断/SSE 重连 | gap 显式，数据库终态可回退，不重复终态 | ✅ E2；真实 Redis 跨客户端 E3 待环境 |
+| 计费结算前后崩溃 | 幂等结算，余额、流水、任务一致 | ✅ E2 / 🟡 真实 DB E3 |
+| 快照 Manifest/树内容篡改 | 恢复前拒绝，目标目录保持不变 | ✅ E2 / 🟡 跨平台 E3 |
+| 回滚激活结果未知 | workspace invalidated，禁止自动重试 | ✅ E2 / 🟡 真实文件系统 E3 |
+
+本地 E2 统一命令：`.\mvnw.cmd -Pgeneration-failure-matrix test`。需要 Redis 的 E3 用例同时带 `integration-test` profile，并显式提供 `integration.redis.host` 与 `integration.redis.port`；缺少真实环境时不得记为通过。
 
 ## 11. 当前工作树 WIP 台账（不计入已完成）
 
@@ -491,11 +493,12 @@
 
 ### 11.2 P0-5 能力矩阵交付证据
 
-- 2026-08-28 提交 `783e5dd`：v3 Dataset 从 33 条扩充为 50 条，route 分布为 CREATE 12、READ_ONLY 9、LIGHT_EDIT 8、AGENT_EDIT 12、HEAVY_EXPERT 9。
+- 2026-08-28 提交 `783e5dd`、`92e0b4f`：v3.1 Dataset 从 33 条扩充为 51 条，route 分布为 CREATE 12、READ_ONLY 9、LIGHT_EDIT 8、AGENT_EDIT 12、HEAVY_EXPERT 10。
 - READ_ONLY 对 EXPLAIN、AUDIT、空项目 PLAN 各提供 3 条确定性样本；HTML 与 MULTI_FILE 各提供 3 条 HEAVY 首次生成支持合同。
 - 只读 Benchmark 独立评估最终响应合同与执行前后工作区摘要；成功终态不解析发布目录，也不运行 Runtime/Visual Grader。
 - 使用 JDK 21 执行整个 `orchestration/benchmark` 测试包：169 tests、0 failure、0 error、0 skipped；该结果仅属于 E2，未运行真实模型、真实浏览器或容器故障基线。
 - 本轮未调整 Prompt、模型池、规划 DAG 或路由阈值；历史 `buildPassRate` 字段仍是兼容报告口径，READ_ONLY 的有效性由 FUNCTIONAL/DIFF_SCOPE/SECURITY 证据评估，不表示执行了构建。
+- `3035dc4` 修复了显式取消被 Preflight 局部降级吞掉的问题；`626bada` 建立统一故障矩阵入口，`a5714d4` 将快照篡改场景纳入矩阵，本地 E2 执行 104 tests、0 failure、0 error、0 skipped。
 
 ## 12. 推荐执行顺序
 
@@ -577,4 +580,4 @@
 
 ---
 
-最后更新：2026-08-28。下一轮继续 P0-5，先补齐高风险中文变体与发布/终态/快照/计费故障矩阵，再执行 E3-E5 验收。
+最后更新：2026-08-28。下一轮继续 P0-5，补齐矩阵单元 Fixture 与 Benchmark 故障样本，并执行真实 Redis、浏览器、Backend、Full Stack 和跨平台 E3-E5 验收。

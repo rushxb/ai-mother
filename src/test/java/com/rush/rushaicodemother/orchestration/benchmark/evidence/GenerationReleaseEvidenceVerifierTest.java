@@ -86,6 +86,17 @@ class GenerationReleaseEvidenceVerifierTest {
     }
 
     @Test
+    void validEvidenceCanBeReusedByStrategyCorrelationWithoutReconstructingDomainCandidate() {
+        GenerationBenchmarkEvidenceRecord evidence = validEvidence(true);
+        GenerationBenchmarkReport report = stubIntegrityAndGate(evidence, true);
+
+        GenerationVerifiedBenchmarkEvidence verified = verifier.requirePassed(EVIDENCE_ID);
+
+        assertSame(evidence, verified.evidence());
+        assertSame(report, verified.report());
+    }
+
+    @Test
     void candidateMismatchMustRejectEvidence() {
         GenerationBenchmarkEvidenceRecord evidence = validEvidence(true);
         when(repository.findByEvidenceId(EVIDENCE_ID)).thenReturn(Optional.of(evidence));

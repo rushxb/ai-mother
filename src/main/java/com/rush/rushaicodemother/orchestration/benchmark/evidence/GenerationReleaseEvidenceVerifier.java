@@ -42,9 +42,7 @@ public class GenerationReleaseEvidenceVerifier {
             String evidenceId,
             GenerationBenchmarkEvidenceCandidate candidate) {
         String normalizedId = requireEvidenceId(evidenceId);
-        GenerationBenchmarkEvidenceRecord evidence = repository.findByEvidenceId(normalizedId)
-                .orElseThrow(() -> new BusinessException(
-                        ErrorCode.NOT_FOUND_ERROR, "Benchmark 发布证据不存在"));
+        GenerationBenchmarkEvidenceRecord evidence = findEvidence(normalizedId);
         GenerationBenchmarkEvidenceCandidateIdentity expected =
                 candidateIdentityResolver.resolve(candidate);
         GenerationBenchmarkEvidencePayload payload = evidence.payload();
@@ -61,6 +59,28 @@ public class GenerationReleaseEvidenceVerifier {
                         payload.promptBundleFingerprint(), expected.promptBundleFingerprint())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
                     "Benchmark 证据与发布候选不匹配");
+        }
+        return verifyPassed(evidence).evidence();
+    }
+
+    /**
+     * 重放候选无关的完整信任链，供策略归因等需要复用同一份签名报告的控制面使用。
+     * 具体候选身份仍须由消费方依据其领域发布身份再次匹配。
+     */
+    public GenerationVerifiedBenchmarkEvidence requirePassed(String evidenceId) {
+        return verifyPassed(findEvidence(requireEvidenceId(evidenceId)));
+    }
+
+    private GenerationVerifiedBenchmarkEvidence verifyPassed(
+            GenerationBenchmarkEvidenceRecord evidence) {
+        GenerationBenchmarkEvidencePayload payload = evidence.payload();
+        if (payload == null
+                || !GenerationBenchmarkEvidenceProtocol.hasCurrentAttestation(
+                payload.signatureVersion(),
+                payload.subjectType(),
+                payload.candidatePhysicalRequestCount())) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                    "Benchmark 证据协议不受支持");
         }
         Instant now = clock.instant();
         if (!payload.expiresAt().isAfter(now)
@@ -82,7 +102,13 @@ public class GenerationReleaseEvidenceVerifier {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
                     "Benchmark 发布门禁未通过：" + String.join(",", assessment.violations()));
         }
-        return evidence;
+        return new GenerationVerifiedBenchmarkEvidence(evidence, report);
+    }
+
+    private GenerationBenchmarkEvidenceRecord findEvidence(String evidenceId) {
+        return repository.findByEvidenceId(evidenceId)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.NOT_FOUND_ERROR, "Benchmark 发布证据不存在"));
     }
 
     /** 校验并返回有效的证据编号。 */

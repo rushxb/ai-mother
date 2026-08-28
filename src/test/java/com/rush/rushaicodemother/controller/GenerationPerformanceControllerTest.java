@@ -167,7 +167,9 @@ class GenerationPerformanceControllerTest {
     private GenerationStrategyPromotionService promotionService() {
         return new GenerationStrategyPromotionService(
                 mock(GenerationScenarioAttributionRepository.class),
-                new GenerationStrategyPromotionGate(new GenerationBenchmarkReleaseProperties()));
+                new GenerationStrategyPromotionGate(new GenerationBenchmarkReleaseProperties()),
+                mock(com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationReleaseEvidenceVerifier.class),
+                mock(com.rush.rushaicodemother.orchestration.learning.GenerationOfflineOnlineCorrelationService.class));
     }
 
 }

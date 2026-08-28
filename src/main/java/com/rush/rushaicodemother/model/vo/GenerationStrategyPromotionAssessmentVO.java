@@ -1,15 +1,19 @@
 package com.rush.rushaicodemother.model.vo;
 
+import com.rush.rushaicodemother.orchestration.learning.GenerationOfflineOnlineCorrelation;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketSummary;
 import com.rush.rushaicodemother.orchestration.learning.GenerationStrategyPromotionAssessment;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /** 管理端策略晋级评估视图，保留判定所需证据而不暴露持久化行结构。 */
 public record GenerationStrategyPromotionAssessmentVO(
         boolean passed,
         List<String> violations,
         String rollbackReleaseIdentity,
+        OfflineOnlineCorrelationVO correlation,
         StrategyEvidenceVO baseline,
         StrategyEvidenceVO candidate
 ) {
@@ -27,8 +31,58 @@ public record GenerationStrategyPromotionAssessmentVO(
                 assessment.passed(),
                 assessment.violations(),
                 assessment.rollbackReleaseIdentity(),
+                OfflineOnlineCorrelationVO.from(assessment.correlation()),
                 StrategyEvidenceVO.from(assessment.baseline()),
                 StrategyEvidenceVO.from(assessment.candidate()));
+    }
+
+    /** 只暴露能解释生产失败、返工与低评分的 Benchmark 维度。 */
+    public record OfflineOnlineCorrelationVO(
+            String evidenceId,
+            String datasetFingerprint,
+            Instant evaluatedAt,
+            String route,
+            long offlineTaskCount,
+            MetricComparisonVO deliveryFailure,
+            MetricComparisonVO averageRepairRounds,
+            MetricComparisonVO qualityRisk,
+            Map<String, Double> offlineQualityFailureRates
+    ) {
+
+        private static OfflineOnlineCorrelationVO from(
+                GenerationOfflineOnlineCorrelation correlation) {
+            return new OfflineOnlineCorrelationVO(
+                    correlation.evidenceId(),
+                    correlation.datasetFingerprint(),
+                    correlation.evaluatedAt(),
+                    correlation.route(),
+                    correlation.offlineTaskCount(),
+                    MetricComparisonVO.from(correlation.deliveryFailure()),
+                    MetricComparisonVO.from(correlation.averageRepairRounds()),
+                    MetricComparisonVO.from(correlation.qualityRisk()),
+                    correlation.offlineQualityFailureRates());
+        }
+    }
+
+    public record MetricComparisonVO(
+            String offlineMetric,
+            long offlineObservedCount,
+            double offlineValue,
+            String onlineMetric,
+            long onlineObservedCount,
+            double onlineValue
+    ) {
+
+        private static MetricComparisonVO from(
+                GenerationOfflineOnlineCorrelation.MetricComparison comparison) {
+            return new MetricComparisonVO(
+                    comparison.offlineMetric(),
+                    comparison.offlineObservedCount(),
+                    comparison.offlineValue(),
+                    comparison.onlineMetric(),
+                    comparison.onlineObservedCount(),
+                    comparison.onlineValue());
+        }
     }
 
     /** 单个真实发布指纹在指定场景和时间窗口内的可审计证据。 */

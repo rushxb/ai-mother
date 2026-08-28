@@ -26,7 +26,7 @@ public class GenerationStrategyPromotionGate {
         this.releaseProperties = Objects.requireNonNull(releaseProperties, "发布门禁配置不能为空");
     }
 
-    public GenerationStrategyPromotionAssessment assess(GenerationScenarioBucketSummary baseline,
+    public GenerationStrategyPromotionGateResult assess(GenerationScenarioBucketSummary baseline,
                                                          GenerationScenarioBucketSummary candidate) {
         Objects.requireNonNull(baseline, "基线证据不能为空");
         Objects.requireNonNull(candidate, "候选证据不能为空");
@@ -42,7 +42,7 @@ public class GenerationStrategyPromotionGate {
         if (violations.isEmpty() && !hasObservedImprovement(baseline, candidate)) {
             violations.add("candidate_has_no_observed_improvement");
         }
-        return new GenerationStrategyPromotionAssessment(
+        return new GenerationStrategyPromotionGateResult(
                 violations.isEmpty(), violations, baseline, candidate);
     }
 

@@ -3,6 +3,19 @@ package com.rush.rushaicodemother.integration;
 import com.rush.rushaicodemother.infrastructure.persistence.task.MyBatisGenerationScenarioAttributionRepository;
 import com.rush.rushaicodemother.mapper.GenerationScenarioAttributionMapper;
 import com.rush.rushaicodemother.orchestration.learning.GenerationScenarioBucketSummary;
+import com.rush.rushaicodemother.orchestration.learning.GenerationOfflineOnlineCorrelation;
+import com.rush.rushaicodemother.orchestration.learning.GenerationOfflineOnlineCorrelationService;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkQualityDimension;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkQualityEvidence;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkReport;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRuleResult;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkRunResult;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidencePayload;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceProtocol;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceRecord;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceSubject;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationVerifiedBenchmarkEvidence;
+import com.rush.rushaicodemother.orchestration.release.GenerationExecutionReleaseIdentity;
 import org.apache.ibatis.datasource.pooled.PooledDataSource;
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.Configuration;
@@ -21,6 +34,7 @@ import java.sql.DriverManager;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -34,7 +48,18 @@ class GenerationStrategyCapacityMySqlIntegrationTest {
     private static final String PASSWORD = requiredProperty("integration.mysql.password");
     private static final String JDBC_URL = databaseUrl(ADMIN_URL, DATABASE);
     private static final String INTENT_SIGNATURE = "a".repeat(64);
-    private static final String RELEASE_IDENTITY = "b".repeat(64);
+    private static final String RUNTIME_FINGERPRINT = "b".repeat(64);
+    private static final String PROMPT_FINGERPRINT = "c".repeat(64);
+    private static final String MODEL_FINGERPRINT = "d".repeat(64);
+    private static final String GIT_COMMIT = "e".repeat(40);
+    private static final String DECISION_VERSION = "routing-policy-v1";
+    private static final String RELEASE_IDENTITY = new GenerationExecutionReleaseIdentity(
+            GIT_COMMIT,
+            false,
+            RUNTIME_FINGERPRINT,
+            PROMPT_FINGERPRINT,
+            MODEL_FINGERPRINT,
+            DECISION_VERSION).releaseFingerprint();
 
     private static PooledDataSource dataSource;
     private static SqlSession sqlSession;
@@ -104,6 +129,26 @@ class GenerationStrategyCapacityMySqlIntegrationTest {
         assertEquals(5, summary.cost().totalCreditCost());
     }
 
+    @Test
+    void verifiedBenchmarkDimensionsMustCorrelateWithRealMySqlProductionFacts() {
+        Instant from = Instant.parse("2026-08-27T16:00:00Z");
+        GenerationScenarioBucketSummary candidate = repository.summarize(
+                INTENT_SIGNATURE,
+                from,
+                Instant.parse("2026-08-29T16:00:00Z"),
+                10).getFirst();
+
+        GenerationOfflineOnlineCorrelation correlation =
+                new GenerationOfflineOnlineCorrelationService().correlate(
+                        verifiedBenchmark(), candidate, from);
+
+        assertEquals(RELEASE_IDENTITY, candidate.identity().releaseIdentity());
+        assertEquals(3, correlation.offlineTaskCount());
+        assertEquals(1.0 / 3.0, correlation.deliveryFailure().onlineValue());
+        assertEquals(0.0, correlation.averageRepairRounds().onlineValue());
+        assertEquals(1.0 / 3.0, correlation.qualityRisk().onlineValue());
+    }
+
     private static void seedScenario() throws Exception {
         try (Connection connection = DriverManager.getConnection(JDBC_URL, USERNAME, PASSWORD);
              Statement statement = connection.createStatement()) {
@@ -134,20 +179,29 @@ class GenerationStrategyCapacityMySqlIntegrationTest {
                     VALUES
                         ('capacity-success-retry', 11, 7, 3, 'agent_edit',
                          'success', 'completed', REPEAT('a', 64), 'intent-profile-v1',
-                         'routing-policy-v1', REPEAT('b', 64), 1, 1, 0, 800, NULL,
+                         'routing-policy-v1', '%s', 1, 1, 0, 800, NULL,
                          '2026-08-28 10:00:00', '2026-08-28 10:00:00',
                          '2026-08-28 10:00:02', 2000, 2, 1, 0),
                         ('capacity-success-started', 11, 7, 3, 'agent_edit',
                          'success', 'completed', REPEAT('a', 64), 'intent-profile-v1',
-                         'routing-policy-v1', REPEAT('b', 64), 1, 1, 0, 900, NULL,
+                         'routing-policy-v1', '%s', 1, 1, 0, 900, NULL,
                          '2026-08-28 11:00:00', '2026-08-28 11:00:00',
                          '2026-08-28 11:00:03', 3000, 3, 1, 0),
                         ('capacity-rate-limited', 11, 7, 3, 'agent_edit',
                          'failed', 'failed', REPEAT('a', 64), 'intent-profile-v1',
-                         'routing-policy-v1', REPEAT('b', 64), 0, NULL, NULL, NULL,
+                         'routing-policy-v1', '%s', 0, NULL, NULL, NULL,
                          'model_rate_limit', '2026-08-28 12:00:00',
                          '2026-08-28 12:00:00', '2026-08-28 12:00:01',
                          1000, 0, 0, 0)
+                    """.formatted(
+                    RELEASE_IDENTITY, RELEASE_IDENTITY, RELEASE_IDENTITY));
+            statement.executeUpdate("""
+                    INSERT INTO generation_feedback
+                        (taskId, appId, userId, rating, outcome, comment, isDelete)
+                    VALUES
+                        ('capacity-success-retry', 11, 7, 5, 'satisfied', '', 0),
+                        ('capacity-success-started', 11, 7, 4, 'satisfied', '', 0),
+                        ('capacity-rate-limited', 11, 7, 2, 'failed', '', 0)
                     """);
             statement.executeUpdate("""
                     INSERT INTO generation_model_call
@@ -177,6 +231,81 @@ class GenerationStrategyCapacityMySqlIntegrationTest {
                          'SUCCESS', 999, 'OFFICIAL', NULL, '2026-08-28 10:00:03')
                     """);
         }
+    }
+
+    private GenerationVerifiedBenchmarkEvidence verifiedBenchmark() {
+        List<GenerationBenchmarkRunResult> results = List.of(
+                benchmarkResult("offline-agent-success", true, 0, true),
+                benchmarkResult("offline-agent-repair", true, 1, false),
+                benchmarkResult("offline-agent-failed", false, 1, false));
+        GenerationBenchmarkEvidencePayload payload = new GenerationBenchmarkEvidencePayload(
+                GenerationBenchmarkEvidenceProtocol.CURRENT_SIGNATURE_VERSION,
+                GenerationBenchmarkEvidenceSubject.PROMPT_RELEASE,
+                "app-generation",
+                "1".repeat(64),
+                3,
+                "2".repeat(64),
+                "generation-benchmark-graders-v1",
+                RUNTIME_FINGERPRINT,
+                GIT_COMMIT,
+                MODEL_FINGERPRINT,
+                PROMPT_FINGERPRINT,
+                "3".repeat(64),
+                Instant.parse("2026-08-27T12:00:00Z"),
+                Instant.parse("2026-09-01T00:00:00Z"));
+        GenerationBenchmarkEvidenceRecord evidence = new GenerationBenchmarkEvidenceRecord(
+                "550e8400-e29b-41d4-a716-446655440000",
+                payload,
+                "{}",
+                true,
+                List.of(),
+                "4".repeat(64),
+                Instant.parse("2026-08-27T12:01:00Z"));
+        GenerationBenchmarkReport report = new GenerationBenchmarkReport(
+                GenerationBenchmarkReport.CURRENT_SCHEMA_VERSION,
+                3, 2, 2, 2.0 / 3.0, 2.0 / 3.0,
+                100, 100, 100, 100,
+                3, 0, 0, 2,
+                300, 3,
+                10, 10, 10,
+                3, 1.0, 50, 50, 50,
+                PROMPT_FINGERPRINT,
+                MODEL_FINGERPRINT,
+                Map.of(),
+                Map.of(),
+                results);
+        return new GenerationVerifiedBenchmarkEvidence(evidence, report);
+    }
+
+    private GenerationBenchmarkRunResult benchmarkResult(String taskId,
+                                                          boolean success,
+                                                          int repairRounds,
+                                                          boolean qualityPassed) {
+        GenerationBenchmarkRuleResult quality = qualityPassed
+                ? GenerationBenchmarkRuleResult.passed(
+                "structure", GenerationBenchmarkQualityDimension.STRUCTURAL)
+                : GenerationBenchmarkRuleResult.failed(
+                "structure", GenerationBenchmarkQualityDimension.STRUCTURAL, "invalid");
+        return new GenerationBenchmarkRunResult(
+                taskId,
+                "AGENT_EDIT",
+                success,
+                success,
+                100,
+                1,
+                0,
+                false,
+                repairRounds,
+                success ? "" : "generation_failed",
+                100,
+                1,
+                10,
+                50L,
+                new GenerationBenchmarkQualityEvidence(List.of(quality)),
+                "AGENT_EDIT",
+                true,
+                com.rush.rushaicodemother.orchestration.GenerationPlanningVariant.CURRENT_DAG,
+                10L);
     }
 
     private static void recreateDatabase() throws Exception {

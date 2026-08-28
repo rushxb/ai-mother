@@ -22,7 +22,7 @@ class GenerationStrategyPromotionGateTest {
                 CANDIDATE_RELEASE, 40, 39, 37, 1, 4.6, 2,
                 3_500L, 12_001L, 390_000L, 190L);
 
-        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+        GenerationStrategyPromotionGateResult assessment = gate().assess(baseline, candidate);
 
         assertFalse(assessment.passed());
         assertTrue(assessment.violations().contains("delivered_p95_regressed"));
@@ -38,7 +38,7 @@ class GenerationStrategyPromotionGateTest {
                 CANDIDATE_RELEASE, 40, 39, 37, 1, 4.6, 2,
                 301_000L, 601_000L, 390_000L, 190L);
 
-        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+        GenerationStrategyPromotionGateResult assessment = gate().assess(baseline, candidate);
 
         assertFalse(assessment.passed());
         assertTrue(assessment.violations().contains("candidate_first_useful_p95_above_budget"));
@@ -57,7 +57,7 @@ class GenerationStrategyPromotionGateTest {
                 new GenerationScenarioCostMetrics(30, 200_000L, 30, 100L),
                 new GenerationScenarioCapacityMetrics(30, 31, 1, 0));
 
-        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+        GenerationStrategyPromotionGateResult assessment = gate().assess(baseline, candidate);
 
         assertFalse(assessment.passed());
         assertTrue(assessment.violations().contains("candidate_task_count_below_minimum"));
@@ -79,7 +79,7 @@ class GenerationStrategyPromotionGateTest {
                 CANDIDATE_RELEASE, 40, 38, 35, 3, 4.1, 8,
                 3_000L, 11_000L, 410_000L, 220L);
 
-        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+        GenerationStrategyPromotionGateResult assessment = gate().assess(baseline, candidate);
 
         assertFalse(assessment.passed());
         assertTrue(assessment.violations().contains("success_rate_regressed"));
@@ -100,7 +100,7 @@ class GenerationStrategyPromotionGateTest {
                 CANDIDATE_RELEASE, 40, 39, 37, 1, 4.6, 2,
                 3_500L, 11_000L, 390_000L, 190L);
 
-        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+        GenerationStrategyPromotionGateResult assessment = gate().assess(baseline, candidate);
 
         assertTrue(assessment.passed());
         assertTrue(assessment.violations().isEmpty());
@@ -120,7 +120,7 @@ class GenerationStrategyPromotionGateTest {
                 CANDIDATE_RELEASE, 40, 20, 36, 2, 4.4, 4,
                 3_500L, 11_000L, 400_000L, 190L);
 
-        GenerationStrategyPromotionAssessment assessment =
+        GenerationStrategyPromotionGateResult assessment =
                 new GenerationStrategyPromotionGate(properties).assess(baseline, candidate);
 
         assertFalse(assessment.passed());
@@ -137,7 +137,7 @@ class GenerationStrategyPromotionGateTest {
                 CANDIDATE_RELEASE, 40, 20, 36, 2, 4.4, 4,
                 3_500L, 11_000L, 300_000L, 190L);
 
-        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+        GenerationStrategyPromotionGateResult assessment = gate().assess(baseline, candidate);
 
         assertFalse(assessment.passed());
         assertTrue(assessment.violations().contains("success_rate_regressed"));
@@ -157,7 +157,7 @@ class GenerationStrategyPromotionGateTest {
                 CANDIDATE_RELEASE, 40, 20, 36, 2, 4.4, 4,
                 3_500L, 11_000L, 400_000L, 190L);
 
-        GenerationStrategyPromotionAssessment assessment =
+        GenerationStrategyPromotionGateResult assessment =
                 new GenerationStrategyPromotionGate(properties).assess(baseline, candidate);
 
         assertFalse(assessment.passed());
@@ -176,7 +176,7 @@ class GenerationStrategyPromotionGateTest {
                 CANDIDATE_RELEASE, 40, 0, 36, 2, 4.4, 4,
                 3_500L, 11_000L, 300_000L, 190L);
 
-        GenerationStrategyPromotionAssessment assessment =
+        GenerationStrategyPromotionGateResult assessment =
                 new GenerationStrategyPromotionGate(properties).assess(baseline, candidate);
 
         assertFalse(assessment.passed());
@@ -193,7 +193,7 @@ class GenerationStrategyPromotionGateTest {
                 CANDIDATE_RELEASE, 40, 39, 37, 1, 4.6, 2,
                 3_500L, 11_000L, 390_000L, 190L), 40, 80, 2, 0);
 
-        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+        GenerationStrategyPromotionGateResult assessment = gate().assess(baseline, candidate);
 
         assertFalse(assessment.passed());
         assertTrue(assessment.violations().contains(
@@ -209,7 +209,7 @@ class GenerationStrategyPromotionGateTest {
                 CANDIDATE_RELEASE, 40, 39, 37, 1, 4.6, 2,
                 3_500L, 11_000L, 390_000L, 190L), 40, 39, 7, 0);
 
-        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+        GenerationStrategyPromotionGateResult assessment = gate().assess(baseline, candidate);
 
         assertFalse(assessment.passed());
         assertTrue(assessment.violations().contains(
@@ -225,7 +225,7 @@ class GenerationStrategyPromotionGateTest {
                 CANDIDATE_RELEASE, 40, 39, 37, 1, 4.6, 2,
                 3_500L, 11_000L, 390_000L, 190L), 39, 40, 1, 3);
 
-        GenerationStrategyPromotionAssessment assessment = gate().assess(baseline, candidate);
+        GenerationStrategyPromotionGateResult assessment = gate().assess(baseline, candidate);
 
         assertFalse(assessment.passed());
         assertTrue(assessment.violations().contains(

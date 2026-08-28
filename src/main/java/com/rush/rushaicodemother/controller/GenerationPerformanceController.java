@@ -128,6 +128,7 @@ public class GenerationPerformanceController {
             @PathVariable @Pattern(regexp = "[0-9a-f]{64}") String intentSignature,
             @RequestParam @Pattern(regexp = "[0-9a-f]{64}") String baselineReleaseIdentity,
             @RequestParam @Pattern(regexp = "[0-9a-f]{64}") String candidateReleaseIdentity,
+            @RequestParam String benchmarkEvidenceId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to
     ) {
@@ -136,6 +137,7 @@ public class GenerationPerformanceController {
                         intentSignature,
                         baselineReleaseIdentity,
                         candidateReleaseIdentity,
+                        benchmarkEvidenceId,
                         from,
                         to))));
     }

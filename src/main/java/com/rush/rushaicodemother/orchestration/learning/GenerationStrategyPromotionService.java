@@ -2,6 +2,8 @@ package com.rush.rushaicodemother.orchestration.learning;
 
 import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationReleaseEvidenceVerifier;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationVerifiedBenchmarkEvidence;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +18,8 @@ public class GenerationStrategyPromotionService {
 
     private final GenerationScenarioAttributionRepository attributionRepository;
     private final GenerationStrategyPromotionGate promotionGate;
+    private final GenerationReleaseEvidenceVerifier evidenceVerifier;
+    private final GenerationOfflineOnlineCorrelationService correlationService;
 
     public GenerationStrategyPromotionAssessment assess(GenerationStrategyPromotionQuery query) {
         if (query == null) {
@@ -27,7 +31,26 @@ public class GenerationStrategyPromotionService {
                 summaries, query.baselineReleaseIdentity(), "基线");
         GenerationScenarioBucketSummary candidate = requireUnique(
                 summaries, query.candidateReleaseIdentity(), "候选");
-        return promotionGate.assess(baseline, candidate);
+        GenerationVerifiedBenchmarkEvidence benchmarkEvidence =
+                evidenceVerifier.requirePassed(query.benchmarkEvidenceId());
+        GenerationOfflineOnlineCorrelation correlation;
+        try {
+            correlation = correlationService.correlate(
+                    benchmarkEvidence, candidate, query.from());
+        } catch (IllegalArgumentException mismatch) {
+            throw new BusinessException(
+                    ErrorCode.OPERATION_ERROR,
+                    "Benchmark 证据无法关联生产候选：" + mismatch.getMessage(),
+                    mismatch);
+        }
+        GenerationStrategyPromotionGateResult gateResult =
+                promotionGate.assess(baseline, candidate);
+        return new GenerationStrategyPromotionAssessment(
+                gateResult.passed(),
+                gateResult.violations(),
+                gateResult.baseline(),
+                gateResult.candidate(),
+                correlation);
     }
 
     /**

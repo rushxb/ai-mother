@@ -2,6 +2,8 @@ package com.rush.rushaicodemother.orchestration.learning;
 
 import com.rush.rushaicodemother.config.GenerationBenchmarkReleaseProperties;
 import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationReleaseEvidenceVerifier;
+import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationVerifiedBenchmarkEvidence;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -14,12 +16,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 class GenerationStrategyPromotionServiceTest {
 
     private static final String INTENT_SIGNATURE = "a".repeat(64);
     private static final String BASELINE_RELEASE = "b".repeat(64);
     private static final String CANDIDATE_RELEASE = "c".repeat(64);
+    private static final String EVIDENCE_ID = "550e8400-e29b-41d4-a716-446655440000";
     private static final Instant FROM = Instant.parse("2026-07-01T00:00:00Z");
     private static final Instant TO = Instant.parse("2026-08-01T00:00:00Z");
 
@@ -35,7 +39,8 @@ class GenerationStrategyPromotionServiceTest {
 
         GenerationStrategyPromotionAssessment result = service.assess(
                 new GenerationStrategyPromotionQuery(
-                        INTENT_SIGNATURE, BASELINE_RELEASE, CANDIDATE_RELEASE, FROM, TO));
+                        INTENT_SIGNATURE, BASELINE_RELEASE, CANDIDATE_RELEASE,
+                        EVIDENCE_ID, FROM, TO));
 
         assertTrue(result.passed());
         assertEquals(BASELINE_RELEASE, result.rollbackReleaseIdentity());
@@ -55,7 +60,8 @@ class GenerationStrategyPromotionServiceTest {
 
         assertThrows(BusinessException.class, () -> service(repository).assess(
                 new GenerationStrategyPromotionQuery(
-                        INTENT_SIGNATURE, BASELINE_RELEASE, CANDIDATE_RELEASE, FROM, TO)));
+                        INTENT_SIGNATURE, BASELINE_RELEASE, CANDIDATE_RELEASE,
+                        EVIDENCE_ID, FROM, TO)));
     }
 
     @Test
@@ -65,7 +71,8 @@ class GenerationStrategyPromotionServiceTest {
 
         assertThrows(IllegalArgumentException.class, () -> service(repository).assess(
                 new GenerationStrategyPromotionQuery(
-                        INTENT_SIGNATURE, "handwritten-v1", CANDIDATE_RELEASE, FROM, TO)));
+                        INTENT_SIGNATURE, "handwritten-v1", CANDIDATE_RELEASE,
+                        EVIDENCE_ID, FROM, TO)));
 
         verify(repository, never()).summarize(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
@@ -74,9 +81,20 @@ class GenerationStrategyPromotionServiceTest {
 
     private GenerationStrategyPromotionService service(
             GenerationScenarioAttributionRepository repository) {
+        GenerationReleaseEvidenceVerifier evidenceVerifier =
+                mock(GenerationReleaseEvidenceVerifier.class);
+        GenerationVerifiedBenchmarkEvidence verified =
+                mock(GenerationVerifiedBenchmarkEvidence.class);
+        GenerationOfflineOnlineCorrelationService correlationService =
+                mock(GenerationOfflineOnlineCorrelationService.class);
+        when(evidenceVerifier.requirePassed(EVIDENCE_ID)).thenReturn(verified);
+        when(correlationService.correlate(any(), any(), any()))
+                .thenReturn(mock(GenerationOfflineOnlineCorrelation.class));
         return new GenerationStrategyPromotionService(
                 repository,
-                new GenerationStrategyPromotionGate(new GenerationBenchmarkReleaseProperties()));
+                new GenerationStrategyPromotionGate(new GenerationBenchmarkReleaseProperties()),
+                evidenceVerifier,
+                correlationService);
     }
 
     private GenerationScenarioBucketSummary summary(String releaseIdentity,

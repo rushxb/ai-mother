@@ -536,6 +536,10 @@
 - 2026-08-28 提交 `fc49b74`：新增 `generation-browser-smoke` profile，以部署方显式提供的 Chrome 与 ChromeDriver 启动真实 Selenium 会话，访问仅环回 HTTP 页面并采集 DOM、console、network 与 screenshot 证据。
 - 本机 Chrome `151.0.7922.175`、ChromeDriver `151.0.7922.138` 执行 1 test、0 failure、0 error、0 skipped；该结果只证明浏览器探针 E3，不等于真实模型或完整生成任务 E3。
 - Selenium 对 Chrome 151 输出“缺少匹配 typed CDP 模块”警告；本项目网络证据来自 performance log，本次断言确认 `captured=true`。本机仍缺 Docker、Redis 与 Go，相关 E3 未执行。
+- 2026-08-28 在干净的 detached `418c69e` 工作树复跑 Chrome `151.0.7922.175` + ChromeDriver `151.0.7922.138`：1 report、1 test、0 failure、0 error、0 skipped；typed CDP 警告仍存在，DOM、console、performance-log network 与 screenshot 合同继续通过。
+- 使用本机 MySQL Community Server `8.0.38` 和开发配置中已声明的数据源身份，在同一干净工作树执行 5 个专用 MySQL 集成类：5 reports、9 tests、0 failure、0 error、0 skipped；覆盖 41 条迁移校验、审批一次性执行与 replay receipt、Prompt 发布协调、语义记忆 outbox 和 Dev Server 会话并发/恢复合同。
+- MySQL 集成仅重建 `ai_mother_dev_server_it`、`ai_mother_flyway_it`、`ai_mother_memory_it`、`ai_mother_prompt_release_it`、`ai_mother_tool_it` 五个专用库；取证后已删除并查询确认残留数为 0，业务库未进入测试目标。
+- 当前环境探测：MySQL `3306` 可达、Node `22.16.0` 可用；Docker、Redis Server/CLI 和 Go 不可用，Redis `6379` 未监听，模型 API key 环境变量未配置。因此真实 Redis、多 Worker、Go Backend/Full Stack、真实模型质量与成本仍未形成 E3-E5 证据。
 
 ## 12. 推荐执行顺序
 

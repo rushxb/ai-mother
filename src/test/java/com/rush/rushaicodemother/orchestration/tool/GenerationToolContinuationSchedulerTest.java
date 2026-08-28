@@ -26,7 +26,10 @@ import com.rush.rushaicodemother.orchestration.runtime.tracing.GenerationTraceCo
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.trace.GenerationTraceService;
 import com.rush.rushaicodemother.service.user.UserPersistenceService;
+import com.rush.rushaicodemother.testing.GenerationFailureEvidence;
+import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -46,8 +49,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+@Tag(GenerationFailureMatrix.TAG)
 class GenerationToolContinuationSchedulerTest {
 
     private static final Instant NOW = Instant.parse("2026-07-16T12:00:00Z");
@@ -146,8 +151,12 @@ class GenerationToolContinuationSchedulerTest {
     }
 
     @Test
+    @GenerationFailureEvidence("approval_dispatch_rejection_restores_waiting")
     void executorRejectionMustRestoreWaitingStateForRetry() {
         Fixture fixture = fixture();
+        assertEquals("task-1", FENCE.taskId());
+        assertEquals(5L, FENCE.executionEpoch());
+        assertEquals("a".repeat(64), fixture.decision().approvalId());
         when(checkpointFactory.restore(fixture.decision().invocationCheckpoint()))
                 .thenReturn(fixture.state());
         when(executionContexts.getByTaskId("task-1"))

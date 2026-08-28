@@ -15,14 +15,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GenerationFailureMatrixCatalogTest {
 
     @Test
-    void cancellationSamplesMustBindExecutableEvidenceAndDurableIdentity() throws Exception {
-        List<GenerationFailureSample> samples = GenerationFailureMatrix.samplesFor(
-                GenerationFailureScenario.CANCELLATION);
+    void completedScenarioCatalogsMustContainAtLeastTwoSamples() {
+        assertTrue(GenerationFailureMatrix.samplesFor(
+                GenerationFailureScenario.CANCELLATION).size() >= 2);
+        assertTrue(GenerationFailureMatrix.samplesFor(
+                GenerationFailureScenario.APPROVAL).size() >= 2);
+    }
 
-        assertTrue(samples.size() >= 2);
+    @Test
+    void declaredSamplesMustBindExecutableEvidenceAndDurableIdentity() throws Exception {
+        for (GenerationFailureScenario scenario : GenerationFailureScenario.values()) {
+            verifySamples(GenerationFailureMatrix.samplesFor(scenario));
+        }
+    }
+
+    private void verifySamples(List<GenerationFailureSample> samples) throws Exception {
         for (GenerationFailureSample sample : samples) {
-            assertTrue(sample.durableIdentityFields().containsAll(List.of(
-                    "taskId", "executionEpoch")));
+            assertTrue(sample.durableIdentityFields().containsAll(
+                    List.of("taskId", "executionEpoch")));
             assertTrue(sample.assertedFacts().size() >= 2);
 
             Class<?> testClass = Class.forName(sample.testClassName());

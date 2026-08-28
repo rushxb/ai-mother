@@ -174,6 +174,7 @@ class GenerationTaskLeaseCoordinatorTest {
     }
 
     @Test
+    @GenerationFailureEvidence("approval_requeue_fences_stale_epoch")
     void approvalRequeueMustReturnAHigherEpochAndRejectTheOldFence() {
         GenerationTaskLease initialLease = reserve("task-approval", 3L);
         when(repository.suspendForApproval(

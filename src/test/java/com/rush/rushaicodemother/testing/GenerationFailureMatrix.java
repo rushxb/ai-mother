@@ -11,6 +11,8 @@ public final class GenerationFailureMatrix {
 
     private static final String LEASE_COORDINATOR_TEST =
             "com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskLeaseCoordinatorTest";
+    private static final String CONTINUATION_SCHEDULER_TEST =
+            "com.rush.rushaicodemother.orchestration.tool.GenerationToolContinuationSchedulerTest";
 
     private static final List<GenerationFailureSample> SAMPLES = validate(List.of(
             new GenerationFailureSample(
@@ -28,6 +30,22 @@ public final class GenerationFailureMatrix {
                     "heartbeatMustPropagateCancellationAndDropLostLease",
                     Set.of("taskId", "executionEpoch", "cancellationReason"),
                     Set.of("operator_reason_propagated", "lost_lease_removed")
+            ),
+            new GenerationFailureSample(
+                    "approval_requeue_fences_stale_epoch",
+                    GenerationFailureScenario.APPROVAL,
+                    LEASE_COORDINATOR_TEST,
+                    "approvalRequeueMustReturnAHigherEpochAndRejectTheOldFence",
+                    Set.of("taskId", "executionEpoch"),
+                    Set.of("epoch_advanced", "stale_fence_rejected")
+            ),
+            new GenerationFailureSample(
+                    "approval_dispatch_rejection_restores_waiting",
+                    GenerationFailureScenario.APPROVAL,
+                    CONTINUATION_SCHEDULER_TEST,
+                    "executorRejectionMustRestoreWaitingStateForRetry",
+                    Set.of("taskId", "executionEpoch", "approvalId"),
+                    Set.of("dispatch_rejected", "waiting_state_restored")
             )
     ));
 

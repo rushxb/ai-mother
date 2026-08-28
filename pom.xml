@@ -91,6 +91,13 @@
                 <includedGroups>generation-failure-matrix</includedGroups>
             </properties>
         </profile>
+        <profile>
+            <id>generation-browser-smoke</id>
+            <properties>
+                <includedGroups>generation-browser-smoke</includedGroups>
+                <excludedGroups>external</excludedGroups>
+            </properties>
+        </profile>
     </profiles>
     <dependencies>
         <dependency>

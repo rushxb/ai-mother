@@ -14,6 +14,7 @@ public final class GenerationBenchmarkDeclarationValidator {
     public static final int MAX_FIXTURE_FILE_CHARS = 50_000;
     public static final int MAX_FIXTURE_TOTAL_CHARS = 200_000;
     public static final int MAX_ASSERTIONS = 16;
+    public static final int MAX_RESPONSE_ASSERTIONS = 8;
     public static final int MAX_ASSERTION_PATHS = 8;
     public static final int MAX_ASSERTION_TOKENS = 16;
     public static final int MAX_ASSERTION_TOKEN_CHARS = 256;
@@ -24,7 +25,7 @@ public final class GenerationBenchmarkDeclarationValidator {
     private static final int MAX_PATH_CHARS = 256;
     private static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9][a-z0-9_-]{0,63}");
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
-            "vue", "ts", "tsx", "js", "jsx", "css", "scss", "json", "go", "html", "md", "sql"
+            "vue", "ts", "tsx", "js", "jsx", "css", "scss", "json", "go", "html", "md", "sql", "env"
     );
     private static final Set<String> FORBIDDEN_SEGMENTS = Set.of(
             ".git", ".idea", ".vscode", "node_modules", "dist", "target", "vendor"
@@ -39,6 +40,7 @@ public final class GenerationBenchmarkDeclarationValidator {
         }
         validateFixtures(task.fixtureFiles());
         validateAssertions(task.sourceAssertions());
+        validateResponseAssertions(task.responseAssertions());
         if (!task.fixtureFiles().isEmpty() && task.sourceAssertions().isEmpty()) {
             throw new IllegalArgumentException("声明式源码夹具必须配置对应断言");
         }
@@ -105,14 +107,40 @@ public final class GenerationBenchmarkDeclarationValidator {
         }
     }
 
+    private static void validateResponseAssertions(
+            List<GenerationBenchmarkResponseAssertion> assertions
+    ) {
+        if (assertions.size() > MAX_RESPONSE_ASSERTIONS) {
+            throw new IllegalArgumentException("单个评测任务的响应断言过多");
+        }
+        Set<String> ids = new HashSet<>();
+        for (GenerationBenchmarkResponseAssertion assertion : assertions) {
+            if (assertion == null || assertion.id() == null
+                    || !ID_PATTERN.matcher(assertion.id()).matches()) {
+                throw new IllegalArgumentException("响应断言标识无效");
+            }
+            if (!ids.add(assertion.id())) {
+                throw new IllegalArgumentException("响应断言标识不能重复");
+            }
+            if (assertion.allOf().isEmpty()
+                    && assertion.anyOf().isEmpty()
+                    && assertion.noneOf().isEmpty()) {
+                throw new IllegalArgumentException("响应断言至少需要一个匹配条件");
+            }
+            validateTokens(assertion.allOf());
+            validateTokens(assertion.anyOf());
+            validateTokens(assertion.noneOf());
+        }
+    }
+
     private static void validateTokens(List<String> tokens) {
         if (tokens.size() > MAX_ASSERTION_TOKENS) {
-            throw new IllegalArgumentException("源码断言匹配项过多");
+            throw new IllegalArgumentException("评测断言匹配项过多");
         }
         for (String token : tokens) {
             if (token == null || token.isBlank() || token.length() > MAX_ASSERTION_TOKEN_CHARS
                     || token.chars().anyMatch(Character::isISOControl)) {
-                throw new IllegalArgumentException("源码断言匹配项无效");
+                throw new IllegalArgumentException("评测断言匹配项无效");
             }
         }
     }

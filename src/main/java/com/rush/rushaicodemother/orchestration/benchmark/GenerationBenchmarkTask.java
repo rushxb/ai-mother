@@ -22,7 +22,8 @@ public record GenerationBenchmarkTask(
         String expectedRoute,
         List<String> forbiddenRoutes,
         IntentOperationType operation,
-        GenerationBenchmarkFixtureKind fixtureKind
+        GenerationBenchmarkFixtureKind fixtureKind,
+        List<GenerationBenchmarkResponseAssertion> responseAssertions
 ) {
 
     public GenerationBenchmarkTask(String id,
@@ -45,7 +46,8 @@ public record GenerationBenchmarkTask(
                 mode,
                 List.of(),
                 inferOperation(mode),
-                inferFixtureKind(mode)
+                inferFixtureKind(mode),
+                List.of()
         );
     }
 
@@ -57,6 +59,28 @@ public record GenerationBenchmarkTask(
         fixtureFiles = fixtureFiles == null ? List.of() : List.copyOf(fixtureFiles);
         sourceAssertions = sourceAssertions == null ? List.of() : List.copyOf(sourceAssertions);
         forbiddenRoutes = forbiddenRoutes == null ? List.of() : List.copyOf(forbiddenRoutes);
+        responseAssertions = responseAssertions == null ? List.of() : List.copyOf(responseAssertions);
+    }
+
+    /** 保留尚未声明响应断言的数据集与测试构造入口。 */
+    public GenerationBenchmarkTask(String id,
+                                   String mode,
+                                   String codeGenType,
+                                   String prompt,
+                                   String expectedValidation,
+                                   String scenario,
+                                   GenerationBenchmarkDifficulty difficulty,
+                                   List<String> capabilities,
+                                   List<GenerationBenchmarkQualityDimension> requiredQualityDimensions,
+                                   List<GenerationBenchmarkFixtureFile> fixtureFiles,
+                                   List<GenerationBenchmarkSourceAssertion> sourceAssertions,
+                                   String expectedRoute,
+                                   List<String> forbiddenRoutes,
+                                   IntentOperationType operation,
+                                   GenerationBenchmarkFixtureKind fixtureKind) {
+        this(id, mode, codeGenType, prompt, expectedValidation, scenario, difficulty, capabilities,
+                requiredQualityDimensions, fixtureFiles, sourceAssertions, expectedRoute, forbiddenRoutes,
+                operation, fixtureKind, List.of());
     }
 
     /** 保留旧调用方构造合同；版本化数据集必须显式声明 operation 与 fixtureKind。 */

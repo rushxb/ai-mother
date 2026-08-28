@@ -3,6 +3,7 @@ package com.rush.rushaicodemother.orchestration.benchmark.evidence;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkCatalog;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkDataset;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkFixtureFile;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkResponseAssertion;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkSourceAssertion;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
 import lombok.RequiredArgsConstructor;
@@ -81,6 +82,14 @@ public class GenerationBenchmarkDatasetFingerprintService {
                         assertion.root() == null ? null : assertion.root().name()
                 );
                 appendStrings(canonical, assertion.paths());
+                appendStrings(canonical, assertion.allOf());
+                appendStrings(canonical, assertion.anyOf());
+                appendStrings(canonical, assertion.noneOf());
+            }
+            ReleaseCandidateFingerprint.appendField(
+                    canonical, Integer.toString(task.responseAssertions().size()));
+            for (GenerationBenchmarkResponseAssertion assertion : task.responseAssertions()) {
+                ReleaseCandidateFingerprint.appendField(canonical, assertion.id());
                 appendStrings(canonical, assertion.allOf());
                 appendStrings(canonical, assertion.anyOf());
                 appendStrings(canonical, assertion.noneOf());

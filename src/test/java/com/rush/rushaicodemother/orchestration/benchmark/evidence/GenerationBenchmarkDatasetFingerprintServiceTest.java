@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkCatalog;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkDataset;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkFixtureFile;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkResponseAssertion;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkSourceAssertion;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
@@ -25,7 +26,7 @@ class GenerationBenchmarkDatasetFingerprintServiceTest {
         String fingerprint = service.fingerprint(original);
 
         assertNotEquals(fingerprint, service.fingerprint(new GenerationBenchmarkDataset(
-                original.schemaVersion(), original.datasetId(), "3.1.1", original.tasks())));
+                original.schemaVersion(), original.datasetId(), "3.3.1", original.tasks())));
 
         GenerationBenchmarkTask first = original.tasks().getFirst();
         GenerationBenchmarkTask changedMetadata = copy(
@@ -54,6 +55,28 @@ class GenerationBenchmarkDatasetFingerprintServiceTest {
                 first.fixtureKind()
         );
         assertNotEquals(fingerprint, service.fingerprint(replace(original, 0, changedOperation)));
+
+        GenerationBenchmarkTask changedResponseAssertions = new GenerationBenchmarkTask(
+                first.id(),
+                first.mode(),
+                first.codeGenType(),
+                first.prompt(),
+                first.expectedValidation(),
+                first.scenario(),
+                first.difficulty(),
+                first.capabilities(),
+                first.requiredQualityDimensions(),
+                first.fixtureFiles(),
+                first.sourceAssertions(),
+                first.expectedRoute(),
+                first.forbiddenRoutes(),
+                first.operation(),
+                first.fixtureKind(),
+                List.of(new GenerationBenchmarkResponseAssertion(
+                        "fingerprint_response", List.of("结论"), List.of(), List.of("秘密")))
+        );
+        assertNotEquals(fingerprint, service.fingerprint(replace(
+                original, 0, changedResponseAssertions)));
 
         int declaredIndex = indexOfDeclaredTask(original.tasks());
         GenerationBenchmarkTask declared = original.tasks().get(declaredIndex);
@@ -121,7 +144,8 @@ class GenerationBenchmarkDatasetFingerprintServiceTest {
                 task.expectedRoute(),
                 task.forbiddenRoutes(),
                 task.operation(),
-                task.fixtureKind()
+                task.fixtureKind(),
+                task.responseAssertions()
         );
     }
 

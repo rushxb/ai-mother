@@ -133,6 +133,22 @@ class GeneratedWorkspaceSecurityBenchmarkRuleTest {
     }
 
     @Test
+    void unchangedSensitiveRepositoryFileMustRemainAuditableWithoutBecomingGeneratedViolation() {
+        GenerationWorkspace workspace = workspace("existing-sensitive-file");
+        inspector.writeUtf8(workspace.canonicalRootPath(), ".env", "API_KEY=benchmark-secret");
+        GenerationBenchmarkWorkspaceSnapshot baseline = inspector.capture(
+                workspace.canonicalRootPath());
+
+        GenerationBenchmarkRuleResult unchanged = rule().evaluate(task(), workspace, baseline);
+        inspector.writeUtf8(workspace.canonicalRootPath(), ".env", "API_KEY=changed-secret");
+        GenerationBenchmarkRuleResult changed = rule().evaluate(task(), workspace, baseline);
+
+        assertTrue(unchanged.passed());
+        assertFalse(changed.passed());
+        assertTrue(changed.violations().contains("sensitive_file_present"));
+    }
+
+    @Test
     void deletingTrustedTemplateControlFileMustUseProductionDeletionPolicy() throws Exception {
         GenerationWorkspace workspace = workspace("deleted-template-control");
         inspector.writeUtf8(workspace.canonicalRootPath(), "pnpm-lock.yaml", "lockfileVersion: '9.0'");

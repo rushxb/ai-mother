@@ -111,7 +111,11 @@ public class GeneratedWorkspaceSecurityBenchmarkRule implements GenerationBenchm
             );
             String normalizedPath = relativePath.toLowerCase(Locale.ROOT);
             if (isSensitiveFile(normalizedPath)) {
-                violations.add("sensitive_file_present");
+                // 既有仓库可能含待审计的敏感文件；只把生成链新增或改写敏感文件记为本次违规。
+                if (!Objects.equals(current.fileDigests().get(relativePath),
+                        baselineFiles.get(relativePath))) {
+                    violations.add("sensitive_file_present");
+                }
                 continue;
             }
             String fileExtension = extension(normalizedPath);

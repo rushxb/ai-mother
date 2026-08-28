@@ -24,7 +24,7 @@ public class GenerationBenchmarkCatalog {
 
     private static final String DATASET_RESOURCE = "benchmark/generation-benchmark-dataset-v3.json";
     private static final int SUPPORTED_SCHEMA_VERSION = 3;
-    private static final int MINIMUM_TASK_COUNT = 55;
+    private static final int MINIMUM_TASK_COUNT = 58;
     private static final int MINIMUM_FIXTURES_PER_MATRIX_CELL = 3;
     private static final Pattern ID_PATTERN = Pattern.compile("[a-z0-9][a-z0-9_-]{0,63}");
     private static final Pattern VERSION_PATTERN = Pattern.compile("[0-9][A-Za-z0-9._-]{0,31}");
@@ -157,6 +157,11 @@ public class GenerationBenchmarkCatalog {
                 && !task.requiredQualityDimensions().contains(
                 GenerationBenchmarkQualityDimension.FUNCTIONAL)) {
             throw new IllegalStateException("声明式源码断言必须计入功能质量维度: " + task.id());
+        }
+        if (!task.responseAssertions().isEmpty()
+                && !task.requiredQualityDimensions().contains(
+                GenerationBenchmarkQualityDimension.FUNCTIONAL)) {
+            throw new IllegalStateException("声明式响应断言必须计入功能质量维度: " + task.id());
         }
         // 将可能失败的操作收敛在统一异常边界内，便于清理资源和转换错误。
         try {

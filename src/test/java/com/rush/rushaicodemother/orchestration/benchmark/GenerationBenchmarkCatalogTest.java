@@ -26,7 +26,7 @@ class GenerationBenchmarkCatalogTest {
         assertTrue(catalog.tasks().stream().anyMatch(task -> "AGENT_EDIT".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "READ_ONLY".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "HEAVY_EXPERT".equals(task.mode())));
-        assertTrue(catalog.tasks().size() >= 55);
+        assertTrue(catalog.tasks().size() >= 58);
         assertEquals(catalog.tasks().size(), catalog.tasks().stream()
                 .map(GenerationBenchmarkTask::id)
                 .distinct()
@@ -71,6 +71,7 @@ class GenerationBenchmarkCatalogTest {
         ), difficulties);
         assertTrue(catalog.tasks().stream().map(GenerationBenchmarkTask::scenario).distinct().count() >= 10);
         assertTrue(catalog.tasks().stream().filter(task -> !task.sourceAssertions().isEmpty()).count() >= 14);
+        assertTrue(catalog.tasks().stream().filter(task -> !task.responseAssertions().isEmpty()).count() >= 3);
         assertTrue(catalog.tasks().stream()
                 .filter(task -> !"READ_ONLY".equals(task.mode()))
                 .filter(task -> !"html".equals(task.codeGenType()))

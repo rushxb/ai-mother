@@ -350,9 +350,9 @@
 - [x] ✅ ETA 基于历史 route/阶段分位数并携带 confidence 与 deadline risk。
 - [x] ✅ 暂定预览已提升为任务级所有权，验证返回后不立即停止；发布/终态按 workspace/fence 清理。
 - [x] ✅ SSE 支持序列、重放、显式 gap 与 durable terminal，跨实例查询有持久回退。
-- [ ] **P1** 新增 durable delivery receipt：实际 route、变更摘要、验证摘要、预览成熟度、失败分类、可恢复性、下一步和成本摘要。
-- [ ] **P1** `GenerationTaskStatusVO` 增加结构化 `failureCategory/retryable/recoveryAction/validationSummary/deliveryReceipt/costSummary`，以版本化方式兼容旧客户端。
-- [ ] 实时终态、Redis 重放、数据库回退必须来自同一投影；刷新后信息不能从具体错误降级成“项目生成失败”。
+- [x] ✅ **P1** 新增 durable delivery receipt：实际 route、变更摘要、验证摘要、预览成熟度、失败分类、可恢复性、下一步和成本摘要。
+- [x] ✅ **P1** `GenerationTaskStatusVO` 增加结构化 `failureCategory/retryable/recoveryAction/validationSummary/deliveryReceipt/costSummary`，以版本化方式兼容旧客户端。
+- [x] ✅ 实时终态、Redis 重放、数据库回退必须来自同一投影；刷新后信息不能从具体错误降级成“项目生成失败”。
 - [ ] 审批等待、被拒、过期、取消、Deadline、Provider 暂时失败、工作区结果未知分别提供可行动中文提示。
 - [ ] 真实浏览器验收暂定/已验证预览：首次可用时间、并发隔离、刷新、发布切换、失败保留和资源释放。
 - [ ] 建立用户体验 SLO：首个有意义响应、首个可用预览、总耗时、取消生效、失败可解释、恢复完成和资源释放。
@@ -546,6 +546,17 @@
 - 在同一干净提交态工作树使用 MySQL Community Server `8.0.38` 执行 `FlywaySchemaMigrationIntegrationTest` 与 `ToolApprovalMySqlIntegrationTest`：2 tests、0 failure、0 error、0 skipped；Flyway 校验 42 条迁移并从 baseline 后实际应用 30 条，最终到达 `20260828.1`，审批请求纪元、一次性执行和 replay receipt 完成真实数据库验证。`ai_mother_flyway_it` 与 `ai_mother_tool_it` 取证后已删除，残留查询为 0。
 - 上述结果闭合审批持久身份和单 MySQL 实例 E3；真实 Redis、多 Worker 竞争领取与进程 kill 后的跨实例续跑仍未执行，不能据此宣称跨实例 E3 已完成。
 
+### 11.4 P1 持久交付回执证据
+
+- 2026-08-28 提交 `8e65d78`：新增独立 `delivery` 领域模型与工厂，交付回执只从实际 route、结构化结果质量和已观察完成证据生成；变更数量、验证级别、预览成熟度、失败分类、可恢复性、下一步和成本状态均为稳定低敏字段，不携带模型原文、文件路径或内部异常。
+- 终态命令协议升级为版本 2 并冻结交付回执；解码、终态副作用和幂等撤销继续兼容版本 1，`V20260828_2__generation_delivery_receipt_intent.sql` 将数据库约束同步放宽到版本 1 至 2，避免代码协议领先于真实数据库约束。
+- `GenerationTaskStatusVO` 合同版本升级为 2，新增字段均为增量字段；非终态保持空值，旧客户端可忽略未知 JSON 字段。版本 1 意图或迁移前终态由持久化结构化列补齐回执，不把内部 `errorMessage` 直接降级暴露到公开状态。
+- 实时终态、Local/Redis 重放和数据库终态回退统一调用 `GenerationTerminalStreamEventFactory`；公开清理前先把 record 显式投影为白名单嵌套 Map，避免结构化摘要被字符串化。冻结命令中的成本先标记 `pending`，账本结算后数据库查询只向 `settled + actual tokens/credits` 升级。
+- 使用 JDK 21 执行交付回执、终态命令、事件、状态查询、控制器和轻/重执行链聚焦回归：93 tests、0 failure、0 error、0 skipped；提交前补充的真实 MySQL 用例为 1 test、0 failure、0 error、0 skipped。
+- MySQL Community Server `8.0.38` 实际校验 43 条迁移资源、从 baseline 后应用 31 条迁移并到达 `20260828.2`；版本 2 终态意图经真实 Mapper 写入后成功恢复失败分类、恢复动作、验证摘要和已结算成本。专用库 `ai_mother_delivery_receipt_it` 取证后已删除，残留查询为 0。
+- 在干净 detached `8e65d78` 工作树执行默认 `.\mvnw.cmd test`：3458 tests、0 failure、0 error、42 skipped；该结果不包含主工作树并行 WIP，也不包含默认关闭的真实 Redis/模型/浏览器集成 profile。
+- 本轮只完成终态实际成本摘要；提交时预计积分区间、最大冻结额、运行中预算消耗、退还或免除原因仍属于未完成的 P1 成本合同，因此第 371 项保持未勾选。真实 Redis 跨实例重放仍需 E3 验收。
+
 ## 12. 推荐执行顺序
 
 ### 第一阶段：事实正确性
@@ -626,4 +637,4 @@
 
 ---
 
-最后更新：2026-08-28。下一轮进入 P0-5 真实环境证据，执行真实 Redis、模型、Backend、Full Stack 和跨平台 E3-E5 验收。
+最后更新：2026-08-28。下一轮继续补齐可行动失败提示，并推进真实 Redis、模型、Backend、Full Stack 和跨平台 E3-E5 验收。

@@ -22,6 +22,8 @@ class GenerationFailureMatrixCatalogTest {
                 GenerationFailureScenario.APPROVAL).size() >= 2);
         assertTrue(GenerationFailureMatrix.samplesFor(
                 GenerationFailureScenario.RECOVERY).size() >= 2);
+        assertTrue(GenerationFailureMatrix.samplesFor(
+                GenerationFailureScenario.PUBLICATION).size() >= 2);
     }
 
     @Test

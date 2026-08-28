@@ -17,6 +17,8 @@ public final class GenerationFailureMatrix {
             "com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskRecoveryServiceTest";
     private static final String TOOL_EXECUTION_RECOVERY_TEST =
             "com.rush.rushaicodemother.orchestration.tool.ToolExecutionRecoveryServiceTest";
+    private static final String PUBLICATION_SERVICE_TEST =
+            "com.rush.rushaicodemother.orchestration.workspace.GenerationWorkspacePublicationServiceTest";
 
     private static final List<GenerationFailureSample> SAMPLES = validate(List.of(
             new GenerationFailureSample(
@@ -66,6 +68,22 @@ public final class GenerationFailureMatrix {
                     "consumedInvocationMustOnlyRestoreTaskAndPreserveReplayResult",
                     Set.of("taskId", "executionEpoch", "approvalId", "requestId"),
                     Set.of("replay_result_preserved", "tool_reset_skipped", "waiting_state_restored")
+            ),
+            new GenerationFailureSample(
+                    "publication_pointer_rollback_requires_rollforward",
+                    GenerationFailureScenario.PUBLICATION,
+                    PUBLICATION_SERVICE_TEST,
+                    "failedPointerRollbackMustKeepActivePublishedDirectoryForRollForward",
+                    Set.of("taskId", "executionEpoch", "appId", "codeGenType"),
+                    Set.of("active_pointer_preserved", "rollback_required_recorded", "rollback_not_claimed")
+            ),
+            new GenerationFailureSample(
+                    "publication_activated_journal_rolls_forward",
+                    GenerationFailureScenario.PUBLICATION,
+                    PUBLICATION_SERVICE_TEST,
+                    "activePointerWithUncommittedJournalMustRollForwardWithoutMovingAgain",
+                    Set.of("taskId", "executionEpoch", "appId", "codeGenType"),
+                    Set.of("metadata_commit_retried", "filesystem_move_skipped", "active_pointer_reused")
             )
     ));
 

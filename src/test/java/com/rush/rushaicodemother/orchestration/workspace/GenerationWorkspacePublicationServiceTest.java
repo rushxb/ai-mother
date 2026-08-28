@@ -1,5 +1,6 @@
 package com.rush.rushaicodemother.orchestration.workspace;
 
+import com.rush.rushaicodemother.testing.GenerationFailureEvidence;
 import com.rush.rushaicodemother.testing.GenerationFailureMatrix;
 import com.rush.rushaicodemother.config.ArtifactLifecycleProperties;
 import com.rush.rushaicodemother.config.CodeStorageProperties;
@@ -119,6 +120,7 @@ class GenerationWorkspacePublicationServiceTest {
     }
 
     @Test
+    @GenerationFailureEvidence("publication_pointer_rollback_requires_rollforward")
     void failedPointerRollbackMustKeepActivePublishedDirectoryForRollForward() throws Exception {
         Fixture fixture = fixture("task-rollback-failure", 5L);
         GenerationWorkspacePublicationPointer previous = pointer(
@@ -135,6 +137,8 @@ class GenerationWorkspacePublicationServiceTest {
                         any(GenerationWorkspacePublicationCatalog.PointerSnapshot.class));
         GenerationWorkspacePublicationPointer candidate = pointer(
                 fixture.fence().taskId(), fixture.fence().executionEpoch(), NOW);
+        assertEquals("task-rollback-failure", candidate.taskId());
+        assertEquals(5L, candidate.executionEpoch());
 
         GenerationWorkspacePublicationException thrown = assertThrows(
                 GenerationWorkspacePublicationException.class,
@@ -154,11 +158,14 @@ class GenerationWorkspacePublicationServiceTest {
     }
 
     @Test
+    @GenerationFailureEvidence("publication_activated_journal_rolls_forward")
     void activePointerWithUncommittedJournalMustRollForwardWithoutMovingAgain() throws Exception {
         Fixture fixture = fixture("task-crash-window", 5L);
         deleteExecutionWorkspace(fixture.source());
         GenerationWorkspacePublicationPointer active = pointer(
                 fixture.fence().taskId(), fixture.fence().executionEpoch(), NOW.minusSeconds(10));
+        assertEquals("task-crash-window", active.taskId());
+        assertEquals(5L, active.executionEpoch());
         prepareActivePublication(fixture.catalog(), active);
         when(fixture.journal().prepare(active, NOW)).thenReturn(entry(
                 active, GenerationWorkspacePublicationJournalStatus.FILESYSTEM_ACTIVATED));

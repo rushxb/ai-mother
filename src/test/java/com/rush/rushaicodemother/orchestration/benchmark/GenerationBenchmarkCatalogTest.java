@@ -21,6 +21,7 @@ class GenerationBenchmarkCatalogTest {
     void shouldExposeExplicitCapabilityMatrix() {
         GenerationBenchmarkCatalog catalog = catalog();
 
+        assertEquals("3.5.0", catalog.dataset().version());
         assertTrue(catalog.tasks().stream().anyMatch(task -> "CREATE".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "LIGHT_EDIT".equals(task.mode())));
         assertTrue(catalog.tasks().stream().anyMatch(task -> "AGENT_EDIT".equals(task.mode())));
@@ -70,6 +71,13 @@ class GenerationBenchmarkCatalogTest {
                 GenerationBenchmarkDifficulty.HARD
         ), difficulties);
         assertTrue(catalog.tasks().stream().map(GenerationBenchmarkTask::scenario).distinct().count() >= 10);
+        assertTrue(catalog.tasks().stream()
+                .filter(task -> task.fallbackExpectation()
+                        == GenerationBenchmarkFallbackExpectation.REQUIRED)
+                .count() >= 6);
+        assertTrue(catalog.tasks().stream()
+                .anyMatch(task -> task.fallbackExpectation()
+                        == GenerationBenchmarkFallbackExpectation.FORBIDDEN));
         assertTrue(catalog.tasks().stream().filter(task -> !task.sourceAssertions().isEmpty()).count() >= 14);
         assertTrue(catalog.tasks().stream().filter(task -> !task.responseAssertions().isEmpty()).count() >= 3);
         assertTrue(catalog.tasks().stream()
@@ -153,6 +161,29 @@ class GenerationBenchmarkCatalogTest {
 
         assertThrows(IllegalStateException.class, () -> catalog.validate(
                 replace(dataset, 0, invalid)));
+    }
+
+    @Test
+    void requiredFallbackSampleMustDeclareRejectedSourceRoute() {
+        GenerationBenchmarkCatalog catalog = catalog();
+        GenerationBenchmarkDataset dataset = catalog.dataset();
+        GenerationBenchmarkTask task = dataset.tasks().stream()
+                .filter(candidate -> candidate.fallbackExpectation()
+                        == GenerationBenchmarkFallbackExpectation.REQUIRED)
+                .findFirst()
+                .orElseThrow();
+        GenerationBenchmarkTask invalid = new GenerationBenchmarkTask(
+                task.id(), task.mode(), task.codeGenType(), task.prompt(),
+                task.expectedValidation(), task.scenario(), task.difficulty(),
+                task.capabilities(), task.requiredQualityDimensions(), task.fixtureFiles(),
+                task.sourceAssertions(), task.expectedRoute(), List.of(), task.operation(),
+                task.fixtureKind(), task.responseAssertions(), task.sourceCodeGenType(),
+                task.fallbackExpectation());
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class, () ->
+                catalog.validate(replace(dataset, dataset.tasks().indexOf(task), invalid)));
+
+        assertTrue(failure.getMessage().contains("回退评测"));
     }
 
     @Test

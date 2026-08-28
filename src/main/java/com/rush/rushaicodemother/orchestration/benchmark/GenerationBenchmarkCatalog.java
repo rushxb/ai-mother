@@ -181,6 +181,11 @@ public class GenerationBenchmarkCatalog {
     }
 
     private void validateExecutionContract(GenerationBenchmarkTask task) {
+        if (task.fallbackExpectation() == GenerationBenchmarkFallbackExpectation.REQUIRED
+                && task.forbiddenRoutes().isEmpty()) {
+            throw new IllegalStateException(
+                    "必须回退评测需要声明被拒绝的来源路由: " + task.id());
+        }
         boolean readOnlyOperation = task.operation() == IntentOperationType.EXPLAIN
                 || task.operation() == IntentOperationType.AUDIT
                 || task.operation() == IntentOperationType.PLAN;
@@ -242,6 +247,10 @@ public class GenerationBenchmarkCatalog {
                 .filter(task -> task.forbiddenRoutes().contains("AGENT_EDIT")
                         || task.forbiddenRoutes().contains("HEAVY_EXPERT"))
                 .count();
+        long requiredFallbackCount = tasks.stream()
+                .filter(task -> task.fallbackExpectation()
+                        == GenerationBenchmarkFallbackExpectation.REQUIRED)
+                .count();
         // 数据集中的 route × 工程类型组合就是能力声明；新增组合必须一次提供足量夹具。
         boolean underrepresentedMatrixCell = matrixCells.values().stream()
                 .anyMatch(count -> count < MINIMUM_FIXTURES_PER_MATRIX_CELL);
@@ -260,6 +269,7 @@ public class GenerationBenchmarkCatalog {
                 || types.getOrDefault("html", 0L) < 3
                 || types.getOrDefault("multi_file", 0L) < 3
                 || highRiskNegativeCount < 10
+                || requiredFallbackCount < 3
                 || difficulties.getOrDefault(GenerationBenchmarkDifficulty.EASY, 0L) < 6
                 || difficulties.getOrDefault(GenerationBenchmarkDifficulty.MEDIUM, 0L) < 10
                 || difficulties.getOrDefault(GenerationBenchmarkDifficulty.HARD, 0L) < 6

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkCatalog;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkDataset;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkFixtureFile;
+import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkFallbackExpectation;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkResponseAssertion;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkSourceAssertion;
 import com.rush.rushaicodemother.orchestration.benchmark.GenerationBenchmarkTask;
@@ -36,6 +37,16 @@ class GenerationBenchmarkDatasetFingerprintServiceTest {
                 first.sourceAssertions()
         );
         assertNotEquals(fingerprint, service.fingerprint(replace(original, 0, changedMetadata)));
+
+        GenerationBenchmarkTask changedFallbackExpectation = new GenerationBenchmarkTask(
+                first.id(), first.mode(), first.codeGenType(), first.prompt(),
+                first.expectedValidation(), first.scenario(), first.difficulty(),
+                first.capabilities(), first.requiredQualityDimensions(), first.fixtureFiles(),
+                first.sourceAssertions(), first.expectedRoute(), first.forbiddenRoutes(),
+                first.operation(), first.fixtureKind(), first.responseAssertions(),
+                first.sourceCodeGenType(), GenerationBenchmarkFallbackExpectation.OPTIONAL);
+        assertNotEquals(fingerprint, service.fingerprint(replace(
+                original, 0, changedFallbackExpectation)));
 
         GenerationBenchmarkTask changedOperation = new GenerationBenchmarkTask(
                 first.id(),
@@ -162,7 +173,8 @@ class GenerationBenchmarkDatasetFingerprintServiceTest {
                 task.operation(),
                 task.fixtureKind(),
                 task.responseAssertions(),
-                task.sourceCodeGenType()
+                task.sourceCodeGenType(),
+                task.fallbackExpectation()
         );
     }
 

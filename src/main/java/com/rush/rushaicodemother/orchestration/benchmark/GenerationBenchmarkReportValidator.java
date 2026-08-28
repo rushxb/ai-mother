@@ -30,30 +30,31 @@ public class GenerationBenchmarkReportValidator {
         if (report.schemaVersion() != GenerationBenchmarkReport.CURRENT_SCHEMA_VERSION) {
             throw invalid("生成质量评测报告版本不受支持");
         }
-        Map<String, String> expectedModes = new HashMap<>();
+        Map<String, GenerationBenchmarkTask> expectedTasks = new HashMap<>();
         // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (GenerationBenchmarkTask task : catalog.tasks()) {
-            expectedModes.put(task.id(), task.mode());
+            expectedTasks.put(task.id(), task);
         }
         Set<String> seen = new HashSet<>();
         for (GenerationBenchmarkRunResult result : report.results()) {
-            String expectedMode = expectedModes.get(result.taskId());
-            if (expectedMode == null) {
+            GenerationBenchmarkTask task = expectedTasks.get(result.taskId());
+            if (task == null) {
                 throw invalid("生成质量评测报告包含未知任务");
             }
             if (!seen.add(result.taskId())) {
                 throw invalid("生成质量评测报告包含重复任务");
             }
-            if (!expectedMode.equals(result.mode())) {
+            if (!task.mode().equals(result.mode())) {
                 throw invalid("生成质量评测报告的任务模式与数据集不一致");
             }
             if (!result.expectedRoute().isBlank()
-                    && (!taskExpectedRoute(result.taskId()).equals(result.expectedRoute())
+                    && (!task.expectedRoute().equals(result.expectedRoute())
                     || !result.routeAllowed())) {
                 throw invalid("生成质量评测报告包含不符合约束的路由结果");
             }
+            validateFallback(task, result);
         }
-        if (seen.size() != expectedModes.size() || !seen.containsAll(expectedModes.keySet())) {
+        if (seen.size() != expectedTasks.size() || !seen.containsAll(expectedTasks.keySet())) {
             throw invalid("生成质量评测报告未覆盖完整数据集");
         }
         GenerationBenchmarkReport recalculated = runner.summarize(
@@ -66,12 +67,16 @@ public class GenerationBenchmarkReportValidator {
         }
     }
 
-    private String taskExpectedRoute(String taskId) {
-        return catalog.tasks().stream()
-                .filter(task -> task.id().equals(taskId))
-                .map(GenerationBenchmarkTask::expectedRoute)
-                .findFirst()
-                .orElse("");
+    private void validateFallback(GenerationBenchmarkTask task,
+                                  GenerationBenchmarkRunResult result) {
+        if (task.fallbackExpectation() == GenerationBenchmarkFallbackExpectation.REQUIRED
+                && !result.fallback()) {
+            throw invalid("生成质量评测报告缺少数据集要求的回退事实");
+        }
+        if (task.fallbackExpectation() == GenerationBenchmarkFallbackExpectation.FORBIDDEN
+                && result.fallback()) {
+            throw invalid("生成质量评测报告包含数据集禁止的回退事实");
+        }
     }
 
     private BusinessException invalid(String message) {

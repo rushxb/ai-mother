@@ -57,7 +57,7 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
     private final GenerationBenchmarkValidationEngine validationEngine;
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService;
     private final GenerationWorkspaceService workspaceService;
-    private final GenerationBenchmarkExecutionIdentityProvider executionIdentityProvider;
+    private final GenerationBenchmarkExecutionFactsProvider executionFactsProvider;
 
     @Value("${app.generation-benchmark.task-timeout:PT12M}")
     private Duration taskTimeout;
@@ -180,6 +180,9 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             GenerationBenchmarkUsage usage = Objects.requireNonNullElse(
                     usageRepository.findByTaskId(taskId), GenerationBenchmarkUsage.empty());
             Long preparationDurationMs = preparationDuration(telemetry, taskId);
+            GenerationBenchmarkExecutionFacts executionFacts = terminalObserved
+                    ? executionFactsProvider.findByTaskId(taskId).orElse(null)
+                    : null;
             boolean success = !timedOut && publicationSucceeded && failureReason.get().isBlank();
             boolean expectedBuildPassed = resolveBuildPassed(
                     task, success, buildObserved.get(), buildPassed.get());
@@ -187,7 +190,8 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             GenerationBenchmarkQualityEvidence qualityEvidence = terminalObserved
                     ? validationEngine.evaluate(
                             validationPlan(
-                                    task, fixture, taskId, publicationSucceeded, actualMode),
+                                    task, fixture, taskId, publicationSucceeded, actualMode,
+                                    executionFacts),
                             responseText.get())
                     : GenerationBenchmarkQualityEvidence.empty();
             return new GenerationBenchmarkRunResult(
@@ -198,7 +202,8 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
                     durationMs,
                     intValue(telemetry == null ? null : telemetry.getAiCallCount()),
                     intValue(telemetry == null ? null : telemetry.getToolCallCount()),
-                    fallback.get() || hasFallback(telemetry),
+                    fallback.get() || hasFallback(telemetry)
+                            || (executionFacts != null && executionFacts.fallbackObserved()),
                     intValue(telemetry == null ? null : telemetry.getRepairRounds()),
                     failureReason.get(),
                     usage.totalTokens(),
@@ -418,28 +423,28 @@ public class OrchestratedGenerationBenchmarkExecutor implements GenerationBenchm
             GenerationBenchmarkFixture fixture,
             String taskId,
             boolean publicationSucceeded,
-            String actualMode) {
+            String actualMode,
+            GenerationBenchmarkExecutionFacts executionFacts) {
         GenerationBenchmarkValidationPlan plan = fixture.validationPlan();
         if (!publicationSucceeded || "READ_ONLY".equalsIgnoreCase(actualMode)) {
             return plan;
         }
-        GenerationBenchmarkExecutionIdentity executionIdentity = executionIdentityProvider
-                .findByTaskId(taskId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Benchmark 持久任务执行身份不存在"));
+        if (executionFacts == null) {
+            throw new IllegalStateException("Benchmark 持久任务执行事实不存在");
+        }
         Long fixtureAppId = fixture.request().app().getId();
-        if (!taskId.equals(executionIdentity.taskId())
-                || !Objects.equals(fixtureAppId, executionIdentity.appId())) {
+        if (!taskId.equals(executionFacts.taskId())
+                || !Objects.equals(fixtureAppId, executionFacts.appId())) {
             throw new IllegalStateException("Benchmark 持久任务执行身份与夹具不一致");
         }
         CodeGenTypeEnum expectedTargetType = task == null
                 ? null
                 : CodeGenTypeEnum.getEnumByValue(task.codeGenType());
-        if (expectedTargetType == null || executionIdentity.targetType() != expectedTargetType) {
+        if (expectedTargetType == null || executionFacts.targetType() != expectedTargetType) {
             throw new IllegalStateException("Benchmark 持久任务目标工程类型与数据集不一致");
         }
         GenerationWorkspace publishedWorkspace = workspaceService.resolvePublished(
-                executionIdentity.appId(), executionIdentity.targetType(), taskId);
+                executionFacts.appId(), executionFacts.targetType(), taskId);
         return plan.withWorkspace(publishedWorkspace);
     }
 

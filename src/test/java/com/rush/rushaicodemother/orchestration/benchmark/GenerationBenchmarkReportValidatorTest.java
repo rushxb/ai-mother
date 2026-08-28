@@ -24,7 +24,10 @@ class GenerationBenchmarkReportValidatorTest {
         runner = new GenerationBenchmarkRunner(catalog);
         validator = new GenerationBenchmarkReportValidator(catalog, runner);
         completeResults = catalog.tasks().stream()
-                .map(task -> result(task.id(), task.mode()))
+                .map(task -> result(
+                        task.id(),
+                        task.mode(),
+                        task.fallbackExpectation() == GenerationBenchmarkFallbackExpectation.REQUIRED))
                 .toList();
     }
 
@@ -82,6 +85,28 @@ class GenerationBenchmarkReportValidatorTest {
     }
 
     @Test
+    void declaredFallbackSampleWithoutObservedFallbackMustBeRejected() {
+        List<GenerationBenchmarkRunResult> results = new ArrayList<>(completeResults);
+        int fallbackSampleIndex = indexOfFallbackSample(results);
+        GenerationBenchmarkRunResult sample = results.get(fallbackSampleIndex);
+        results.set(fallbackSampleIndex, result(sample.taskId(), sample.mode(), false));
+
+        assertThrows(BusinessException.class, () -> validator.validate(
+                runner.summarize(results)));
+    }
+
+    @Test
+    void directExecutionSampleWithUnexpectedFallbackMustBeRejected() {
+        List<GenerationBenchmarkRunResult> results = new ArrayList<>(completeResults);
+        int directSampleIndex = indexOfTask(results, "create_vue_admin_crud");
+        GenerationBenchmarkRunResult sample = results.get(directSampleIndex);
+        results.set(directSampleIndex, result(sample.taskId(), sample.mode(), true));
+
+        assertThrows(BusinessException.class, () -> validator.validate(
+                runner.summarize(results)));
+    }
+
+    @Test
     void forgedAggregateMustBeRejected() {
         GenerationBenchmarkReport report = runner.summarize(completeResults);
 
@@ -90,9 +115,36 @@ class GenerationBenchmarkReportValidatorTest {
     }
 
     private GenerationBenchmarkRunResult result(String taskId, String mode) {
+        return result(taskId, mode, false);
+    }
+
+    private GenerationBenchmarkRunResult result(String taskId, String mode, boolean fallback) {
         return new GenerationBenchmarkRunResult(
-                taskId, mode, true, true, 100, 1, 0, false, 0, "",
+                taskId, mode, true, true, 100, 1, 0, fallback, 0, "",
                 0L, 0L, 0L, 100L, GenerationBenchmarkQualityEvidence.empty());
+    }
+
+    private int indexOfFallbackSample(List<GenerationBenchmarkRunResult> results) {
+        for (int index = 0; index < results.size(); index++) {
+            String taskId = results.get(index).taskId();
+            GenerationBenchmarkTask task = catalog.tasks().stream()
+                    .filter(candidate -> candidate.id().equals(taskId))
+                    .findFirst()
+                    .orElseThrow();
+            if (task.fallbackExpectation() == GenerationBenchmarkFallbackExpectation.REQUIRED) {
+                return index;
+            }
+        }
+        throw new IllegalStateException("测试数据集缺少必须回退的样本");
+    }
+
+    private int indexOfTask(List<GenerationBenchmarkRunResult> results, String taskId) {
+        for (int index = 0; index < results.size(); index++) {
+            if (results.get(index).taskId().equals(taskId)) {
+                return index;
+            }
+        }
+        throw new IllegalStateException("测试数据集缺少任务: " + taskId);
     }
 
     private GenerationBenchmarkReport withTotalTasks(GenerationBenchmarkReport report, int totalTasks) {

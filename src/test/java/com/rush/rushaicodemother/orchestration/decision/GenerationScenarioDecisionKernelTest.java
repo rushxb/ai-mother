@@ -211,6 +211,8 @@ class GenerationScenarioDecisionKernelTest {
         assertEquals(FallbackPolicy.NONE, decision.routeDecision().fallbackPolicy());
         assertEquals(GenerationRoutingDecisionCode.CREATE_TEMPLATE_COVERAGE_GAP,
                 decision.routeDecision().decisionCode());
+        assertEquals("capability_negotiated_from_create",
+                decision.routeDecision().fallbackReason());
         assertEquals(ExpectedValidationLevel.EXPERT, decision.validationFloor());
     }
 

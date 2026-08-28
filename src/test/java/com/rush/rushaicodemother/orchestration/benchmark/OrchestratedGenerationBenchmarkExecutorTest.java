@@ -67,8 +67,8 @@ class OrchestratedGenerationBenchmarkExecutorTest {
     private final GenerationTaskRuntimeLifecycleService runtimeLifecycleService =
             mock(GenerationTaskRuntimeLifecycleService.class);
     private final GenerationWorkspaceService workspaceService = mock(GenerationWorkspaceService.class);
-    private final GenerationBenchmarkExecutionIdentityProvider executionIdentityProvider =
-            mock(GenerationBenchmarkExecutionIdentityProvider.class);
+    private final GenerationBenchmarkExecutionFactsProvider executionFactsProvider =
+            mock(GenerationBenchmarkExecutionFactsProvider.class);
     private final GenerationWorkspace publishedWorkspace = workspace(
             Path.of(".").toAbsolutePath().normalize().resolve("published"));
 
@@ -125,6 +125,57 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         assertEquals(2, result.aiCallCount());
         assertEquals("CREATE", result.mode());
         assertEquals(450L, result.firstPreviewLatencyMs());
+    }
+
+    @Test
+    void routeEventFallbackReasonMustBecomeObservableBenchmarkFact() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenAnswer(invocation -> {
+            GenerationTaskRequest request = invocation.getArgument(0);
+            eventPublisher.publish(
+                    request,
+                    GenerationEventType.TASK_ROUTE,
+                    "能力协商后使用专家路径",
+                    Map.of("fallbackReason", "capability_negotiated_from_create")
+            );
+            return generationResult(
+                    "bench-fallback", "heavy_generation", Flux.just(firstPreview(320)));
+        });
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+
+        GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
+                "fallback_bench", "HEAVY_EXPERT", "vue_project", "执行能力回退", "fast"
+        ));
+
+        assertTrue(result.success());
+        assertTrue(result.fallback());
+        assertEquals("HEAVY_EXPERT", result.mode());
+    }
+
+    @Test
+    void durableCommandFallbackMustSurviveMissingLocalEventAndTelemetry() {
+        GenerationTaskOrchestrator orchestrator = mock(GenerationTaskOrchestrator.class);
+        when(orchestrator.start(any())).thenReturn(generationResult(
+                "bench-durable-fallback", "heavy_generation", Flux.just(firstPreview(330))));
+        OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
+        when(executionFactsProvider.findByTaskId("bench-durable-fallback"))
+                .thenReturn(Optional.of(new GenerationBenchmarkExecutionFacts(
+                        "bench-durable-fallback",
+                        101L,
+                        CodeGenTypeEnum.VUE_PROJECT,
+                        "capability_negotiated_from_create"
+                )));
+
+        GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
+                "durable_fallback_bench",
+                "HEAVY_EXPERT",
+                "vue_project",
+                "执行能力回退",
+                "fast"
+        ));
+
+        assertTrue(result.success());
+        assertTrue(result.fallback());
     }
 
     @Test
@@ -258,9 +309,9 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         GenerationWorkspace fullStackPublication = workspace(
                 Path.of(".").toAbsolutePath().normalize().resolve("published-fullstack"),
                 CodeGenTypeEnum.FULL_STACK_PROJECT);
-        when(executionIdentityProvider.findByTaskId("bench-upgrade"))
-                .thenReturn(Optional.of(new GenerationBenchmarkExecutionIdentity(
-                        "bench-upgrade", 101L, CodeGenTypeEnum.FULL_STACK_PROJECT)));
+        when(executionFactsProvider.findByTaskId("bench-upgrade"))
+                .thenReturn(Optional.of(new GenerationBenchmarkExecutionFacts(
+                        "bench-upgrade", 101L, CodeGenTypeEnum.FULL_STACK_PROJECT, "")));
         when(workspaceService.resolvePublished(
                 101L, CodeGenTypeEnum.FULL_STACK_PROJECT, "bench-upgrade"))
                 .thenReturn(fullStackPublication);
@@ -284,7 +335,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                         GenerationStreamEvent.buildResult(
                                 "build ok", Map.of("success", true)))));
         OrchestratedGenerationBenchmarkExecutor executor = executor(orchestrator);
-        when(executionIdentityProvider.findByTaskId("bench-missing-identity"))
+        when(executionFactsProvider.findByTaskId("bench-missing-identity"))
                 .thenReturn(Optional.empty());
 
         GenerationBenchmarkRunResult result = executor.execute(new GenerationBenchmarkTask(
@@ -578,9 +629,9 @@ class OrchestratedGenerationBenchmarkExecutorTest {
         when(runtimeLifecycleService.findByTaskId(anyString())).thenAnswer(invocation -> Optional.of(
                 record(invocation.getArgument(0), GenerationTaskStatus.SUCCESS)));
         when(runtimeLifecycleService.requestCancellation(anyString(), anyString())).thenReturn(true);
-        when(executionIdentityProvider.findByTaskId(anyString())).thenAnswer(invocation ->
-                Optional.of(new GenerationBenchmarkExecutionIdentity(
-                        invocation.getArgument(0), 101L, CodeGenTypeEnum.VUE_PROJECT)));
+        when(executionFactsProvider.findByTaskId(anyString())).thenAnswer(invocation ->
+                Optional.of(new GenerationBenchmarkExecutionFacts(
+                        invocation.getArgument(0), 101L, CodeGenTypeEnum.VUE_PROJECT, "")));
         when(workspaceService.resolvePublished(anyLong(), eq(CodeGenTypeEnum.VUE_PROJECT), anyString()))
                 .thenReturn(publishedWorkspace);
         OrchestratedGenerationBenchmarkExecutor executor = new OrchestratedGenerationBenchmarkExecutor(
@@ -593,7 +644,7 @@ class OrchestratedGenerationBenchmarkExecutorTest {
                 validationEngine,
                 runtimeLifecycleService,
                 workspaceService,
-                executionIdentityProvider
+                executionFactsProvider
         );
         ReflectionTestUtils.setField(executor, "taskTimeout", Duration.ofMillis(200));
         ReflectionTestUtils.setField(executor, "cancellationGraceTimeout", Duration.ofMillis(50));

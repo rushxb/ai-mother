@@ -25,7 +25,8 @@ public record GenerationBenchmarkTask(
         IntentOperationType operation,
         GenerationBenchmarkFixtureKind fixtureKind,
         List<GenerationBenchmarkResponseAssertion> responseAssertions,
-        String sourceCodeGenType
+        String sourceCodeGenType,
+        GenerationBenchmarkFallbackExpectation fallbackExpectation
 ) {
 
     public GenerationBenchmarkTask(String id,
@@ -50,7 +51,8 @@ public record GenerationBenchmarkTask(
                 inferOperation(mode),
                 inferFixtureKind(mode),
                 List.of(),
-                codeGenType
+                codeGenType,
+                GenerationBenchmarkFallbackExpectation.OPTIONAL
         );
     }
 
@@ -76,6 +78,30 @@ public record GenerationBenchmarkTask(
                 operation, fixtureKind, responseAssertions, codeGenType);
     }
 
+    /** 保留已显式声明来源类型的 v3.4 构造合同。 */
+    public GenerationBenchmarkTask(String id,
+                                   String mode,
+                                   String codeGenType,
+                                   String prompt,
+                                   String expectedValidation,
+                                   String scenario,
+                                   GenerationBenchmarkDifficulty difficulty,
+                                   List<String> capabilities,
+                                   List<GenerationBenchmarkQualityDimension> requiredQualityDimensions,
+                                   List<GenerationBenchmarkFixtureFile> fixtureFiles,
+                                   List<GenerationBenchmarkSourceAssertion> sourceAssertions,
+                                   String expectedRoute,
+                                   List<String> forbiddenRoutes,
+                                   IntentOperationType operation,
+                                   GenerationBenchmarkFixtureKind fixtureKind,
+                                   List<GenerationBenchmarkResponseAssertion> responseAssertions,
+                                   String sourceCodeGenType) {
+        this(id, mode, codeGenType, prompt, expectedValidation, scenario, difficulty, capabilities,
+                requiredQualityDimensions, fixtureFiles, sourceAssertions, expectedRoute, forbiddenRoutes,
+                operation, fixtureKind, responseAssertions, sourceCodeGenType,
+                GenerationBenchmarkFallbackExpectation.OPTIONAL);
+    }
+
     public GenerationBenchmarkTask {
         capabilities = capabilities == null ? List.of() : List.copyOf(capabilities);
         requiredQualityDimensions = requiredQualityDimensions == null
@@ -88,6 +114,9 @@ public record GenerationBenchmarkTask(
         sourceCodeGenType = sourceCodeGenType == null || sourceCodeGenType.isBlank()
                 ? codeGenType
                 : sourceCodeGenType.trim();
+        fallbackExpectation = fallbackExpectation == null
+                ? GenerationBenchmarkFallbackExpectation.OPTIONAL
+                : fallbackExpectation;
     }
 
     /** 保留尚未声明响应断言的数据集与测试构造入口。 */

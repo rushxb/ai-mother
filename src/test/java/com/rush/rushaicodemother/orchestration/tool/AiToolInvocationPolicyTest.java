@@ -8,8 +8,11 @@ import com.rush.rushaicodemother.ai.tools.BaseTool;
 import com.rush.rushaicodemother.ai.tools.ToolManager;
 import com.rush.rushaicodemother.ai.tools.ToolRiskLevel;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlPolicy;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlReader;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.UserMessage;
@@ -211,6 +214,55 @@ class AiToolInvocationPolicyTest {
                         GenerationPerformanceProfile.balanced())
         );
         verify(toolLoopGuard, never()).beforeInvocation(TASK_ID, request);
+    }
+
+    @Test
+    void appPolicyMustDenyDangerousToolsBeforeApprovalHook() {
+        bindContext(CodeGenTypeEnum.VUE_PROJECT);
+        AtomicInteger authorizations = new AtomicInteger();
+        BaseTool tool = new GatedTestTool("deleteFile", authorizations, null);
+        allow(tool);
+        policy = policyWith(appPolicy(false,
+                AppGenerationControlPolicy.DangerousToolPolicy.DENY));
+
+        ToolPolicyViolationException violation = assertThrows(
+                ToolPolicyViolationException.class,
+                () -> policy.authorize(event(request(tool.getToolName(), "{}")),
+                        CodeGenTypeEnum.VUE_PROJECT, GenerationPerformanceProfile.balanced()));
+
+        assertEquals("destructive_tool_denied_by_app", violation.violationCode());
+        assertEquals(0, authorizations.get());
+    }
+
+    @Test
+    void emergencyStopMustInterruptReadOnlyToolsAndModelTurns() {
+        bindContext(CodeGenTypeEnum.VUE_PROJECT);
+        policy = policyWith(appPolicy(true,
+                AppGenerationControlPolicy.DangerousToolPolicy.REQUIRE_APPROVAL));
+
+        assertThrows(GenerationExecutionPolicyException.class,
+                () -> policy.authorize(event(request("readFile", "{}")),
+                        CodeGenTypeEnum.VUE_PROJECT, GenerationPerformanceProfile.balanced()));
+        assertThrows(GenerationExecutionPolicyException.class,
+                () -> policy.governModelTurn(APP_ID, null));
+    }
+
+    private AiToolInvocationPolicy policyWith(AppGenerationControlReader reader) {
+        return new AiToolInvocationPolicy(
+                toolManager, executionContexts, runtimeContexts,
+                failurePolicy, toolLoopGuard, productivityGuard, reader);
+    }
+
+    private AppGenerationControlReader appPolicy(
+            boolean emergencyStopped,
+            AppGenerationControlPolicy.DangerousToolPolicy dangerousToolPolicy) {
+        return ignored -> new AppGenerationControlPolicy(
+                APP_ID, 1L, false, emergencyStopped, 1,
+                AppGenerationControlPolicy.ModelPolicy.PLATFORM_DEFAULT,
+                AppGenerationControlPolicy.DependencyMutationPolicy.ALLOW,
+                AppGenerationControlPolicy.DependencyNetworkPolicy.TRUSTED_REGISTRY_ONLY,
+                dangerousToolPolicy, null, 7L,
+                java.time.Instant.parse("2026-08-28T08:00:00Z"));
     }
 
     private void bindContext(CodeGenTypeEnum codeGenType) {

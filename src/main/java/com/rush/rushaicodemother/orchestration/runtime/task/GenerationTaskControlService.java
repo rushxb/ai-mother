@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 public class GenerationTaskControlService {
 
     private static final String USER_REQUESTED = "user_requested";
+    private static final String APP_EMERGENCY_STOP = "app_emergency_stop";
 
     private final GenerationTaskQueryService generationTaskQueryService;
     private final DurableGenerationTaskRepository durableRepository;
@@ -45,7 +46,7 @@ public class GenerationTaskControlService {
         if (isTerminal(snapshot.status())) {
             return snapshot;
         }
-        cancelLocalAndDurable(taskId);
+        cancelLocalAndDurable(taskId, USER_REQUESTED);
         return generationTaskQueryService.get(taskId, actor);
     }
 
@@ -65,22 +66,34 @@ public class GenerationTaskControlService {
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.OPERATION_ERROR, "当前应用没有正在运行的生成任务"));
         requireDeveloper(task, actor);
-        cancelLocalAndDurable(task.taskId());
+        cancelLocalAndDurable(task.taskId(), USER_REQUESTED);
         return generationTaskQueryService.get(task.taskId(), actor);
     }
 
+    /**
+     * 应用级 kill switch 的内部取消入口。调用方必须已经完成应用管理员授权。
+     * 没有活动任务时保持幂等，不把正常空状态解释成错误。
+     */
+    public void emergencyStopActiveForApp(Long appId) {
+        if (appId == null || appId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用 ID 不合法");
+        }
+        durableRepository.findLatestNonTerminalByAppId(appId)
+                .ifPresent(task -> cancelLocalAndDurable(task.taskId(), APP_EMERGENCY_STOP));
+    }
+
     /** 取消{@code Local}{@code And}持久。 */
-    private void cancelLocalAndDurable(String taskId) {
-        runtimeLifecycleService.requestCancellation(taskId, USER_REQUESTED);
+    private void cancelLocalAndDurable(String taskId, String reason) {
+        runtimeLifecycleService.requestCancellation(taskId, reason);
         GenerationSession session = generationTaskQueryService.localSession(taskId);
         if (session != null && session.isActive()) {
             session.cancel();
         }
-        executionContextService.cancelByTaskId(taskId, USER_REQUESTED);
+        executionContextService.cancelByTaskId(taskId, reason);
         DurableGenerationTaskRecord durableTask = durableRepository.findByTaskId(taskId).orElse(null);
         if (durableTask != null && durableTask.status() == GenerationTaskStatus.WAITING_APPROVAL) {
             generationTaskFinalizer.finalizeUnownedRuntime(
-                    taskId, GenerationTaskStatus.CANCELLED, USER_REQUESTED);
+                    taskId, GenerationTaskStatus.CANCELLED, reason);
         }
     }
 

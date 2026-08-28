@@ -138,6 +138,48 @@ public interface GenerationTaskRuntimeMapper {
                                         @Param("periodStart") LocalDateTime periodStart,
                                         @Param("periodEnd") LocalDateTime periodEnd);
 
+    /**
+     * 从不可变积分流水计算应用月用量。预检预授权在正式任务创建前已携带 appId，
+     * 因而同一应用行锁可以串行化“读取已用额度 + 新增预留”。
+     */
+    @Select("""
+            SELECT COALESCE(SUM(taskUsage), 0)
+            FROM (
+                SELECT GREATEST(0, -SUM(entry.changeAmount)) AS taskUsage
+                FROM user_credit_transaction reservation
+                JOIN user_credit_transaction entry
+                  ON entry.appId = reservation.appId
+                 AND entry.bizId = reservation.bizId
+                 AND entry.type IN ('GENERATION_RESERVATION', 'GENERATION_SETTLEMENT')
+                 AND entry.isDelete = 0
+                WHERE reservation.appId = #{appId}
+                  AND reservation.type = 'GENERATION_RESERVATION'
+                  AND reservation.createTime >= #{periodStart}
+                  AND reservation.createTime < #{periodEnd}
+                  AND reservation.isDelete = 0
+                GROUP BY reservation.bizId
+                UNION ALL
+                SELECT GREATEST(0, -charge.changeAmount) AS taskUsage
+                FROM user_credit_transaction charge
+                WHERE charge.appId = #{appId}
+                  AND charge.type = 'GENERATION_CHARGE'
+                  AND charge.createTime >= #{periodStart}
+                  AND charge.createTime < #{periodEnd}
+                  AND charge.isDelete = 0
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM user_credit_transaction reservation
+                      WHERE reservation.appId = charge.appId
+                        AND reservation.bizId = charge.bizId
+                        AND reservation.type = 'GENERATION_RESERVATION'
+                        AND reservation.isDelete = 0
+                  )
+            ) appTaskUsage
+            """)
+    long sumAppGenerationCreditUsage(@Param("appId") Long appId,
+                                     @Param("periodStart") LocalDateTime periodStart,
+                                     @Param("periodEnd") LocalDateTime periodEnd);
+
     @Select("""
             SELECT task.taskId, task.appId, task.route, task.status,
                    task.submittedAt, task.deadlineAt, task.requestFingerprint,

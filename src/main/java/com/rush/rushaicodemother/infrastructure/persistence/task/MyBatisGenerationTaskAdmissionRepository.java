@@ -7,11 +7,13 @@ import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.GenerationTask;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
 import com.rush.rushaicodemother.orchestration.delivery.GenerationCostEstimate;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlPolicy;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlReader;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskSubmissionReceipt;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskAdmissionSnapshot;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskAdmissionRepository;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.GenerationTaskIdempotencyRecord;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,11 +24,23 @@ import java.util.Optional;
 
 /** 每个 API 实例共享 MySQL 支持的准入锁。 */
 @Repository
-@RequiredArgsConstructor
 public class MyBatisGenerationTaskAdmissionRepository implements GenerationTaskAdmissionRepository {
 
     private final GenerationTaskRuntimeMapper mapper;
+    private final AppGenerationControlReader appControlReader;
     private final ZoneId databaseZone = ZoneId.systemDefault();
+
+    @Autowired
+    public MyBatisGenerationTaskAdmissionRepository(GenerationTaskRuntimeMapper mapper,
+                                                    AppGenerationControlReader appControlReader) {
+        this.mapper = Objects.requireNonNull(mapper, "生成任务运行时 Mapper 不能为空");
+        this.appControlReader = Objects.requireNonNull(appControlReader, "应用生成控制读取器不能为空");
+    }
+
+    /** 兼容尚未接入应用控制表的持久化单元测试。 */
+    public MyBatisGenerationTaskAdmissionRepository(GenerationTaskRuntimeMapper mapper) {
+        this(mapper, AppGenerationControlReader.defaultsOnly());
+    }
 
     /** 在固定锁顺序下读取租户、用户和应用准入事实。 */
     @Override
@@ -51,12 +65,18 @@ public class MyBatisGenerationTaskAdmissionRepository implements GenerationTaskA
         }
         LocalDateTime now = LocalDateTime.now(databaseZone);
         LocalDateTime periodStart = now.withDayOfMonth(1).toLocalDate().atStartOfDay();
+        AppGenerationControlPolicy appControl = appControlReader.get(appId);
         return new GenerationTaskAdmissionSnapshot(
                 mapper.countNonTerminalTasksByUserId(userId),
                 mapper.countNonTerminalTasksByAppId(appId),
                 mapper.countNonTerminalTasksByTenantId(tenantId),
                 mapper.countNonTerminalHeavyTasksByTenantId(tenantId),
-                mapper.sumTenantGenerationCreditUsage(tenantId, periodStart, now)
+                mapper.sumTenantGenerationCreditUsage(tenantId, periodStart, now),
+                appControl.generationPaused(),
+                appControl.emergencyStopped(),
+                appControl.maxConcurrentTasks(),
+                mapper.sumAppGenerationCreditUsage(appId, periodStart, now),
+                appControl.monthlyCreditLimit()
         );
     }
 

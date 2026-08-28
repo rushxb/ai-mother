@@ -214,7 +214,8 @@ public class UserCreditServiceImpl implements UserCreditService {
                                    ReservationPhase phase) {
         // 先处理前置条件和快速返回分支，避免无效输入进入核心流程。
         if (command == null || !hasPositiveId(command.userId())
-                || !hasPositiveId(command.tenantId()) || command.reservedCredit() <= 0) {
+                || !hasPositiveId(command.tenantId()) || !hasPositiveId(command.appId())
+                || command.reservedCredit() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "生成任务积分预授权参数不合法");
         }
         String taskId = requireTaskId(command.taskId());
@@ -240,6 +241,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         persistenceService.appendTransaction(new NewCreditTransaction(
                 command.userId(),
                 command.tenantId(),
+                command.appId(),
                 -command.reservedCredit(),
                 balanceAfter,
                 UserCreditTransactionType.GENERATION_RESERVATION,
@@ -297,6 +299,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         persistenceService.appendTransaction(new NewCreditTransaction(
                 reservation.userId(),
                 reservation.tenantId(),
+                reservation.appId(),
                 settlement.balanceDelta(),
                 settlement.balanceAfter(),
                 UserCreditTransactionType.GENERATION_SETTLEMENT,
@@ -331,6 +334,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         persistenceService.appendTransaction(new NewCreditTransaction(
                 task.userId(),
                 task.tenantId(),
+                task.appId(),
                 settlement.balanceDelta(),
                 settlement.balanceAfter(),
                 UserCreditTransactionType.GENERATION_SETTLEMENT,
@@ -394,6 +398,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         persistenceService.appendTransaction(new NewCreditTransaction(
                 task.userId(),
                 task.tenantId(),
+                task.appId(),
                 -actualCreditCost,
                 balanceAfter,
                 UserCreditTransactionType.GENERATION_CHARGE,
@@ -462,6 +467,7 @@ public class UserCreditServiceImpl implements UserCreditService {
     private void recoverGenerationSettlement(GenerationCreditTask task, CreditTransaction transaction) {
         if (transaction.userId() != task.userId()
                 || !Objects.equals(transaction.tenantId(), task.tenantId())
+                || !Objects.equals(transaction.appId(), task.appId())
                 || transaction.type() != UserCreditTransactionType.GENERATION_CHARGE
                 || !Objects.equals(transaction.bizId(), task.taskId())
                 || transaction.changeAmount() > 0
@@ -500,6 +506,7 @@ public class UserCreditServiceImpl implements UserCreditService {
         long reservedCredit = validateReservation(task, reservation);
         if (settlement.userId() != task.userId()
                 || !Objects.equals(settlement.tenantId(), task.tenantId())
+                || !Objects.equals(settlement.appId(), task.appId())
                 || settlement.type() != UserCreditTransactionType.GENERATION_SETTLEMENT
                 || !Objects.equals(settlement.bizId(), task.taskId())
                 || settlement.adminUserId() != null
@@ -526,6 +533,7 @@ public class UserCreditServiceImpl implements UserCreditService {
     private long validateReservation(GenerationCreditTask task, CreditTransaction reservation) {
         if (reservation.userId() != task.userId()
                 || !Objects.equals(reservation.tenantId(), task.tenantId())
+                || !Objects.equals(reservation.appId(), task.appId())
                 || reservation.type() != UserCreditTransactionType.GENERATION_RESERVATION
                 || !Objects.equals(reservation.bizId(), task.taskId())
                 || reservation.changeAmount() >= 0
@@ -547,6 +555,7 @@ public class UserCreditServiceImpl implements UserCreditService {
                                              ReservationPhase phase) {
         boolean invalidIdentity = transaction.userId() != command.userId()
                 || !Objects.equals(transaction.tenantId(), command.tenantId())
+                || !Objects.equals(transaction.appId(), command.appId())
                 || transaction.type() != UserCreditTransactionType.GENERATION_RESERVATION
                 || !Objects.equals(transaction.bizId(), taskId)
                 || transaction.changeAmount() >= 0
@@ -576,6 +585,7 @@ public class UserCreditServiceImpl implements UserCreditService {
                 || !Objects.equals(reservation.bizId(), taskId)
                 || !hasPositiveId(reservation.userId())
                 || !hasPositiveId(reservation.tenantId())
+                || !hasPositiveId(reservation.appId())
                 || reservation.adminUserId() != null
                 || reservation.tokenCount() != null
                 || !isPreflightReservation(reservation)) {
@@ -589,6 +599,7 @@ public class UserCreditServiceImpl implements UserCreditService {
                                              long reservedCredit) {
         if (settlement.userId() != reservation.userId()
                 || !Objects.equals(settlement.tenantId(), reservation.tenantId())
+                || !Objects.equals(settlement.appId(), reservation.appId())
                 || settlement.type() != UserCreditTransactionType.GENERATION_SETTLEMENT
                 || !Objects.equals(settlement.bizId(), reservation.bizId())
                 || settlement.adminUserId() != null
@@ -626,6 +637,7 @@ public class UserCreditServiceImpl implements UserCreditService {
                                                   Long initialCredit,
                                                   Long adminUserId) {
         if (transaction.userId() != userId
+                || transaction.appId() != null
                 || transaction.changeAmount() != initialCredit
                 || transaction.type() != UserCreditTransactionType.ACCOUNT_INITIALIZATION
                 || !Objects.equals(transaction.bizId(), String.valueOf(userId))
@@ -639,6 +651,7 @@ public class UserCreditServiceImpl implements UserCreditService {
     private void validateExistingAdjustment(CreditTransaction transaction,
                                              ValidatedAdjustment adjustment) {
         if (transaction.userId() != adjustment.userId()
+                || transaction.appId() != null
                 || transaction.changeAmount() != adjustment.changeAmount()
                 || transaction.type() != UserCreditTransactionType.ADMIN_ADJUST
                 || !Objects.equals(transaction.bizId(), adjustment.requestId())

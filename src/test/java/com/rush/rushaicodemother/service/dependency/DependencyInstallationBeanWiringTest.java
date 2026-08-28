@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.infrastructure.process.NodeToolchain;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.infrastructure.sandbox.HostLocalGeneratedCodeProcessSandbox;
 import com.rush.rushaicodemother.monitor.GeneratedCodeSandboxMetricsCollector;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlReader;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
 import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
@@ -31,6 +32,7 @@ class DependencyInstallationBeanWiringTest {
             context.registerBean(ExternalProcessProperties.class);
             context.registerBean(NodeToolchainProperties.class);
             context.registerBean(GenerationRuntimeProperties.class);
+            context.registerBean(AppGenerationControlReader.class, AppGenerationControlReader::defaultsOnly);
             context.registerBean(MeterRegistry.class, SimpleMeterRegistry::new);
             context.registerBean(Tracer.class, () -> Tracer.NOOP);
             context.register(GenerationExecutionContextService.class);

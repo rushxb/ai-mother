@@ -328,25 +328,25 @@ class GenerationCreditConsistencyMySqlIntegrationTest {
                     """);
             statement.executeUpdate("""
                     INSERT INTO user_credit_transaction
-                        (userId, tenantId, changeAmount, balanceAfter, type,
+                        (userId, tenantId, appId, changeAmount, balanceAfter, type,
                          bizId, remark, tokenCount, createTime)
                     VALUES
-                        (7, 3, -5, 95, 'GENERATION_RESERVATION',
+                        (7, 3, 11, -5, 95, 'GENERATION_RESERVATION',
                          'credit-task-recovery', 'reservation:test', NULL,
                          '2026-08-20 10:00:00'),
-                        (7, 3, 3, 98, 'GENERATION_SETTLEMENT',
+                        (7, 3, 11, 3, 98, 'GENERATION_SETTLEMENT',
                          'credit-task-recovery', 'settlement:test', 200000,
                          '2026-08-20 10:16:00'),
-                        (8, 3, -5, 95, 'GENERATION_RESERVATION',
+                        (8, 3, 11, -5, 95, 'GENERATION_RESERVATION',
                          'credit-provider-retry', 'reservation:test', NULL,
                          '2026-08-21 10:00:00'),
-                        (9, 3, -5, 95, 'GENERATION_RESERVATION',
+                        (9, 3, 11, -5, 95, 'GENERATION_RESERVATION',
                          'credit-cancelled', 'reservation:test', NULL,
                          '2026-08-22 10:00:00'),
-                        (10, 3, -5, 95, 'GENERATION_RESERVATION',
+                        (10, 3, 11, -5, 95, 'GENERATION_RESERVATION',
                          'credit-deadline', 'reservation:test', NULL,
                          '2026-08-23 10:00:00'),
-                        (11, 3, -5, 95, 'GENERATION_RESERVATION',
+                        (11, 3, 11, -5, 95, 'GENERATION_RESERVATION',
                          'credit-post-publication', 'reservation:test', NULL,
                          '2026-08-24 10:00:00')
                     """);

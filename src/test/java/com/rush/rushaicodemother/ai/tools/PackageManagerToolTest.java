@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.constant.AppConstant;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlPolicy;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionCancelledException;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
@@ -67,6 +68,33 @@ class PackageManagerToolTest {
         );
 
         assertTrue(failure.publicMessage().contains("reason"));
+    }
+
+    @Test
+    void applicationPolicyMustDenyDependencyMutationWithoutBlockingReads() throws Exception {
+        PackageToolFixture fixture = createFixture(22L, CodeGenTypeEnum.VUE_PROJECT, "package.json");
+        PackageManagerTool tool = new PackageManagerTool(
+                new DependencyPolicyService(),
+                fixture.gateway(),
+                ToolPathSupportTestFixture.workspaceForApp(22L, CodeGenTypeEnum.VUE_PROJECT),
+                ignored -> new AppGenerationControlPolicy(
+                        22L, 1L, false, false, 1,
+                        AppGenerationControlPolicy.ModelPolicy.PLATFORM_DEFAULT,
+                        AppGenerationControlPolicy.DependencyMutationPolicy.DENY,
+                        AppGenerationControlPolicy.DependencyNetworkPolicy.TRUSTED_REGISTRY_ONLY,
+                        AppGenerationControlPolicy.DangerousToolPolicy.REQUIRE_APPROVAL,
+                        null, 7L, java.time.Instant.parse("2026-08-28T08:00:00Z")));
+
+        assertInstanceOf(TextContent.class, tool.managePackageJson(
+                "getPackageJson", null, null, null, null, null, false, null, 22L));
+        ToolPublicFailureException failure = assertThrows(
+                ToolPublicFailureException.class,
+                () -> tool.managePackageJson(
+                        "addDependency", "marked", "^12.0.0", "dependencies",
+                        null, null, false, "渲染 markdown", 22L));
+
+        assertTrue(failure.publicMessage().contains("应用策略禁止修改依赖"));
+        verifyNoInteractions(fixture.gateway());
     }
 
     @Test

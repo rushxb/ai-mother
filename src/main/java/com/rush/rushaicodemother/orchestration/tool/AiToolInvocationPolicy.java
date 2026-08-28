@@ -7,13 +7,16 @@ import com.rush.rushaicodemother.ai.tools.BaseTool;
 import com.rush.rushaicodemother.ai.tools.ToolManager;
 import com.rush.rushaicodemother.ai.tools.ToolRiskLevel;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlPolicy;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlReader;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.service.tool.BeforeToolExecution;
 import dev.langchain4j.service.tool.ToolExecution;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -21,7 +24,6 @@ import java.util.Objects;
 
 /** 在每次自主人工智能工具调用之前执行中央、故障关闭的功能边界。 */
 @Component
-@RequiredArgsConstructor
 public class AiToolInvocationPolicy {
 
     private final ToolManager toolManager;
@@ -30,6 +32,36 @@ public class AiToolInvocationPolicy {
     private final ToolExecutionFailurePolicy failurePolicy;
     private final GenerationToolLoopGuard toolLoopGuard;
     private final GenerationAgentProductivityGuard productivityGuard;
+    private final AppGenerationControlReader appControlReader;
+
+    @Autowired
+    public AiToolInvocationPolicy(ToolManager toolManager,
+                                  GenerationToolExecutionContextService executionContextService,
+                                  GenerationExecutionContextService runtimeExecutionContextService,
+                                  ToolExecutionFailurePolicy failurePolicy,
+                                  GenerationToolLoopGuard toolLoopGuard,
+                                  GenerationAgentProductivityGuard productivityGuard,
+                                  AppGenerationControlReader appControlReader) {
+        this.toolManager = toolManager;
+        this.executionContextService = executionContextService;
+        this.runtimeExecutionContextService = runtimeExecutionContextService;
+        this.failurePolicy = failurePolicy;
+        this.toolLoopGuard = toolLoopGuard;
+        this.productivityGuard = productivityGuard;
+        this.appControlReader = appControlReader;
+    }
+
+    /** 兼容不需要应用控制的工具策略单元测试。 */
+    public AiToolInvocationPolicy(ToolManager toolManager,
+                                  GenerationToolExecutionContextService executionContextService,
+                                  GenerationExecutionContextService runtimeExecutionContextService,
+                                  ToolExecutionFailurePolicy failurePolicy,
+                                  GenerationToolLoopGuard toolLoopGuard,
+                                  GenerationAgentProductivityGuard productivityGuard) {
+        this(toolManager, executionContextService, runtimeExecutionContextService,
+                failurePolicy, toolLoopGuard, productivityGuard,
+                AppGenerationControlReader.defaultsOnly());
+    }
 
     /**
  * 处理授权。
@@ -63,6 +95,8 @@ public class AiToolInvocationPolicy {
         }
         // 所有工具共用同一继续执行门禁；新增工具无需自行复制取消和截止时间判断。
         runtimeExecutionContextService.assertCanContinue(context.taskId());
+        AppGenerationControlPolicy appControl = appControlReader.get(appId);
+        assertEmergencyStopInactive(appControl);
 
         BaseTool tool = toolManager.getTool(toolName);
         if (tool == null || !toolManager.isToolAllowedForCodeGen(toolName, expectedCodeGenType)) {
@@ -79,6 +113,10 @@ public class AiToolInvocationPolicy {
         }
         if (!(tool instanceof ApprovalGatedTool)) {
             reject("destructive_approval_contract_missing");
+        }
+        if (appControl.dangerousToolPolicy()
+                == AppGenerationControlPolicy.DangerousToolPolicy.DENY) {
+            reject("destructive_tool_denied_by_app");
         }
         ApprovalGatedTool approvalGatedTool = (ApprovalGatedTool) tool;
         if (request.id() == null || request.id().isBlank()) {
@@ -140,14 +178,24 @@ public class AiToolInvocationPolicy {
     }
 
     public ChatRequest governModelTurn(Long appId, ChatRequest request) {
+        assertEmergencyStopInactive(appControlReader.get(appId));
         return productivityGuard.governModelTurn(appId, request);
     }
 
     public ChatRequest governModelTurn(String taskId,
                                        int successfulWorkspaceMutations,
                                        ChatRequest request) {
+        runtimeExecutionContextService.getByTaskId(taskId)
+                .map(context -> context.appId())
+                .ifPresent(appId -> assertEmergencyStopInactive(appControlReader.get(appId)));
         return productivityGuard.governModelTurn(
                 taskId, successfulWorkspaceMutations, request);
+    }
+
+    private void assertEmergencyStopInactive(AppGenerationControlPolicy policy) {
+        if (policy.emergencyStopped()) {
+            throw new GenerationExecutionPolicyException("应用已紧急停止生成");
+        }
     }
 
     private void verifyApprovedInvocationIntegrity(String taskId, ToolExecutionRequest request) {

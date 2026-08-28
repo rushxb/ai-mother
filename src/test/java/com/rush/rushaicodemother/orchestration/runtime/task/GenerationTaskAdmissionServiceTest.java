@@ -121,7 +121,8 @@ class GenerationTaskAdmissionServiceTest {
         when(fixture.reservationPolicy().quote(command)).thenReturn(quote);
         IllegalStateException failure = new IllegalStateException("insufficient credit");
         doThrow(failure).when(fixture.creditService()).reserveGenerationTask(
-                new GenerationCreditReservationCommand("task-1", 7L, 100L, 2L, "policy-v1"));
+                new GenerationCreditReservationCommand(
+                        "task-1", 7L, 100L, 1L, 2L, "policy-v1"));
 
         assertSame(failure, assertThrows(IllegalStateException.class,
                 () -> fixture.service().admit(command)));
@@ -156,7 +157,7 @@ class GenerationTaskAdmissionServiceTest {
         order.verify(fixture.concurrencyPolicy()).assertMayPreflight(contextCaptor.capture());
         order.verify(fixture.creditService()).reserveGenerationPreflight(
                 new GenerationCreditReservationCommand(
-                        "task-preflight", 7L, 100L, 9L, "preflight-upper-bound"));
+                        "task-preflight", 7L, 100L, 1L, 9L, "preflight-upper-bound"));
         assertEquals(upperBound, contextCaptor.getValue().upperBoundQuote());
         verifyNoInteractions(fixture.lifecycleService());
     }

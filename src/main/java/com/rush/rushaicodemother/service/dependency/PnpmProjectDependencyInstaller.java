@@ -3,6 +3,9 @@ package com.rush.rushaicodemother.service.dependency;
 import com.rush.rushaicodemother.config.DependencyInstallProperties;
 import com.rush.rushaicodemother.infrastructure.process.ProjectProcessTerminator;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlPolicy;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlReader;
 import com.rush.rushaicodemother.security.workspace.GeneratedNodeWorkspaceValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +32,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
     private final DependencyInstallProperties properties;
     private final GenerationExecutionContextService executionContextService;
     private final GeneratedNodeWorkspaceValidator projectDirectoryValidator;
+    private final AppGenerationControlReader appControlReader;
     private final ReentrantLock[] projectLocks;
 
     @Autowired
@@ -38,7 +42,8 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
             ProjectProcessTerminator processTerminator,
             DependencyInstallProperties properties,
             GenerationExecutionContextService executionContextService,
-            GeneratedNodeWorkspaceValidator projectDirectoryValidator
+            GeneratedNodeWorkspaceValidator projectDirectoryValidator,
+            AppGenerationControlReader appControlReader
     ) {
         this.commandExecutor = commandExecutor;
         this.integrityService = integrityService;
@@ -46,7 +51,22 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
         this.properties = properties;
         this.executionContextService = executionContextService;
         this.projectDirectoryValidator = projectDirectoryValidator;
+        this.appControlReader = appControlReader;
         this.projectLocks = createLocks(properties.getLockStripes());
+    }
+
+    /** 兼容非生成任务和既有依赖安装单元测试。 */
+    public PnpmProjectDependencyInstaller(
+            PnpmInstallCommandExecutor commandExecutor,
+            NodeModulesIntegrityService integrityService,
+            ProjectProcessTerminator processTerminator,
+            DependencyInstallProperties properties,
+            GenerationExecutionContextService executionContextService,
+            GeneratedNodeWorkspaceValidator projectDirectoryValidator
+    ) {
+        this(commandExecutor, integrityService, processTerminator, properties,
+                executionContextService, projectDirectoryValidator,
+                AppGenerationControlReader.defaultsOnly());
     }
 
     @Override
@@ -112,6 +132,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
             if (Thread.currentThread().isInterrupted()) {
                 return interruptedResult("");
             }
+            assertApplicationAllowsDependencyNetwork(taskId);
             return installWithBoundedRetries(projectPath, taskId, effectiveMode);
         } finally {
             projectLock.unlock();
@@ -152,6 +173,7 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
 
         // 按既定顺序逐项处理，并在达到资源或状态边界时提前结束。
         for (int attempt = 1; attempt <= properties.getMaxAttempts(); attempt++) {
+            assertApplicationAllowsDependencyNetwork(taskId);
             if (Thread.currentThread().isInterrupted()) {
                 return interruptedResult(limitOutput(combinedOutput.toString()));
             }
@@ -215,6 +237,24 @@ public class PnpmProjectDependencyInstaller implements ProjectDependencyInstalle
             );
         }
         return withCombinedOutput(lastResult, combinedOutput);
+    }
+
+    private void assertApplicationAllowsDependencyNetwork(String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            return;
+        }
+        Long appId = executionContextService.getByTaskId(taskId)
+                .map(context -> context.appId())
+                .orElseThrow(() -> new GenerationExecutionPolicyException(
+                        "依赖安装缺少生成任务执行上下文"));
+        AppGenerationControlPolicy policy = appControlReader.get(appId);
+        if (policy.emergencyStopped()) {
+            throw new GenerationExecutionPolicyException("应用已紧急停止生成");
+        }
+        if (policy.dependencyNetworkPolicy()
+                == AppGenerationControlPolicy.DependencyNetworkPolicy.DENY) {
+            throw new GenerationExecutionPolicyException("应用策略禁止依赖网络访问");
+        }
     }
 
     /** 清理损坏的依赖包。 */

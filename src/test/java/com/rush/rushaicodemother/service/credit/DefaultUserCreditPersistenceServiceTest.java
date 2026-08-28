@@ -77,6 +77,7 @@ class DefaultUserCreditPersistenceServiceTest {
         when(mapper.selectGenerationTaskForUpdate("task-1")).thenReturn(GenerationTask.builder()
                 .id(101L)
                 .taskId("task-1")
+                .appId(11L)
                 .userId(7L)
                 .tenantId(100L)
                 .creditCharged(1)
@@ -89,6 +90,7 @@ class DefaultUserCreditPersistenceServiceTest {
         assertEquals(101L, task.recordId());
         assertEquals(7L, task.userId());
         assertEquals(100L, task.tenantId());
+        assertEquals(11L, task.appId());
         assertTrue(task.settled());
         assertEquals(3L, task.creditCost());
         assertEquals(200_000L, task.totalTokens());
@@ -185,6 +187,7 @@ class DefaultUserCreditPersistenceServiceTest {
         assertNull(entity.getId());
         assertEquals(7L, entity.getUserId());
         assertEquals(100L, entity.getTenantId());
+        assertEquals(11L, entity.getAppId());
         assertEquals(-2L, entity.getChangeAmount());
         assertEquals("GENERATION_CHARGE", entity.getType());
         assertEquals("task-1", entity.getBizId());
@@ -207,7 +210,7 @@ class DefaultUserCreditPersistenceServiceTest {
     @Test
     void invalidTransactionMustBeRejectedBeforeMapperInvocation() {
         NewCreditTransaction invalid = new NewCreditTransaction(
-                7L, 100L, 1L, 4L, UserCreditTransactionType.GENERATION_CHARGE,
+                7L, 100L, 11L, 1L, 4L, UserCreditTransactionType.GENERATION_CHARGE,
                 "task-1", "invalid positive charge", null, 1L
         );
 
@@ -221,11 +224,11 @@ class DefaultUserCreditPersistenceServiceTest {
         when(mapper.insertTransaction(any())).thenReturn(1);
 
         service.appendTransaction(new NewCreditTransaction(
-                7L, 100L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
+                7L, 100L, 11L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
                 "task-reserved", "reservation:policy-v1", null, null
         ));
         service.appendTransaction(new NewCreditTransaction(
-                7L, 100L, 2L, 9L, UserCreditTransactionType.GENERATION_SETTLEMENT,
+                7L, 100L, 11L, 2L, 9L, UserCreditTransactionType.GENERATION_SETTLEMENT,
                 "task-settled", "settlement", null, 100_000L
         ));
 
@@ -289,6 +292,7 @@ class DefaultUserCreditPersistenceServiceTest {
         return new NewCreditTransaction(
                 7L,
                 100L,
+                11L,
                 -2L,
                 3L,
                 UserCreditTransactionType.GENERATION_CHARGE,

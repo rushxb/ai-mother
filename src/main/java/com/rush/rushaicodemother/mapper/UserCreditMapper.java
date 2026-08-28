@@ -34,7 +34,7 @@ public interface UserCreditMapper {
     User selectActiveCreditAccountForUpdate(@Param("userId") Long userId);
 
     @Select("""
-            SELECT id, taskId, userId, tenantId, creditCharged, creditCost, totalTokens
+            SELECT id, taskId, appId, userId, tenantId, creditCharged, creditCost, totalTokens
             FROM generation_task
             WHERE taskId = #{taskId}
               AND isDelete = 0
@@ -43,7 +43,7 @@ public interface UserCreditMapper {
     GenerationTask selectGenerationTaskForUpdate(@Param("taskId") String taskId);
 
     @Select("""
-            SELECT id, taskId, userId, tenantId, creditCharged, creditCost, totalTokens
+            SELECT id, taskId, appId, userId, tenantId, creditCharged, creditCost, totalTokens
             FROM generation_task
             WHERE taskId = #{taskId}
               AND isDelete = 0
@@ -52,7 +52,7 @@ public interface UserCreditMapper {
     GenerationTask selectGenerationTask(@Param("taskId") String taskId);
 
     @Select("""
-            SELECT id, userId, tenantId, changeAmount, balanceAfter, type, bizId, remark,
+            SELECT id, userId, tenantId, appId, changeAmount, balanceAfter, type, bizId, remark,
                    adminUserId, tokenCount, createTime, isDelete
             FROM user_credit_transaction
             WHERE type = #{type}
@@ -113,9 +113,9 @@ public interface UserCreditMapper {
 
     @Insert("""
             INSERT INTO user_credit_transaction (
-                userId, tenantId, changeAmount, balanceAfter, type, bizId, remark, adminUserId, tokenCount
+                userId, tenantId, appId, changeAmount, balanceAfter, type, bizId, remark, adminUserId, tokenCount
             ) VALUES (
-                #{userId}, #{tenantId}, #{changeAmount}, #{balanceAfter}, #{type}, #{bizId}, #{remark},
+                #{userId}, #{tenantId}, #{appId}, #{changeAmount}, #{balanceAfter}, #{type}, #{bizId}, #{remark},
                 #{adminUserId}, #{tokenCount}
             )
             """)

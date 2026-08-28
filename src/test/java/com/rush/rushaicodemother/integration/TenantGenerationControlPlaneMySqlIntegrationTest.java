@@ -124,18 +124,18 @@ class TenantGenerationControlPlaneMySqlIntegrationTest {
                     """);
             statement.executeUpdate("""
                     INSERT INTO user_credit_transaction
-                        (userId, tenantId, changeAmount, balanceAfter, type,
+                        (userId, tenantId, appId, changeAmount, balanceAfter, type,
                          bizId, remark, tokenCount, createTime)
                     VALUES
-                        (7, 3, -5, 995, 'GENERATION_RESERVATION',
+                        (7, 3, 11, -5, 995, 'GENERATION_RESERVATION',
                          'tenant-cost-success-1', 'reservation', NULL, '2026-08-10 10:00:00'),
-                        (7, 3, 1, 996, 'GENERATION_SETTLEMENT',
+                        (7, 3, 11, 1, 996, 'GENERATION_SETTLEMENT',
                          'tenant-cost-success-1', 'settlement', 200000, '2026-08-10 10:15:00'),
-                        (7, 3, -2, 994, 'GENERATION_RESERVATION',
+                        (7, 3, 11, -2, 994, 'GENERATION_RESERVATION',
                          'tenant-cost-failed-1', 'reservation', NULL, '2026-08-11 10:00:00'),
-                        (7, 3, -3, 991, 'GENERATION_CHARGE',
+                        (7, 3, 11, -3, 991, 'GENERATION_CHARGE',
                          'tenant-cost-success-2', 'legacy-charge', 150000, '2026-08-12 10:12:00'),
-                        (7, 3, -100, 891, 'GENERATION_CHARGE',
+                        (7, 3, 11, -100, 891, 'GENERATION_CHARGE',
                          'tenant-cost-old', 'old-charge', 500000, '2026-07-20 10:12:00')
                     """);
         }

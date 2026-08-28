@@ -201,7 +201,7 @@ class UserCreditServiceImplTest {
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        7L, 100L, 11L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:policy-v1:LIGHT_EDIT:VUE_PROJECT", null, null
                 ));
 
@@ -232,7 +232,7 @@ class UserCreditServiceImplTest {
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        7L, 100L, 11L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:preflight:policy-v1:PREFLIGHT_MAX:VUE_PROJECT",
                         null, null));
 
@@ -249,13 +249,13 @@ class UserCreditServiceImplTest {
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        7L, 100L, 11L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:preflight:policy-v1:PREFLIGHT_MAX:VUE_PROJECT",
                         null, null));
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_SETTLEMENT, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, 5L, 10L, UserCreditTransactionType.GENERATION_SETTLEMENT,
+                        7L, 100L, 11L, 5L, 10L, UserCreditTransactionType.GENERATION_SETTLEMENT,
                         "task-1", "released", null, 0L));
 
         BusinessException failure = assertThrows(BusinessException.class,
@@ -273,7 +273,7 @@ class UserCreditServiceImplTest {
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        7L, 100L, 11L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:preflight:policy-v1:PREFLIGHT_MAX:VUE_PROJECT",
                         null, null));
         when(persistenceService.loadTaskProviderCostObservation("task-1"))
@@ -412,7 +412,7 @@ class UserCreditServiceImplTest {
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        7L, 100L, 11L, -5L, 5L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:policy-v1", null, null
                 ));
         when(persistenceService.loadTaskProviderCostObservation("task-1"))
@@ -442,7 +442,7 @@ class UserCreditServiceImplTest {
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, -2L, 1L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        7L, 100L, 11L, -2L, 1L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:policy-v1", null, null
                 ));
         when(persistenceService.loadTaskProviderCostObservation("task-1"))
@@ -469,7 +469,7 @@ class UserCreditServiceImplTest {
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        7L, 100L, 11L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:policy-v1", null, null
                 ));
         when(costCalculator.calculate(0L)).thenReturn(0L);
@@ -490,7 +490,7 @@ class UserCreditServiceImplTest {
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        7L, 100L, 11L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:policy-v1", null, null
                 ));
         when(persistenceService.loadTaskProviderCostObservation("task-1"))
@@ -522,7 +522,7 @@ class UserCreditServiceImplTest {
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        7L, 100L, 11L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:policy-v1", null, null
                 ));
         when(persistenceService.loadTaskProviderCostObservation("task-1"))
@@ -549,13 +549,13 @@ class UserCreditServiceImplTest {
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_SETTLEMENT, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, 2L, 9L, UserCreditTransactionType.GENERATION_SETTLEMENT,
+                        7L, 100L, 11L, 2L, 9L, UserCreditTransactionType.GENERATION_SETTLEMENT,
                         "task-1", "settled", null, 100_000L
                 ));
         when(persistenceService.findTransaction(
                 UserCreditTransactionType.GENERATION_RESERVATION, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
+                        7L, 100L, 11L, -3L, 7L, UserCreditTransactionType.GENERATION_RESERVATION,
                         "task-1", "reservation:policy-v1", null, null
                 ));
 
@@ -595,7 +595,7 @@ class UserCreditServiceImplTest {
                 .thenReturn(generationTask(false));
         when(persistenceService.findTransaction(UserCreditTransactionType.GENERATION_CHARGE, "task-1"))
                 .thenReturn(new CreditTransaction(
-                        7L, 100L, -2L, 3L, UserCreditTransactionType.GENERATION_CHARGE,
+                        7L, 100L, 11L, -2L, 3L, UserCreditTransactionType.GENERATION_CHARGE,
                         "task-1", "settled", null, 100_001L
                 ));
 
@@ -638,10 +638,11 @@ class UserCreditServiceImplTest {
     }
 
     private GenerationCreditReservationCommand reservationCommand(long amount, String pricingReference) {
-        return new GenerationCreditReservationCommand("task-1", 7L, 100L, amount, pricingReference);
+        return new GenerationCreditReservationCommand(
+                "task-1", 7L, 100L, 11L, amount, pricingReference);
     }
 
     private GenerationCreditTask generationTask(boolean settled) {
-        return new GenerationCreditTask(101L, "task-1", 7L, 100L, settled);
+        return new GenerationCreditTask(101L, "task-1", 7L, 100L, 11L, settled, null, null);
     }
 }

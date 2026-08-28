@@ -110,9 +110,10 @@ class GenerationDeliveryReceiptMySqlIntegrationTest {
                     """);
             statement.executeUpdate("""
                     INSERT INTO user_credit_transaction
-                        (userId, tenantId, changeAmount, balanceAfter, type, bizId, remark, tokenCount)
+                        (userId, tenantId, appId, changeAmount, balanceAfter, type,
+                         bizId, remark, tokenCount)
                     VALUES
-                        (7, 3, -5, 995, 'GENERATION_RESERVATION',
+                        (7, 3, 11, -5, 995, 'GENERATION_RESERVATION',
                          'task-delivery-receipt-it', 'reservation:policy-v1', NULL)
                     """);
             statement.executeUpdate("""
@@ -274,9 +275,10 @@ class GenerationDeliveryReceiptMySqlIntegrationTest {
         try (Connection connection = DriverManager.getConnection(JDBC_URL, USERNAME, PASSWORD);
              PreparedStatement statement = connection.prepareStatement("""
                      INSERT INTO user_credit_transaction
-                         (userId, tenantId, changeAmount, balanceAfter, type, bizId, remark, tokenCount)
+                         (userId, tenantId, appId, changeAmount, balanceAfter, type,
+                          bizId, remark, tokenCount)
                      VALUES
-                         (7, 3, 3, 998, 'GENERATION_SETTLEMENT', ?,
+                         (7, 3, 11, 3, 998, 'GENERATION_SETTLEMENT', ?,
                           'settlement:structured-facts-only', 120000)
                      """)) {
             statement.setString(1, TASK_ID);

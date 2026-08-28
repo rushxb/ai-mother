@@ -25,7 +25,7 @@ class GenerationTaskConcurrencyAdmissionPolicyTest {
     }
 
     @Test
-    void preflightMustRejectWhenTheApplicationAlreadyHasAnActiveTask() {
+    void applicationCapacityMustBeOwnedByTheDedicatedAppPolicy() {
         GenerationTaskConcurrencyAdmissionPolicy policy =
                 new GenerationTaskConcurrencyAdmissionPolicy(new GenerationTaskAdmissionProperties());
         GenerationTaskPreflightAdmissionContext context = new GenerationTaskPreflightAdmissionContext(
@@ -37,6 +37,6 @@ class GenerationTaskConcurrencyAdmissionPolicyTest {
                 new GenerationCreditReservationQuote(1L, 1L, "preflight-test")
         );
 
-        assertThrows(BusinessException.class, () -> policy.assertMayPreflight(context));
+        assertDoesNotThrow(() -> policy.assertMayPreflight(context));
     }
 }

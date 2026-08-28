@@ -5,6 +5,8 @@ import com.rush.rushaicodemother.config.DependencyInstallProperties;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationDeadlineExceededException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationRuntimeProperties;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlPolicy;
 import com.rush.rushaicodemother.security.workspace.GeneratedWorkspaceTrustPolicy;
 import com.rush.rushaicodemother.security.workspace.GeneratedNodeWorkspaceValidator;
 import org.junit.jupiter.api.AfterEach;
@@ -31,6 +33,7 @@ import java.util.function.BooleanSupplier;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
@@ -77,6 +80,36 @@ class PnpmProjectDependencyInstallerTest {
 
         assertTrue(result.success());
         verify(commandExecutor, never()).install(any(), eq(false), any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class));
+    }
+
+    @Test
+    void applicationNetworkDenyMustStillAllowReuseButBlockARealInstall() {
+        GenerationExecutionContextService contextService =
+                new GenerationExecutionContextService(new GenerationRuntimeProperties());
+        contextService.start("task-network-denied", 11L, 7L);
+        PnpmProjectDependencyInstaller installer = new PnpmProjectDependencyInstaller(
+                commandExecutor,
+                integrityService,
+                processTerminator,
+                properties,
+                contextService,
+                new GeneratedNodeWorkspaceValidator(new GeneratedWorkspaceTrustPolicy()),
+                ignored -> new AppGenerationControlPolicy(
+                        11L, 1L, false, false, 1,
+                        AppGenerationControlPolicy.ModelPolicy.PLATFORM_DEFAULT,
+                        AppGenerationControlPolicy.DependencyMutationPolicy.ALLOW,
+                        AppGenerationControlPolicy.DependencyNetworkPolicy.DENY,
+                        AppGenerationControlPolicy.DangerousToolPolicy.REQUIRE_APPROVAL,
+                        null, 7L, java.time.Instant.parse("2026-08-28T08:00:00Z")));
+
+        when(integrityService.isComplete(any(), eq("task-network-denied"))).thenReturn(true);
+        assertTrue(installer.ensureInstalled(projectDirectory, "task-network-denied").success());
+
+        when(integrityService.isComplete(any(), eq("task-network-denied"))).thenReturn(false);
+        assertThrows(GenerationExecutionPolicyException.class,
+                () -> installer.ensureInstalled(projectDirectory, "task-network-denied"));
+        verify(commandExecutor, never()).install(any(), eq(false),
+                any(DependencyInstallMode.class), any(Duration.class), any(BooleanSupplier.class));
     }
 
     @Test

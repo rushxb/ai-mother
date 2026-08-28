@@ -2,7 +2,12 @@ package com.rush.rushaicodemother.orchestration.plan;
 
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceProfile;
 import com.rush.rushaicodemother.ai.model.GenerationPerformanceSelector;
+import com.rush.rushaicodemother.model.entity.App;
+import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
+import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlPolicy;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlReader;
 import com.rush.rushaicodemother.orchestration.intent.IntentAffectedScope;
 import com.rush.rushaicodemother.orchestration.intent.IntentDestructiveRisk;
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
@@ -118,6 +123,40 @@ class GenerationExecutionPlannerTest {
                 plan.sla().toLimits().limit(GenerationBudgetKind.PROVIDER_FAILOVER_ATTEMPT));
         assertEquals(routeSla.toLimits().limit(GenerationBudgetKind.TOOL_WRITE),
                 plan.sla().toLimits().limit(GenerationBudgetKind.TOOL_WRITE));
+    }
+
+    @Test
+    void economyOnlyApplicationPolicyMustNeverUpgradeAndMustCapQualityTier() {
+        GenerationSlaPolicy slaPolicy = mock(GenerationSlaPolicy.class);
+        GenerationPerformanceSelector performanceSelector = mock(GenerationPerformanceSelector.class);
+        GenerationPipelineRequest legacy = request();
+        GenerationPipelineRequest governed = new GenerationPipelineRequest(
+                new GenerationTaskRequest(
+                        App.builder().id(11L).tenantId(100L).build(),
+                        "修改项目",
+                        User.builder().id(7L).build()),
+                legacy.codeGenType(),
+                legacy.workspace(),
+                legacy.scenarioDecision());
+        when(slaPolicy.resolve(governed.modeDecision(), governed.codeGenType()))
+                .thenReturn(slaEnvelope());
+        when(performanceSelector.select(false, true, governed.codeGenType()))
+                .thenReturn(GenerationPerformanceProfile.qualityFirst());
+        AppGenerationControlReader reader = ignored -> new AppGenerationControlPolicy(
+                11L, 1L, false, false, 1,
+                AppGenerationControlPolicy.ModelPolicy.ECONOMY_ONLY,
+                AppGenerationControlPolicy.DependencyMutationPolicy.ALLOW,
+                AppGenerationControlPolicy.DependencyNetworkPolicy.TRUSTED_REGISTRY_ONLY,
+                AppGenerationControlPolicy.DangerousToolPolicy.REQUIRE_APPROVAL,
+                null, 7L, java.time.Instant.parse("2026-08-28T08:00:00Z"));
+        GenerationExecutionPlanner planner = new GenerationExecutionPlanner(
+                slaPolicy, performanceSelector, contextProperties(), reader);
+
+        GenerationExecutionPlan plan = planner.plan(governed);
+
+        assertEquals(GenerationPerformanceProfile.ModelTier.BALANCED,
+                plan.modelProfile().modelTier());
+        assertFalse(plan.modelProfile().thinkingEnabled());
     }
 
     private GenerationPipelineRequest request() {

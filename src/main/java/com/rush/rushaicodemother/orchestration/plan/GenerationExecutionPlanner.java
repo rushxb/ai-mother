@@ -9,12 +9,16 @@ import com.rush.rushaicodemother.orchestration.decision.GenerationScenarioDecisi
 import com.rush.rushaicodemother.orchestration.intent.IntentOperationType;
 import com.rush.rushaicodemother.orchestration.intent.IntentProfile;
 import com.rush.rushaicodemother.orchestration.intent.IntentSemanticComplexity;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlPolicy;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlReader;
 import com.rush.rushaicodemother.orchestration.pipeline.GenerationPipelineRequest;
 import com.rush.rushaicodemother.orchestration.router.GenerationModeDecision;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationBudgetKind;
+import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaEnvelope;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationSlaPolicy;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Objects;
 
@@ -29,15 +33,28 @@ public class GenerationExecutionPlanner {
     private final GenerationSlaPolicy generationSlaPolicy;
     private final GenerationPerformanceSelector generationPerformanceSelector;
     private final AiContextPackBudgetProperties contextBudgetProperties;
+    private final AppGenerationControlReader appControlReader;
 
+    @Autowired
     public GenerationExecutionPlanner(GenerationSlaPolicy generationSlaPolicy,
                                       GenerationPerformanceSelector generationPerformanceSelector,
-                                      AiContextPackBudgetProperties contextBudgetProperties) {
+                                      AiContextPackBudgetProperties contextBudgetProperties,
+                                      AppGenerationControlReader appControlReader) {
         this.generationSlaPolicy = Objects.requireNonNull(generationSlaPolicy, "SLA 策略不能为空");
         this.generationPerformanceSelector = Objects.requireNonNull(
                 generationPerformanceSelector, "模型档位选择器不能为空");
         this.contextBudgetProperties = Objects.requireNonNull(
                 contextBudgetProperties, "上下文预算配置不能为空");
+        this.appControlReader = Objects.requireNonNull(
+                appControlReader, "应用生成控制读取器不能为空");
+    }
+
+    /** 兼容不携带应用身份的规划单元测试。 */
+    public GenerationExecutionPlanner(GenerationSlaPolicy generationSlaPolicy,
+                                      GenerationPerformanceSelector generationPerformanceSelector,
+                                      AiContextPackBudgetProperties contextBudgetProperties) {
+        this(generationSlaPolicy, generationPerformanceSelector, contextBudgetProperties,
+                AppGenerationControlReader.defaultsOnly());
     }
 
     /** 根据已完成的意图画像和主路由决策生成不可变执行计划。 */
@@ -68,6 +85,7 @@ public class GenerationExecutionPlanner {
                         intentProfile.semanticComplexity() != IntentSemanticComplexity.LOW,
                         request.codeGenType()),
                 "模型档位选择结果不能为空");
+        modelProfile = applyApplicationModelPolicy(request, modelProfile);
 
         GenerationExecutionPlan.ContextBudget contextBudget = new GenerationExecutionPlan.ContextBudget(
                 contextBudgetProperties.getGenerationMaxTokens(),
@@ -104,6 +122,22 @@ public class GenerationExecutionPlanner {
                         sla.firstPreviewTimeout(), sla.firstPreviewCompletionReserve()),
                 sla
         );
+    }
+
+    private GenerationPerformanceProfile applyApplicationModelPolicy(
+            GenerationPipelineRequest request,
+            GenerationPerformanceProfile selectedProfile) {
+        Long appId = request.taskRequest() == null || request.taskRequest().app() == null
+                ? null
+                : request.taskRequest().app().getId();
+        if (appId == null || appId <= 0) {
+            return selectedProfile;
+        }
+        AppGenerationControlPolicy policy = appControlReader.get(appId);
+        if (policy.emergencyStopped()) {
+            throw new GenerationExecutionPolicyException("应用已紧急停止生成");
+        }
+        return policy.constrainModelProfile(selectedProfile);
     }
 
 }

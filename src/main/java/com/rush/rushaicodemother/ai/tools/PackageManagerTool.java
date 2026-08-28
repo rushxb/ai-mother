@@ -8,6 +8,8 @@ import com.rush.rushaicodemother.ai.tools.policy.DependencyPolicyService;
 import com.rush.rushaicodemother.model.enums.CodeGenTypeEnum;
 import com.rush.rushaicodemother.orchestration.artifact.PatchApplyResult;
 import com.rush.rushaicodemother.orchestration.patch.PatchOperation;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlPolicy;
+import com.rush.rushaicodemother.orchestration.governance.app.AppGenerationControlReader;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionPolicyException;
 import com.rush.rushaicodemother.orchestration.tool.ToolExecutionGateway;
 import com.rush.rushaicodemother.orchestration.tool.ToolPublicFailureException;
@@ -18,6 +20,7 @@ import dev.langchain4j.agent.tool.ToolMemoryId;
 import dev.langchain4j.data.message.TextContent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 import java.util.Set;
@@ -37,15 +40,29 @@ public class PackageManagerTool extends BaseTool {
     private final DependencyPolicyService dependencyPolicyService;
     private final ToolExecutionGateway toolExecutionGateway;
     private final ToolWorkspaceFileService workspaceFileService;
+    private final AppGenerationControlReader appControlReader;
 
+    @Autowired
+    public PackageManagerTool(
+            DependencyPolicyService dependencyPolicyService,
+            ToolExecutionGateway toolExecutionGateway,
+            ToolWorkspaceFileService workspaceFileService,
+            AppGenerationControlReader appControlReader
+    ) {
+        this.dependencyPolicyService = dependencyPolicyService;
+        this.toolExecutionGateway = toolExecutionGateway;
+        this.workspaceFileService = workspaceFileService;
+        this.appControlReader = appControlReader;
+    }
+
+    /** 兼容不接入应用控制的工具单元测试。 */
     public PackageManagerTool(
             DependencyPolicyService dependencyPolicyService,
             ToolExecutionGateway toolExecutionGateway,
             ToolWorkspaceFileService workspaceFileService
     ) {
-        this.dependencyPolicyService = dependencyPolicyService;
-        this.toolExecutionGateway = toolExecutionGateway;
-        this.workspaceFileService = workspaceFileService;
+        this(dependencyPolicyService, toolExecutionGateway, workspaceFileService,
+                AppGenerationControlReader.defaultsOnly());
     }
 
     /**
@@ -93,6 +110,7 @@ public class PackageManagerTool extends BaseTool {
             }
             JSONObject packageJson = JSONUtil.parseObj(workspaceFileService.readUtf8(packageJsonFile));
             String normalizedAction = StrUtil.blankToDefault(action, "getPackageJson");
+            assertApplicationAllowsMutation(appId, normalizedAction);
             PackageOperationResult operationResult = switch (normalizedAction) {
                 case "getPackageJson" -> PackageOperationResult.queryResult(
                         JSONUtil.toJsonPrettyStr(packageJson));
@@ -124,6 +142,21 @@ public class PackageManagerTool extends BaseTool {
         } catch (Exception e) {
             log.error("管理 package.json 失败，action: {}", action, LogExceptionSanitizer.sanitize(e));
             throw toolFailure("管理 package.json 失败，请稍后重试");
+        }
+    }
+
+    private void assertApplicationAllowsMutation(Long appId, String action) {
+        if (!Set.of("addDependency", "updateDependency", "removeDependency",
+                "setScript", "removeScript").contains(action)) {
+            return;
+        }
+        AppGenerationControlPolicy policy = appControlReader.get(appId);
+        if (policy.emergencyStopped()) {
+            throw new GenerationExecutionPolicyException("应用已紧急停止生成");
+        }
+        if (policy.dependencyMutationPolicy()
+                == AppGenerationControlPolicy.DependencyMutationPolicy.DENY) {
+            throw toolFailure("错误：应用策略禁止修改依赖或脚本");
         }
     }
 

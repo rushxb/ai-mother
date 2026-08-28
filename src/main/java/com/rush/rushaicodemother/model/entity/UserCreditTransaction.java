@@ -37,6 +37,10 @@ public class UserCreditTransaction implements Serializable {
     @Column("tenantId")
     private Long tenantId;
 
+    /** 生成任务所属应用；非生成与无法归属的历史流水为空。 */
+    @Column("appId")
+    private Long appId;
+
     /** 额度变更量。 */
     @Column("changeAmount")
     private Long changeAmount;

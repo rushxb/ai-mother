@@ -100,6 +100,7 @@ public class GenerationTaskAdmissionService {
                 command.taskId(),
                 command.userId(),
                 command.tenantId(),
+                command.appId(),
                 quote.reservedCredit(),
                 quote.pricingReference()
         ));
@@ -174,6 +175,7 @@ public class GenerationTaskAdmissionService {
                 taskId,
                 request.loginUser().getId(),
                 request.app().getTenantId(),
+                request.app().getId(),
                 upperBoundQuote.reservedCredit(),
                 upperBoundQuote.pricingReference()
         ));

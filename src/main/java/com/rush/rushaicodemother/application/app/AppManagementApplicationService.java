@@ -8,6 +8,7 @@ import com.rush.rushaicodemother.model.dto.app.AppAdminUpdateRequest;
 import com.rush.rushaicodemother.model.dto.app.AppUpdateRequest;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
 import com.rush.rushaicodemother.service.app.AppPersistenceService;
 import com.rush.rushaicodemother.service.lifecycle.AppDeletionService;
 import com.rush.rushaicodemother.service.provisioning.AppProvisioningService;
@@ -65,7 +66,9 @@ public class AppManagementApplicationService {
     @CacheEvict(value = "good_app_page", allEntries = true)
     public void delete(Long appId, User actor) {
         App existingApp = requireExistingApp(appId);
-        appAccessPolicy.requireOwnerOrAdmin(existingApp, actor, "无权限删除该应用");
+        appAccessPolicy.requireControlPermission(
+                existingApp, actor, GenerationControlPermission.APP_DELETE,
+                "无权限删除该应用");
         appDeletionService.delete(existingApp.getId());
     }
 

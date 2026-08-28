@@ -10,6 +10,8 @@ import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
+import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -26,25 +28,30 @@ public class ToolApprovalService {
     private final DurableGenerationTaskRepository taskRepository;
     private final AiToolApprovalProperties properties;
     private final GenerationSessionRegistry sessionRegistry;
+    private final TenantAuthorizationService tenantAuthorizationService;
     private final Clock clock;
 
     @Autowired
     public ToolApprovalService(ToolApprovalRepository approvalRepository,
                                DurableGenerationTaskRepository taskRepository,
                                AiToolApprovalProperties properties,
-                               GenerationSessionRegistry sessionRegistry) {
-        this(approvalRepository, taskRepository, properties, sessionRegistry, Clock.systemUTC());
+                               GenerationSessionRegistry sessionRegistry,
+                               TenantAuthorizationService tenantAuthorizationService) {
+        this(approvalRepository, taskRepository, properties, sessionRegistry,
+                tenantAuthorizationService, Clock.systemUTC());
     }
 
     ToolApprovalService(ToolApprovalRepository approvalRepository,
                         DurableGenerationTaskRepository taskRepository,
                         AiToolApprovalProperties properties,
                         GenerationSessionRegistry sessionRegistry,
+                        TenantAuthorizationService tenantAuthorizationService,
                         Clock clock) {
         this.approvalRepository = approvalRepository;
         this.taskRepository = taskRepository;
         this.properties = properties;
         this.sessionRegistry = sessionRegistry;
+        this.tenantAuthorizationService = tenantAuthorizationService;
         this.clock = clock;
     }
 
@@ -338,6 +345,10 @@ public class ToolApprovalService {
         if (!actorId.equals(task.userId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权决策该生成任务的工具审批");
         }
+        tenantAuthorizationService.requireRole(
+                task.tenantId(), actorId,
+                GenerationControlPermission.TOOL_APPROVAL.minimumTenantRole(),
+                "无权决策该生成任务的工具审批");
         if ((task.status() != GenerationTaskStatus.RUNNING
                 && task.status() != GenerationTaskStatus.WAITING_APPROVAL)
                 || !canAct(task, now)) {

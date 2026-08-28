@@ -9,6 +9,8 @@ import com.rush.rushaicodemother.model.vo.GenerationBenchmarkEvidenceVO;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceManagementService;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceRecord;
 import com.rush.rushaicodemother.orchestration.benchmark.evidence.GenerationBenchmarkEvidenceSubmission;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlAccess;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +41,7 @@ public class GenerationBenchmarkEvidenceController {
  */
     @PostMapping
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GenerationControlAccess(GenerationControlPermission.BENCHMARK_MANAGE)
     public BaseResponse<GenerationBenchmarkEvidenceVO> ingest(
             @Valid @RequestBody GenerationBenchmarkEvidenceSubmitRequest request) {
         GenerationBenchmarkEvidenceRecord evidence = managementService.ingest(
@@ -70,6 +73,7 @@ public class GenerationBenchmarkEvidenceController {
  */
     @GetMapping("/{evidenceId}")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GenerationControlAccess(GenerationControlPermission.BENCHMARK_MANAGE)
     public BaseResponse<GenerationBenchmarkEvidenceVO> get(
             @PathVariable
             @Pattern(regexp = "[0-9a-fA-F-]{36}") String evidenceId) {

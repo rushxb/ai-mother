@@ -24,6 +24,7 @@ import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.GenerationTaskResult;
 import com.rush.rushaicodemother.orchestration.event.GenerationEventPublisher;
 import com.rush.rushaicodemother.orchestration.experience.GenerationExperienceEventMapper;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskQueryService;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotency;
 import com.rush.rushaicodemother.orchestration.runtime.task.GenerationTaskIdempotencyService;
@@ -106,7 +107,9 @@ public class AppServiceImpl implements AppService {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
         App app = appPersistenceService.findActiveById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
-        appAccessPolicy.requireOwner(app, loginUser, "无权限访问该应用");
+        appAccessPolicy.requireControlPermission(
+                app, loginUser, GenerationControlPermission.TASK_SUBMIT,
+                "无权限提交该应用的生成任务");
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
@@ -123,7 +126,9 @@ public class AppServiceImpl implements AppService {
  */
     @Override
     public Flux<GenerationStreamEvent> getGenerationStream(Long appId, User loginUser) {
-        App app = getOwnedApp(appId, loginUser);
+        App app = getControlApp(
+                appId, loginUser, GenerationControlPermission.TASK_QUERY,
+                "无权限查看该应用的生成任务");
         Flux<GenerationStreamEvent> recentStructuredEvents = Flux.fromIterable(generationEventPublisher.recent(app.getId()))
                 .handle((event, sink) -> generationExperienceEventMapper.map(event).ifPresent(sink::next));
         return recentStructuredEvents.concatWith(
@@ -139,7 +144,9 @@ public class AppServiceImpl implements AppService {
  */
     @Override
     public void stopGeneration(Long appId, User loginUser) {
-        App app = getOwnedApp(appId, loginUser);
+        App app = getControlApp(
+                appId, loginUser, GenerationControlPermission.TASK_CANCEL,
+                "无权限取消该应用的生成任务");
         generationTaskOrchestrator.stop(app.getId(), loginUser);
     }
 
@@ -257,6 +264,17 @@ public class AppServiceImpl implements AppService {
         App app = appPersistenceService.findActiveById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         appAccessPolicy.requireOwner(app, loginUser, "无权限访问该应用代码");
+        return app;
+    }
+
+    private App getControlApp(Long appId,
+                              User actor,
+                              GenerationControlPermission permission,
+                              String deniedMessage) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 错误");
+        App app = appPersistenceService.findActiveById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        appAccessPolicy.requireControlPermission(app, actor, permission, deniedMessage);
         return app;
     }
 

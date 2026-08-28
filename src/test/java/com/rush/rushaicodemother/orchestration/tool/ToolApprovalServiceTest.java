@@ -1,10 +1,14 @@
 package com.rush.rushaicodemother.orchestration.tool;
 
 import com.rush.rushaicodemother.config.AiToolApprovalProperties;
+import com.rush.rushaicodemother.exception.BusinessException;
+import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
+import com.rush.rushaicodemother.model.enums.TenantRole;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
+import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -18,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -220,14 +226,38 @@ class ToolApprovalServiceTest {
         assertTrue(result.invocationCheckpoint() == checkpoint);
     }
 
+    @Test
+    void taskSubmitterWithoutCurrentDeveloperRoleMustNotApproveDestructiveTool() {
+        ToolApprovalRepository approvals = mock(ToolApprovalRepository.class);
+        TenantAuthorizationService authorizationService = mock(TenantAuthorizationService.class);
+        doThrow(new BusinessException(ErrorCode.NO_AUTH_ERROR, "审批人权限已失效"))
+                .when(authorizationService)
+                .requireRole(100L, 7L, TenantRole.DEVELOPER, "无权决策该生成任务的工具审批");
+        ToolApprovalService service = service(
+                approvals, taskRepository(), new AiToolApprovalProperties(), authorizationService);
+
+        assertThrows(BusinessException.class, () -> service.approve(
+                "task-1", DestructiveToolAction.SNAPSHOT_ROLLBACK, "8".repeat(64), 7L));
+
+        verify(approvals, never()).approve(any(), any(Long.class), any(), any(), any(), any());
+    }
+
     private ToolApprovalService service(ToolApprovalRepository approvals,
                                         DurableGenerationTaskRepository tasks,
                                         AiToolApprovalProperties properties) {
+        return service(approvals, tasks, properties, mock(TenantAuthorizationService.class));
+    }
+
+    private ToolApprovalService service(ToolApprovalRepository approvals,
+                                        DurableGenerationTaskRepository tasks,
+                                        AiToolApprovalProperties properties,
+                                        TenantAuthorizationService authorizationService) {
         return new ToolApprovalService(
                 approvals,
                 tasks,
                 properties,
                 mock(GenerationSessionRegistry.class),
+                authorizationService,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }

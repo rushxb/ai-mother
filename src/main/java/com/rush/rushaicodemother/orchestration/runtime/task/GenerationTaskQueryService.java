@@ -7,12 +7,12 @@ import com.rush.rushaicodemother.infrastructure.diagnostic.LogExceptionSanitizer
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
-import com.rush.rushaicodemother.model.enums.TenantRole;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.GenerationSessionRegistry;
 import com.rush.rushaicodemother.orchestration.GenerationTaskRequest;
 import com.rush.rushaicodemother.orchestration.eventstream.GenerationEventStream;
 import com.rush.rushaicodemother.orchestration.eventstream.SequencedGenerationEvent;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContext;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionSnapshot;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
@@ -401,7 +401,7 @@ public class GenerationTaskQueryService {
         tenantAuthorizationService.requireRole(
                 tenantId,
                 actor.getId(),
-                TenantRole.VIEWER,
+                GenerationControlPermission.TASK_QUERY.minimumTenantRole(),
                 "No permission to access this generation task"
         );
     }

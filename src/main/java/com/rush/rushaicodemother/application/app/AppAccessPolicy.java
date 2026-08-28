@@ -6,6 +6,7 @@ import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.App;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.TenantRole;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
 import com.rush.rushaicodemother.service.tenant.TenantAuthorizationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -59,6 +60,33 @@ public class AppAccessPolicy {
         if (!UserConstant.ADMIN_ROLE.equals(actor.getUserRole())) {
             tenantAuthorizationService.requireRole(
                     app.getTenantId(), actor.getId(), TenantRole.VIEWER, deniedMessage);
+        }
+        return app;
+    }
+
+    /** 以应用的租户归属按生成控制面矩阵校验权限。 */
+    public App requireControlPermission(App app,
+                                        User actor,
+                                        GenerationControlPermission permission,
+                                        String deniedMessage) {
+        requireAuthenticated(actor);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        if (permission == null
+                || (permission.resourceScope() != GenerationControlPermission.ResourceScope.APP
+                && permission.resourceScope() != GenerationControlPermission.ResourceScope.TASK)
+                || permission.minimumTenantRole() == null) {
+            throw new IllegalArgumentException("应用控制权限定义不合法");
+        }
+        if (permission.actorRule()
+                == GenerationControlPermission.ActorRule.TASK_SUBMITTER_WITH_TENANT_ROLE) {
+            throw new IllegalArgumentException("任务提交人约束必须使用任务事实校验");
+        }
+        boolean platformAdministrator = UserConstant.ADMIN_ROLE.equals(actor.getUserRole());
+        if (!platformAdministrator || !permission.allowsPlatformAdministratorBypass()) {
+            tenantAuthorizationService.requireRole(
+                    app.getTenantId(), actor.getId(), permission.minimumTenantRole(), deniedMessage);
         }
         return app;
     }

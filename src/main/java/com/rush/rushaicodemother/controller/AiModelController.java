@@ -18,6 +18,8 @@ import com.rush.rushaicodemother.model.vo.AiModelAdminVO;
 import com.rush.rushaicodemother.model.vo.AiModelConnectionTestResultVO;
 import com.rush.rushaicodemother.model.vo.AiModelPublicVO;
 import com.rush.rushaicodemother.model.vo.SupportedAiModelVO;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlAccess;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
 import com.rush.rushaicodemother.service.UserService;
 import com.rush.rushaicodemother.service.aimodel.AiModelManagementService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -52,6 +54,7 @@ public class AiModelController {
     /** 添加模型（仅管理员）。 */
     @PostMapping("/add")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GenerationControlAccess(GenerationControlPermission.MODEL_CONFIGURE)
     public BaseResponse<Long> addModel(@Valid @RequestBody AiModelAddRequest addRequest,
                                        HttpServletRequest request) {
         User loginUser = userService.getLoginUser(request);
@@ -62,6 +65,7 @@ public class AiModelController {
     /** 更新模型（仅管理员）。API Key 为空时由服务层保留原密钥。 */
     @PostMapping("/update")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GenerationControlAccess(GenerationControlPermission.MODEL_CONFIGURE)
     public BaseResponse<Boolean> updateModel(@Valid @RequestBody AiModelUpdateRequest updateRequest) {
         aiModelManagementService.updateModel(toUpdateCommand(updateRequest));
         return ResultUtils.success(true);
@@ -70,6 +74,7 @@ public class AiModelController {
     /** 删除模型（仅管理员）。 */
     @PostMapping("/delete")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GenerationControlAccess(GenerationControlPermission.MODEL_CONFIGURE)
     public BaseResponse<Boolean> deleteModel(@Valid @RequestBody DeleteRequest deleteRequest) {
         aiModelManagementService.deleteModel(deleteRequest.getId());
         return ResultUtils.success(true);
@@ -78,6 +83,7 @@ public class AiModelController {
     /** 根据 ID 获取管理端模型视图。 */
     @GetMapping("/get")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GenerationControlAccess(GenerationControlPermission.MODEL_CONFIGURE)
     public BaseResponse<AiModelAdminVO> getModelById(@RequestParam @Positive long id) {
         return ResultUtils.success(aiModelManagementService.getModelById(id));
     }
@@ -98,6 +104,7 @@ public class AiModelController {
     /** 获取支持的模型目录（仅管理员）。 */
     @GetMapping("/catalog")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GenerationControlAccess(GenerationControlPermission.MODEL_CONFIGURE)
     public BaseResponse<List<SupportedAiModelVO>> listSupportedModels() {
         return ResultUtils.success(aiModelManagementService.listSupportedModels());
     }
@@ -105,6 +112,7 @@ public class AiModelController {
     /** 分页获取模型管理视图（仅管理员）。 */
     @PostMapping("/list/page")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GenerationControlAccess(GenerationControlPermission.MODEL_CONFIGURE)
     public BaseResponse<Page<AiModelAdminVO>> listModelsByPage(
             @Valid @RequestBody AiModelQueryRequest queryRequest) {
         return ResultUtils.success(aiModelManagementService.pageModels(toQuery(queryRequest)));
@@ -113,6 +121,7 @@ public class AiModelController {
     /** 切换模型启用状态（仅管理员）。 */
     @PostMapping("/toggle")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GenerationControlAccess(GenerationControlPermission.MODEL_CONFIGURE)
     public BaseResponse<AiModelAdminVO> toggleModelEnabled(
             @Valid @RequestBody AiModelToggleRequest toggleRequest,
             HttpServletRequest request) {
@@ -124,6 +133,7 @@ public class AiModelController {
     /** 测试已保存模型的连接（仅管理员）。 */
     @PostMapping("/test")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GenerationControlAccess(GenerationControlPermission.MODEL_CONFIGURE)
     public BaseResponse<Boolean> testModelConnection(
             @Valid @RequestBody AiModelConnectionTestRequest testRequest,
             HttpServletRequest request) {
@@ -140,6 +150,7 @@ public class AiModelController {
     /** 使用当前表单配置测试模型连接（仅管理员）。 */
     @PostMapping("/test/config")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @GenerationControlAccess(GenerationControlPermission.MODEL_CONFIGURE)
     public BaseResponse<AiModelConnectionTestResultVO> testModelConnectionByConfig(
             @Valid @RequestBody AiModelAddRequest testRequest,
             HttpServletRequest request) {

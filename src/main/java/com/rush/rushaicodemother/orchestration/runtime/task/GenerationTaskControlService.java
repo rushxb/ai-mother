@@ -4,9 +4,9 @@ import com.rush.rushaicodemother.exception.BusinessException;
 import com.rush.rushaicodemother.exception.ErrorCode;
 import com.rush.rushaicodemother.model.entity.User;
 import com.rush.rushaicodemother.model.enums.GenerationTaskStatus;
-import com.rush.rushaicodemother.model.enums.TenantRole;
 import com.rush.rushaicodemother.orchestration.GenerationSession;
 import com.rush.rushaicodemother.orchestration.finalization.GenerationTaskFinalizer;
+import com.rush.rushaicodemother.orchestration.governance.access.GenerationControlPermission;
 import com.rush.rushaicodemother.orchestration.runtime.execution.GenerationExecutionContextService;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRecord;
 import com.rush.rushaicodemother.orchestration.runtime.task.persistence.DurableGenerationTaskRepository;
@@ -104,7 +104,8 @@ public class GenerationTaskControlService {
 
     private void requireDeveloper(DurableGenerationTaskRecord task, User actor) {
         tenantAuthorizationService.requireRole(
-                task.tenantId(), actor.getId(), TenantRole.DEVELOPER,
+                task.tenantId(), actor.getId(),
+                GenerationControlPermission.TASK_CANCEL.minimumTenantRole(),
                 "No permission to control this generation task");
     }
 

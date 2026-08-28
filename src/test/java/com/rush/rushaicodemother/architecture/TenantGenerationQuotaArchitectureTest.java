@@ -64,6 +64,15 @@ class TenantGenerationQuotaArchitectureTest {
         assertTrue(mapper.contains("ORDER BY tenantRank ASC"));
     }
 
+    @Test
+    void tenantAdmissionMetricsMustNotExposeHighCardinalityTenantIdentity() throws Exception {
+        String metrics = readJava("monitor/GenerationTenantAdmissionMetricsCollector.java");
+
+        assertTrue(metrics.contains(".tag(\"outcome\""));
+        assertFalse(metrics.contains(".tag(\"tenantId\""));
+        assertFalse(metrics.contains(".tag(\"tenant_id\""));
+    }
+
     private String readJava(String relativePath) throws Exception {
         return read(JAVA_ROOT.resolve(relativePath).toString());
     }

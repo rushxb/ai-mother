@@ -338,6 +338,19 @@ class FlywaySchemaMigrationIntegrationTest {
                     FROM flyway_schema_history
                     WHERE version = '20260813.2' AND success = 1
                     """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(*)
+                    FROM information_schema.columns
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'generation_task'
+                      AND column_name = 'routeDecisionVersion'
+                      AND character_maximum_length = 64
+                    """));
+            assertEquals(1, scalar(connection, """
+                    SELECT COUNT(*)
+                    FROM flyway_schema_history
+                    WHERE version = '20260828.3' AND success = 1
+                    """));
         }
     }
 

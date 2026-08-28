@@ -152,7 +152,7 @@
 
 ## 6. 当前完成面与审计结论
 
-从 `53d0657` 到代码基线 `2163c88` 共有 161 个提交。它们证明项目已从“单条生成流程”发展成有场景、能力、工作区安全、持久任务、验证、发布和评测边界的系统；但提交数量不等于链路已经验收完成。
+从 `53d0657` 到代码基线 `bbe483d` 共有 163 个提交。它们证明项目已从“单条生成流程”发展成有场景、能力、工作区安全、持久任务、验证、发布和评测边界的系统；但提交数量不等于链路已经验收完成。
 
 | 领域 | 当前状态 | 已有基础 | 仍未闭环的核心问题 |
 |---|---|---|---|
@@ -165,7 +165,7 @@
 | 验证/完成/发布/终态 | ✅ E1-E2 / 🟡 E3-E5 | 强类型制品、完成门禁、Lease/Fence、Publication Journal、Reconciler、Terminal Effect Receipt；E2 故障矩阵已统一 | 缺真实 kill/DB/Redis/磁盘/移动窗口 E3 证据；刷新后终态仍过度泛化 |
 | 快照/回滚 | ✅ P0 代码闭环 / 🟡 跨平台补证 | UUID 自包含 bundle、Manifest/provenance/tree hash、v2 制品、统一消费者与恢复前 fail-closed；Manifest/树篡改已纳入 E2 矩阵 | 当前 Windows 有 3 项 symlink 测试因权限跳过，仍需支持环境的跨平台补证 |
 | 成本/容量 | ✅ E1-E2 / 🟡 E3-E5 | 预授权、Provider 调用账本、用户计费、成功交付成本、租户并发/月预算 | 用户看不到预计上限、实际扣费和退还；缺跨实例公平压测和租户管理员视图 |
-| Benchmark/学习 | 🚧 E2 / 🟡 E3-E5 | v3.5 Dataset 共 59 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件、部分读取、Vue→Full Stack 升级与 Fallback 已有确定性评分；取消和审批故障已有绑定持久身份与可执行测试的 E2 样本；真实 Selenium 探针已有独立 E3 smoke | 尚缺恢复和发布故障样本，以及真实模型、端到端浏览器、Backend/Full Stack 基线与线上关联 |
+| Benchmark/学习 | 🚧 E2 / 🟡 E3-E5 | v3.5 Dataset 共 59 条；15 个已声明的 route × 工程类型单元均不少于 3 条 Fixture，提示注入、秘密文件、部分读取、Vue→Full Stack 升级与 Fallback 已有确定性评分；取消、审批和恢复故障已有绑定持久身份与可执行测试的 E2 样本；真实 Selenium 探针已有独立 E3 smoke | 尚缺发布故障样本，以及真实模型、端到端浏览器、Backend/Full Stack 基线与线上关联 |
 | 预览/进度 | ✅ 工程 / 🟡 E4-E5 | 任务级暂定预览、已验证预览、ETA、可重放 SSE 与 durable terminal | 待真实浏览器、多任务隔离、断线重连和资源回收验收；旧“约 5 秒即关闭”结论已失效 |
 | 安全/应用治理 | ✅ 基础 / 🟡 E3-E5 | 匿名限流、登录轮换 session、SQL 门禁、应用删除门禁、CSP、预览 WebSocket 边界 | 需端到端 RBAC/所有权矩阵、威胁模型、审计事件、租户/应用控制面和真实攻防验收 |
 
@@ -393,7 +393,8 @@
 - [x] ✅ Fallback 样本声明 `REQUIRED / FORBIDDEN / OPTIONAL` 三态期望，并由持久任务命令恢复目标类型与回退原因后判定报告。
 - [x] ✅ 取消故障样本已绑定 `taskId + executionEpoch`、取消原因和实际 JUnit 测试方法，覆盖排队激活隔离与心跳取消传播。
 - [x] ✅ 审批故障样本已绑定 `taskId + executionEpoch` 和实际 JUnit 测试方法，覆盖审批重排队的旧 fence 隔离与 continuation 投递失败后的等待态恢复。
-- [ ] 补齐恢复和发布故障样本；每类样本必须绑定可持久恢复的执行身份和可判定断言。
+- [x] ✅ 恢复故障样本已绑定 `taskId + executionEpoch` 和实际 JUnit 测试方法，覆盖跨 epoch 检查点隔离与已消费工具 receipt 的幂等恢复。
+- [ ] 补齐发布故障样本；样本必须绑定可持久恢复的执行身份和可判定断言。
 - [ ] 运行真实模型、真实浏览器、Backend/Full Stack，并保留候选、数据、环境和报告身份；Mock 结果不进入晋级。
 - [ ] 运行规划层三组同源消融，在质量不降的前提下比较准备耗时、总耗时、Token、工具轮次和成功成本；报告前暂停删除/增加节点。
 - [ ] 建立离线与在线关联：Benchmark 维度必须能解释生产失败、返工和低评分，否则删除无价值指标。
@@ -523,6 +524,9 @@
 - 2026-08-28 提交 `2163c88`：新增两条审批故障样本；审批重排队样本要求 epoch 提升且旧 fence 被拒绝，continuation 投递拒绝样本要求按 `taskId + executionEpoch + approvalId` 恢复等待态。
 - 使用 JDK 21 执行统一故障矩阵：17 reports、110 tests、0 failure、0 error、0 skipped；在干净的 detached `2163c88` 工作树执行默认 `.\mvnw.cmd test`：778 reports、3446 tests、0 failure、0 error、42 skipped。
 - 上述审批结果仅闭合 E2 故障样本与可执行行为绑定；审批记录自身绑定 task/epoch/tool/arguments digest、跨实例恢复和幂等决策仍属于未完成的生产合同，不能据此宣称审批链路已完成 E3 验收。
+- 2026-08-28 提交 `bbe483d`：新增两条恢复故障样本；跨 epoch DAG 检查点样本禁止重排队和分发并请求安全终态化，已消费工具样本保留 replay receipt、跳过工具重置并恢复任务等待态。
+- 使用 JDK 21 执行统一故障矩阵：18 reports、121 tests、0 failure、0 error、0 skipped；在干净的 detached `bbe483d` 工作树执行默认 `.\mvnw.cmd test`：778 reports、3446 tests、0 failure、0 error、42 skipped。
+- 上述恢复结果仅证明 E2 内存替身下的确定性恢复策略；真实 Worker kill、数据库与 Redis 中断、跨实例调度和不可逆工具副作用仍需 E3 故障注入验收。
 
 ### 11.3 P0-5 真实环境局部证据
 
@@ -610,4 +614,4 @@
 
 ---
 
-最后更新：2026-08-28。下一轮继续 P0-5，补齐恢复和发布故障样本，并执行真实 Redis、模型、Backend、Full Stack 和跨平台 E3-E5 验收。
+最后更新：2026-08-28。下一轮继续 P0-5，补齐发布故障样本，并执行真实 Redis、模型、Backend、Full Stack 和跨平台 E3-E5 验收。
